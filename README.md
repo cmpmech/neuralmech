@@ -5,8 +5,7 @@
 - with simplistic but extendable implementations
 - reproducible results
 - associated to the "3rd" edition of [**deep learning in computational mechancs**](https://link.springer.com/book/10.1007/978-3-031-89529-6)
-
-- <img src=".assets/images/book.png" alt="deep learning in computational mechanics book" width="100">
+<img src=".assets/images/book.png" alt="deep learning in computational mechanics book" width="100">
 
 As project is ongoing, feedback is highly welcome. Finished chapters are available on request. 
 Chapters available on request[^1] are
