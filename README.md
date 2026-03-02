@@ -11,7 +11,7 @@ Chapters available on request[^1] are
 - **fundamental machine learning** (chapter 2)
 - **artificial neural networks** (chapter 3)
 
-![neural network expressivity](.assets/images/expressivity.jpg)
+<img src=".assets/images/expressivity.jpg" alt="neural network expressivity" width="400">
 - **neural network architectures** (chapter 4)
 - **probabilistic machine learning** (chapter 5)
 - **generative artificial intelligence** (chapter 15)
