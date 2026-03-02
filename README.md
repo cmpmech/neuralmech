@@ -24,6 +24,9 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 - **Generative Artificial Intelligence** (chapter 15)
 - **Large Language Models** (chapter 17)
 - **Simulation Acceleration via GPUs** (chapter 18)
+
+<img src=".assets/images/strains.jpg" alt="matrix-free finite element method on GPU" width="300">
+
 </details>
 
 <details>
@@ -40,6 +43,7 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 - **Physics-Informed Neural Networks** (chapter 13)
 - **Material Modeling with Neural Networks** (chapter 14)
 - **Neural Optimization** (chapter 16)
+<img src=".assets/images/fwi.jpg" alt="full waveform inversion" width="300">
 - **Deep Reinforcement Learning** (chapter 19)
 - **Deep Learning's Future in Computational Mechanics** (chapter 20)
 </details>
