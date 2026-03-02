@@ -36,13 +36,15 @@ Chapters in progress are
 - **deep reinforcement learning** (chapter 19)
 - **the future of deep learning in computational mechanics** (chapter 20)
 
-## submodules
+## requirements
+
+### submodules
 [mlhp](https://gitlab.com/hpfem/code/mlhp) is included as git submodule. To clone recursively use
 ```
 git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
 ```
-### installation of mlhp
-- TODO change branch in mlhp
+#### installation of mlhp
+- for now, use `pip install mlhp` (for more advanced physics C++ compilation will be needed)
 
 ## main structure
 - `data/` - generated data (small, but gitignored if large)
