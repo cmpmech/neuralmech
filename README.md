@@ -71,7 +71,7 @@ git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
 | `external_data/` | data generation tools with data in `data` (large, excluded from main repo) |
 | `models/` | trained networks                                                           |
 | `results/` | results for post-processing                                                |
-| `projects/` | main drivers; see [projects](.assets/projects.md)                          |
+| `projects/` | main drivers; see [projects](projects/README.md)                          |
 | `templates/` | elements with repeated use (e.g., `training_loop.py`)                      |
 | `DL.py` | deep learning utilities                                                    |
 | `NN.py` | network architectures                                                      |
