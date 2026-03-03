@@ -51,6 +51,10 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 </details>
 
 ## Requirements
+- install via requirements
+```
+pip install -r requirements.txt
+```
 
 ### Submodules
 [mlhp](https://gitlab.com/hpfem/code/mlhp) is included as git submodule. To clone recursively use
