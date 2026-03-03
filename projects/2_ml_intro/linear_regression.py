@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from ML import LinearRegression
 
 np.random.seed(1)
 
@@ -10,35 +11,6 @@ y_train = 2 * x_train + 3 + np.random.randn(16)
 
 x_val = np.random.randn(4)
 y_val = 2 * x_val + 3 + np.random.randn(4)
-
-# ----------------------- linear regression class ------------------------
-class LinearRegression:
-    def __init__(self):
-        self.weight = 0
-        self.bias = 0
-
-    def forward(self, x):
-        return self.weight * x + self.bias
-
-    def cost_fun(self, x, y):
-        y_pred = self.forward(x)
-        return np.mean((y - y_pred)**2)
-
-    def cost_fun_grad(self, x, y):
-        y_pred = self.forward(x)
-        res = y_pred - y
-        return 2 * np.mean(x * res), 2 * np.mean(res)
-
-    def train(self, epochs, lr, x_train, y_train, x_val, y_val):
-        train_cost = [0] * epochs
-        val_cost = [0] * epochs
-        for epoch in range(epochs):
-            train_cost[epoch] = self.cost_fun(x_train, y_train)
-            val_cost[epoch] = self.cost_fun(x_val, y_val)
-            grad = self.cost_fun_grad(x_train, y_train)
-            self.weight -= lr * grad[0]
-            self.bias -= lr * grad[1]
-        return train_cost, val_cost
 
 # ----------------------------- optimization -----------------------------
 model = LinearRegression()
