@@ -7,6 +7,11 @@ from sklearn.pipeline import Pipeline
 
 np.random.seed(1)
 
+# select case
+case = 0
+# case = 1
+# case = 2
+
 # --------------------------- data generation ----------------------------
 x_train = np.random.randn(16)
 y_train = 2 * x_train + 3 + np.random.randn(16)
@@ -18,21 +23,20 @@ x_val = np.random.randn(4)
 y_val = 2 * x_val + 3 + np.random.randn(4)
 
 # -------------------------- linear regression ---------------------------
-pipeline = Pipeline([
-    ('poly', PolynomialFeatures(degree=1, include_bias=False)),
-    ('model', LinearRegression()) # L2
-    # ('model', QuantileRegressor(quantile=0.5, alpha=0)) # L1
-    # ('model', HuberRegressor()) # huber
-])
+if case == 0: # MSE
+    model = LinearRegression()
+elif case == 1: # MAE
+    model = QuantileRegressor(quantile=0.5, alpha=0)
+elif case == 2: # Huber
+    model = HuberRegressor()
+model.fit(x_train.reshape(-1, 1), y_train)
 
-pipeline.fit(x_train.reshape(-1, 1), y_train)
-model = pipeline.named_steps['model']
-print(f"Coefficients: {model.coef_}")
+print(f"Coefficients: {model.coef_[0]}")
 print(f"Intercept: {model.intercept_}")
 
 # ---------------------------- postprocessing ----------------------------
 x_test = np.linspace(-3,3,2)
-y_test_pred = pipeline.predict(x_test.reshape(-1, 1))
+y_test_pred = model.predict(x_test.reshape(-1, 1))
 fig, ax = plt.subplots()
 ax.plot(x_test, y_test_pred, 'k')
 ax.plot(x_train, y_train, 'ko')
