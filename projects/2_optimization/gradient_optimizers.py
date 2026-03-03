@@ -1,33 +1,33 @@
 import torch
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
-import numpy as np
 
 # -------------------------- objective function --------------------------
 a, b = 1, 100
 f = lambda x : (a - x[0])**2 + b * (x[1] - x[0]**2)**2
 xrange, yrange = [-2, 4], [-1, 5]
 guess = [3., 3.]
+
 # ------------------------------ optimizer -------------------------------
 epochs = 2000
+
 def optimize(x, optimizer, use_closure=False):
     trajectory = [x.data.clone().detach()]
     for epoch in range(epochs):
-        if use_closure:
+        if use_closure: # for l-bfgs
             def closure():
                 optimizer.zero_grad()
                 loss = f(x)
                 loss.backward()
                 return loss
             optimizer.step(closure)
-        else:
+        else: # for first-order optimizers
             optimizer.zero_grad()
             loss = f(x)
             loss.backward()
             optimizer.step()
         trajectory.append(x.data.clone().detach())
     return torch.stack(trajectory)
-
 
 # ---------------------- optimization trajectories -----------------------
 
@@ -60,7 +60,8 @@ adam = optimize(x, optimizer)
 x = torch.nn.Parameter(torch.Tensor(guess))
 optimizer = torch.optim.LBFGS([x], lr=0.1, max_iter=20)
 lbfgs = optimize(x, optimizer, use_closure=True)
-# --------------------------- post-processing ----------------------------
+
+# ---------------------------- postprocessing ----------------------------
 
 x = torch.linspace(xrange[0], xrange[1], 100)
 y = torch.linspace(yrange[0], yrange[1], 100)
@@ -82,14 +83,10 @@ ax.set_xlim(x.min(), x.max())
 ax.set_ylim(y.min(), y.max())
 ax.set_xlim(x.min(), x.max())
 ax.set_ylim(y.min(), y.max())
-plt.gca().axes.get_yaxis().set_visible(False)
-plt.gca().axes.get_xaxis().set_visible(False)
-for spine in ax.spines.values():
-    spine.set_visible(False)
-plt.minorticks_off()
+ax.axis('off')
 ax.set_rasterized(True)
 fig.tight_layout(pad=0)
-plt.savefig(f'output/rosenbrock.pdf')
+plt.savefig(f'../../results/rosenbrock_zoomed.pdf')
 plt.show()
 
 # zoomed in
@@ -118,12 +115,8 @@ ax.plot(momentum[-1,0], momentum[-1,1], 'ro', linewidth=3)
 
 ax.set_xlim(x.min(), x.max())
 ax.set_ylim(y.min(), y.max())
-plt.gca().axes.get_yaxis().set_visible(False)
-plt.gca().axes.get_xaxis().set_visible(False)
-for spine in ax.spines.values():
-    spine.set_visible(False)
-plt.minorticks_off()
+ax.axis('off')
 ax.set_rasterized(True)
 fig.tight_layout(pad=0)
-plt.savefig(f'output/rosenbrock_zoomed.pdf')
+plt.savefig(f'../../results/rosenbrock_zoomed.pdf')
 plt.show()

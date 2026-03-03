@@ -1,7 +1,7 @@
 # Deep Learning in Computational Mechanics <br> <small>a comprehensive reference</small>
 
 ## About
-**neuralmech** is a collection of ml-enhanced physics solvers & optimizers answering
+**NeuralMech** is a collection of ml-enhanced physics solvers & optimizers answering
 <p align="center"><b><i>When and where is deep learning useful in numerical simulation?</i></b></p>
 
 **Features**
