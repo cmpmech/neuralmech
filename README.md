@@ -8,7 +8,8 @@
 - simplistic & extendable implementations
 - reproducible results
 - associated to the third edition of [**deep learning in computational mechanics**](https://link.springer.com/book/10.1007/978-3-031-89529-6)
-<img src=".assets/images/book.png" alt="deep learning in computational mechanics book" width="150">
+<img src=".assets/images/book2.png" alt="deep learning in computational mechanics book" width="150">
+<img src=".assets/images/book1.png" alt="deep learning in computational mechanics book" width="150">
 
 As this project is ongoing, feedback is highly welcome. Finished chapters are available on request  — feel free to reach out via [email](#contact).
 <details>
