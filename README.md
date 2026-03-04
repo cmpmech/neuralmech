@@ -71,15 +71,16 @@ git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
 ## Structure
 | |                                                                            |
 |---|----------------------------------------------------------------------------|
-| `data/` | generated data (small, but gitignored if large)                            |
-| `external_data/` | data generation tools with data in `data` (large, excluded from main repo) |
-| `models/` | trained networks                                                           |
-| `results/` | results for post-processing                                                |
-| `projects/` | main drivers; see [projects](projects/README.md)                          |
-| `templates/` | elements with repeated use (e.g., `training_loop.py`)                      |
-| `DL.py` | deep learning utilities                                                    |
-| `NN.py` | network architectures                                                      |
-| `solvers/` | classical physics solvers                                                  |
+| [`data/`](data/) | generated data (small, but gitignored if large)                            |
+| [`external_data/`](external_data/) | data generation tools with data in `data` (large, excluded from main repo) |
+| [`models/`](models/) | trained networks                                                           |
+| [`results/`](results/) | results for post-processing                                                |
+| [`projects/`](projects/) | main drivers; see [projects](projects/README.md)                          |
+| [`templates/`](templates/) | elements with repeated use (e.g., `training_loop.py`)                      |
+| [`DL.py`](DL.py) | deep learning utilities                                                    |
+| [`NN.py`](NN.py) | network architectures                                                      |
+| [`postprocessing.py`](postprocessing.py) | postprocessing helpers                                          |
+| [`solvers/`](solvers/) | classical physics solvers                                                  |
 
 ## Contact
 [leon.herrmann@uni-weimar.de](mailto:leon.herrmann@uni-weimar.de)
