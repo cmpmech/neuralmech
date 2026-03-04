@@ -1,7 +1,10 @@
 results/
+results/animations/
 data/
 external_data/
 ./assets/original_images
 ./assets/animations
 .idea/
 /projects/0_conceptual_figures
+/projects/0_helpers
+
