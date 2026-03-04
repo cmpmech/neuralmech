@@ -109,7 +109,7 @@ plt.show()
 
 # ------------------------- book postprocessing --------------------------
 save_csv(f'../../results/mlp_sine_test_{epochs}.csv',
-         x=x_test.squeeze(), y=y_test[:,0], ypred=y_pred_test[:,0])
+         x=x_test[:,0], y=y_test[:,0], ypred=y_pred_test[:,0])
 save_csv(f'../../results/mlp_sine_train.csv',
          x=X_train[:, 0], y=Y_train[:, 0])
 save_csv(f'../../results/mlp_sine_val.csv',
