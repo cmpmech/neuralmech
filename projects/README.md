@@ -7,3 +7,4 @@
 - 2_optimizer/adam.py
 - 2_optimizer/lbfgs.py
 - 2_optimizer/gradientfree_optimizers.py
+- 3_sine/mlp_sine_regularization.py
