@@ -12,7 +12,9 @@
   <td><img src=".assets/images/book2.png" alt="deep learning in computational mechanics book 2" width="150"></td>
   <td><img src=".assets/images/book1.png" alt="deep learning in computational mechanics book 1" width="150"></td>
 </tr></table>
-As this project is ongoing, feedback is highly welcome. Finished chapters are available on request  — feel free to reach out via [email](mailto:leon.herrmann@uni-weimar.de)..
+
+As this project is ongoing, feedback is highly welcome. Finished chapters are available on request  — feel free to reach out via [email](#contact).
+
 <details>
 <summary><b>Chapters available on request</b></summary>
 
