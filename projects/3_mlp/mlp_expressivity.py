@@ -1,6 +1,6 @@
 import torch
-import matplotlib.pyplot as plt
 from NN import MLP
+from postprocessing import show_image
 # neural network art/random neural fields
 
 torch.manual_seed(1)
@@ -68,10 +68,4 @@ for i in range(3):
     z_pred[:,:,i] = (channel - channel.min()) / (channel.max() - channel.min() + 1e-8)
 
 # ---------------------------- postprocessing ----------------------------
-fig, ax = plt.subplots(figsize=(samples / 100, samples / 100), dpi=100)
-ax.imshow(z_pred)  # no cmap needed for RGB
-ax.axis('off')
-ax.set_rasterized(True)
-fig.tight_layout(pad=0)
-plt.savefig(f'../../results/expressivity_{activation_id}_{hidden_layers}_{neurons}.pdf')
-plt.show()
+show_image(z_pred.numpy(), path=f'../../results/expressivity_{activation_id}_{hidden_layers}_{neurons}.pdf')
