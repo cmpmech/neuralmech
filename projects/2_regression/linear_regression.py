@@ -1,5 +1,5 @@
 import numpy as np
-import pandas as pd
+from postprocessing import save_csv
 import matplotlib.pyplot as plt
 from ML import LinearRegression
 
@@ -44,9 +44,5 @@ weight, bias = np.linalg.inv(X.T@X)@X.T@y
 print(f'weight w={weight} & bias b={bias}')
 
 # ------------------------- book postprocessing --------------------------
-df = pd.DataFrame({'x': x_train,
-                   'y': y_train})
-df.to_csv(f'../../results/linear_regression_train.csv', sep=' ', index=False)
-df = pd.DataFrame({'x': x_val,
-                   'y': y_val})
-df.to_csv(f'../../results/linear_regression_val.csv', sep=' ', index=False)
+save_csv(f'../../results/linear_regression_train.csv', x=x_train, y=y_train)
+save_csv(f'../../results/linear_regression_val.csv', x=x_val, y=y_val)

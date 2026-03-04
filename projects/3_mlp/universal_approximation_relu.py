@@ -1,7 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
 from NN import MLP
-import pandas as pd
+from postprocessing import save_csv
 
 torch.manual_seed(0)
 device = torch.device('cpu')
@@ -61,7 +61,5 @@ ax.plot(x_test, y_pred, 'r')
 plt.show()
 
 # ------------------------- book postprocessing --------------------------
-df = pd.DataFrame({'x': x_test.squeeze(),
-                   'y': y_test.squeeze(),
-                   'ypred': y_pred.squeeze()})
-df.to_csv(f'../../results/universal_approx_width{neurons}.csv', sep=' ', index=False)
+save_csv(f'../../results/universal_approx_width{neurons}.csv',
+         x=x_test.squeeze(), y=y_test.squeeze(), ypred=y_pred.squeeze())

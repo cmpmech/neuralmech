@@ -1,6 +1,5 @@
 import torch
 from torch import nn
-from DL import pos_encoding
 from torch_geometric.nn import GCNConv, SAGEConv, GATConv, GINConv
 from efficient_kan import KAN
 from torchdiffeq import odeint

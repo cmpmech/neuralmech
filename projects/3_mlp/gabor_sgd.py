@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
+from postprocessing import save_csv
 
 np.random.seed(0)
 
@@ -97,17 +97,13 @@ plt.savefig(f'../../results/gabor_landscape_{batch_size}.pdf')
 plt.show()
 
 # ------------------------- book postprocessing --------------------------
-df = pd.DataFrame({'x': x.squeeze(),
-                   'y': y.squeeze()})
-df.to_csv(f'../../results/gabor_data.csv', sep=' ', index=False)
+save_csv(f'../../results/gabor_data.csv', x=x.squeeze(), y=y.squeeze())
 
 if batch_size == 16:
     x_ = np.linspace(-30, 30, 400)
     for i, (a, b) in enumerate(history0[:500:40]):
         y_ = Gabor(a, b)(x_)
-        df = pd.DataFrame({'x': x_,
-                           'y': y_})
-        df.to_csv(f'../../results/gabor_prediction_{i}.csv', sep=' ', index=False)
+        save_csv(f'../../results/gabor_prediction_{i}.csv', x=x_, y=y_)
 
 x_ = np.linspace(-30, 30, 200)
 fig, ax = plt.subplots()

@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
+from postprocessing import save_csv
 from ML import LogisticRegression
 
 np.random.seed(1)
@@ -41,9 +41,7 @@ ax.plot(x1, x2, 'k')
 plt.show()
 
 # ------------------------- book postprocessing --------------------------
-df = pd.DataFrame({'x1': x_train[y_train==0,0],
-                   'x2': x_train[y_train==0,1]})
-df.to_csv(f'../../results/logistic_regression_train0.csv', sep=' ', index=False)
-df = pd.DataFrame({'x1': x_train[y_train==1,0],
-                   'x2': x_train[y_train==1,1]})
-df.to_csv(f'../../results/logistic_regression_train1.csv', sep=' ', index=False)
+save_csv(f'../../results/logistic_regression_train0.csv',
+         x1=x_train[y_train==0,0], x2=x_train[y_train==0,1])
+save_csv(f'../../results/logistic_regression_train1.csv',
+         x1=x_train[y_train==1,0], x2=x_train[y_train==1,1])

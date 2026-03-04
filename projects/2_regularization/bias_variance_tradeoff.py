@@ -1,5 +1,5 @@
 import numpy as np
-import pandas as pd
+from postprocessing import save_csv
 import matplotlib.pyplot as plt
 from ML import PolynomialRegression
 
@@ -92,10 +92,9 @@ data = {'x' : x_pred, 'mean' : y_pred_mean, 'std' : y_pred_std,
 
 for i in range(100):
     data[f'y_pred_{i}'] = y_preds[i]
-df = pd.DataFrame(data)
 if case == 0:
-    df.to_csv(f'../../results/polynomial_regression_{case}_{samples}.csv', sep=' ', index=False)
+    save_csv(f'../../results/polynomial_regression_{case}_{samples}.csv', **data)
 elif case == 1:
-    df.to_csv(f'../../results/polynomial_regression_{case}_{p}.csv', sep=' ', index=False)
+    save_csv(f'../../results/polynomial_regression_{case}_{p}.csv', **data)
 elif case == 2:
-    df.to_csv(f'../../results/polynomial_regression_{case}_{regularization}.csv', sep=' ', index=False)
+    save_csv(f'../../results/polynomial_regression_{case}_{regularization}.csv', **data)

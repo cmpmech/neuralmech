@@ -1,5 +1,5 @@
 import numpy as np
-import pandas as pd
+from postprocessing import save_csv
 import matplotlib.pyplot as plt
 from ML import PolynomialRegression
 
@@ -45,10 +45,7 @@ ax.set_ylim(-0.5, 2.5)
 plt.show()
 
 # ----------------------- postprocessing for book ------------------------
-data = {'x' : x_pred, 'ypred' : y_pred, 'y' : y_true(x_pred)}
-df = pd.DataFrame(data)
-df.to_csv(f'../../results/polynomial_overfitting_{case}.csv', sep=' ', index=False)
-
-data = {'x' : x_train, 'y' : y_train}
-df = pd.DataFrame(data)
-df.to_csv(f'../../results/polynomial_overfitting_train_{case}.csv', sep=' ', index=False)
+save_csv(f'../../results/polynomial_overfitting_{case}.csv',
+         x=x_pred, ypred=y_pred, y=y_true(x_pred))
+save_csv(f'../../results/polynomial_overfitting_train_{case}.csv',
+         x=x_train, y=y_train)

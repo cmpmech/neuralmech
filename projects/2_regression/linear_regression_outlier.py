@@ -1,5 +1,5 @@
 import numpy as np
-import pandas as pd
+from postprocessing import save_csv
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression, QuantileRegressor, HuberRegressor
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
@@ -44,9 +44,5 @@ ax.plot(x_val, y_val, 'ro')
 plt.show()
 
 # ------------------------- book postprocessing --------------------------
-df = pd.DataFrame({'x': x_train,
-                   'y': y_train})
-df.to_csv(f'../../results/linear_regression_outlier_train.csv', sep=' ', index=False)
-df = pd.DataFrame({'x': x_val,
-                   'y': y_val})
-df.to_csv(f'../../results/linear_regression_outlier_val.csv', sep=' ', index=False)
+save_csv(f'../../results/linear_regression_outlier_train.csv', x=x_train, y=y_train)
+save_csv(f'../../results/linear_regression_outlier_val.csv', x=x_val, y=y_val)
