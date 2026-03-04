@@ -80,4 +80,5 @@ git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
 | `solvers/` | classical physics solvers                                                  |
 
 ## Contact
+<a id="contact"></a>
 [leon.herrmann@uni-weimar.de](mailto:leon.herrmann@uni-weimar.de)
