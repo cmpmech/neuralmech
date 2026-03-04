@@ -12,7 +12,7 @@
   <td><img src=".assets/images/book2.png" alt="deep learning in computational mechanics book 2" width="150"></td>
   <td><img src=".assets/images/book1.png" alt="deep learning in computational mechanics book 1" width="150"></td>
 </tr></table>
-As this project is ongoing, feedback is highly welcome. Finished chapters are available on request  — feel free to reach out via [email](#contact).
+As this project is ongoing, feedback is highly welcome. Finished chapters are available on request  — feel free to reach out via [email](mailto:leon.herrmann@uni-weimar.de)..
 <details>
 <summary><b>Chapters available on request</b></summary>
 
@@ -79,6 +79,5 @@ git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
 | `NN.py` | network architectures                                                      |
 | `solvers/` | classical physics solvers                                                  |
 
-<a id="contact"></a>
 ## Contact
 [leon.herrmann@uni-weimar.de](mailto:leon.herrmann@uni-weimar.de)
