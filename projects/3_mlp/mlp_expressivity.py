@@ -4,7 +4,7 @@ from NN import MLP
 # neural network art/random neural fields
 
 torch.manual_seed(1)
-device = torch.device('cpu')  # faster on cpu, because matrices are small
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 activation_id = None
 # -------------------------------- helper --------------------------------
 def init_weights(m):
@@ -69,7 +69,7 @@ for i in range(3):
 
 # ---------------------------- postprocessing ----------------------------
 fig, ax = plt.subplots(figsize=(samples / 100, samples / 100), dpi=100)
-ax.imshow(z_pred)  # No cmap needed for RGB
+ax.imshow(z_pred)  # no cmap needed for RGB
 ax.axis('off')
 ax.set_rasterized(True)
 fig.tight_layout(pad=0)
