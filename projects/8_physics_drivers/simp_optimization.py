@@ -134,6 +134,5 @@ def optimize():
     plt.show()
     print(f"Result saved to outputs/simp_topology.png")
 
-
 if __name__ == "__main__":
     optimize()

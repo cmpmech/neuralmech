@@ -74,5 +74,5 @@ for j in range(0, N, plot_every):
     ax.set_aspect('equal')
     ax.axis('off')
     fig.tight_layout(pad=0.1)
-    plt.savefig(f'../../results/animations/animation_frames/balls/frame_{j // plot_every}.png')
+    plt.savefig(f'../../results/animations/animation_frames/balls/frame_{j // plot_every}.jpg')
     plt.close()
