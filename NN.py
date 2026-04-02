@@ -1,12 +1,22 @@
-import torch
-from torch import nn
-from torch_geometric.nn import GCNConv, SAGEConv, GATConv, GINConv
-from efficient_kan import KAN
-from torchdiffeq import odeint
-import torch.nn.functional as F
 import math
+from modulefinder import test
+
+import torch
+import torch.nn.functional as F
+from efficient_kan import KAN
+from torch import nn
+from torch_geometric.nn import GATConv, GCNConv, GINConv, SAGEConv
+from torch_geometric.nn.conv.message_passing import HookDict
+from torchdiffeq import odeint
+
+
+# TODO: helper
+def get_layer_param(param, i):
+    return param[i] if isinstance(param, list) else param
+
 
 # ------------------------ primary architectures -------------------------
+
 
 class MLP(nn.Module):
     """Multi-layer perceptron (fully connected feedforward network).
@@ -23,8 +33,12 @@ class MLP(nn.Module):
             activation.
     """
 
-    def __init__(self, layers: list[int], activations: list[nn.Module | None] | None = None,
-                 normalizations: list[nn.Module | None] | None = None) -> None:
+    def __init__(
+        self,
+        layers: list[int],
+        activations: list[nn.Module | None] | None = None,
+        normalizations: list[nn.Module | None] | None = None,
+    ) -> None:
         super().__init__()
         modules = []
         for i in range(len(layers) - 1):
@@ -39,6 +53,7 @@ class MLP(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.model(x)
+
 
 class DCN(nn.Module):
     """Deep convolutional network supporting 1D, 2D, or 3D convolutions.
@@ -62,14 +77,14 @@ class DCN(nn.Module):
         self,
         channels: list[int],
         activations: list[nn.Module | None],
-        kernel_size: int,
-        stride: int,
-        padding: int,
+        kernel_size: int | list[int],
+        stride: int | list[int],
+        padding: int | list[int],
         normalizations: list[nn.Module | None] | None = None,
         resamplings: list[nn.Module | None] | None = None,
-        dilation: int = 1,
+        dilation: int | list[int] = 1,
         dim: int = 2,
-        bias: bool = False,
+        bias: bool | list[bool] = False,
     ) -> None:
         super().__init__()
         normalizations = normalizations or []
@@ -80,9 +95,17 @@ class DCN(nn.Module):
             if resamplings and i < len(resamplings):
                 if resamplings[i]:
                     modules.append(resamplings[i])
-            modules.append(conv(channels[i], channels[i + 1],
-                                     kernel_size, stride, padding,
-                                     dilation, bias=bias))
+            modules.append(
+                conv(
+                    channels[i],
+                    channels[i + 1],
+                    get_layer_param(kernel_size, i),
+                    get_layer_param(stride, i),
+                    get_layer_param(padding, i),
+                    get_layer_param(dilation, i),
+                    bias=get_layer_param(bias, i),
+                )
+            )
             if normalizations and i < len(normalizations):
                 if normalizations[i]:
                     modules.append(normalizations[i])
@@ -93,6 +116,7 @@ class DCN(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.model(x)
+
 
 class DGCN(nn.Module):
     """Deep graph convolutional network using GCNConv layers.
@@ -125,6 +149,7 @@ class DGCN(nn.Module):
                 x = act(x)
         return x
 
+
 class DGSAGE(nn.Module):
     """Deep GraphSAGE network using SAGEConv layers.
 
@@ -155,6 +180,7 @@ class DGSAGE(nn.Module):
             if act:
                 x = act(x)
         return x
+
 
 class DGAT(nn.Module):
     """Deep graph attention network using GATConv layers.
@@ -191,6 +217,7 @@ class DGAT(nn.Module):
                 x = act(x)
         return x
 
+
 class DGIN(nn.Module):
     """Deep graph isomorphism network using GINConv layers.
 
@@ -223,10 +250,12 @@ class DGIN(nn.Module):
             x = conv(x, graph.edge_index)
         return x
 
+
 # https://arxiv.org/abs/1612.00222
 # TODO
 
 # ------------------------------ sequential ------------------------------
+
 
 class DRNN(nn.Module):
     """Deep recurrent neural network with configurable cell type.
@@ -276,6 +305,7 @@ class DRNN(nn.Module):
             x = self.final_activation(x)
         return x
 
+
 class NODE(nn.Module):
     """Neural ordinary differential equation.
 
@@ -312,7 +342,9 @@ class NODE(nn.Module):
         """
         return odeint(self.eval_rhs, h0, T)
 
+
 # ------------------------------- Bayesian -------------------------------
+
 
 class BayesianLinear(nn.Module):
     """Bayesian linear layer with learned weight distributions.
@@ -339,10 +371,10 @@ class BayesianLinear(nn.Module):
 
     def init_params(self) -> None:
         """Initialize parameters with Kaiming uniform for mu and constant for rho."""
-        nn.init.kaiming_uniform_(self.weight_mu, a=math.sqrt(5.))
-        nn.init.constant_(self.weight_rho, -3.)
-        nn.init.constant_(self.bias_mu, 0.)
-        nn.init.constant_(self.bias_rho, -3.)
+        nn.init.kaiming_uniform_(self.weight_mu, a=math.sqrt(5.0))
+        nn.init.constant_(self.weight_rho, -3.0)
+        nn.init.constant_(self.bias_mu, 0.0)
+        nn.init.constant_(self.bias_rho, -3.0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Sample weights from learned distributions and apply linear transformation."""
@@ -362,13 +394,18 @@ class BayesianLinear(nn.Module):
         weight_sigma = F.softplus(self.weight_rho)
         bias_sigma = F.softplus(self.bias_rho)
 
-        kl_weight = (torch.log(prior_std / weight_sigma) +
-                     (weight_sigma**2 + self.weight_mu**2) /
-                     (2 * prior_std**2) - 0.5)
-        kl_bias = (torch.log(prior_std / bias_sigma) +
-                   (bias_sigma**2 + self.bias_mu**2) /
-                   (2 * prior_std**2) - 0.5)
+        kl_weight = (
+            torch.log(prior_std / weight_sigma)
+            + (weight_sigma**2 + self.weight_mu**2) / (2 * prior_std**2)
+            - 0.5
+        )
+        kl_bias = (
+            torch.log(prior_std / bias_sigma)
+            + (bias_sigma**2 + self.bias_mu**2) / (2 * prior_std**2)
+            - 0.5
+        )
         return kl_weight.sum() + kl_bias.sum()
+
 
 class BayesianMLP(nn.Module):
     """Bayesian multi-layer perceptron using BayesianLinear layers.
@@ -406,7 +443,9 @@ class BayesianMLP(nn.Module):
                 kl += module.kl_divergence(prior_std)
         return kl
 
+
 # ------------------------------- resnets --------------------------------
+
 
 class ResidualBlock(nn.Module):
     """Residual block that adds input to module output (skip connection).
@@ -464,7 +503,7 @@ class ResNet(nn.Module):
         while i < len(layers):
             if i in skip_dict:
                 end_idx = skip_dict[i]
-                block_layers = layers[i:end_idx + 1]
+                block_layers = layers[i : end_idx + 1]
                 block = nn.Sequential(*block_layers)
                 projection = None
                 if projections and (i, end_idx) in projections:
@@ -480,6 +519,7 @@ class ResNet(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.model(x)
+
 
 # ---------------------- extreme learning machines -----------------------
 class ELM(nn.Module):
@@ -500,18 +540,15 @@ class ELM(nn.Module):
         output_dim: Number of output classes or regression targets.
     """
 
-    def __init__(self, feature_extractor: nn.Module, hidden_dim: int,
-                 output_dim: int):
+    def __init__(self, feature_extractor: nn.Module, hidden_dim: int, output_dim: int):
         super().__init__()
         self.feature_extractor = feature_extractor
         self.output_layer = nn.Linear(hidden_dim, output_dim, bias=True)
-        self.output_layer_weights = nn.Parameter(torch.zeros(output_dim,
-                                                             hidden_dim))
+        self.output_layer_weights = nn.Parameter(torch.zeros(output_dim, hidden_dim))
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
 
-    def fit(self, x: torch.Tensor, y: torch.Tensor,
-            regularization: float):
+    def fit(self, x: torch.Tensor, y: torch.Tensor, regularization: float):
         with torch.no_grad():
             H = self.feature_extractor(x)
         num_samples = H.shape[0]
@@ -531,7 +568,9 @@ class ELM(nn.Module):
         x = self.feature_extractor(x)
         return self.output_layer(x)
 
+
 # ----------------------------- autoencoders -----------------------------
+
 
 class AE(nn.Module):
     """Autoencoder composed of an encoder and decoder network.
@@ -585,6 +624,7 @@ class VAE(AE):
         z = self.reparameterize(mean, logvar)
         y = self.decode(z)
         return y, mean, logvar
+
 
 # ---------------------- kolmogorov-arnold network -----------------------
 # defined via efficient_kan
