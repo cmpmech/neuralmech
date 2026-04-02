@@ -1,7 +1,11 @@
 results/*
+!results/.gitkeep
 results/animations/*
+!results/animations.gitkeep
 data/*
+!data/.gitkeep
 external_data/*
+!external_data/.gitkeep
 ./assets/original_images
 ./assets/animations
 .idea/
