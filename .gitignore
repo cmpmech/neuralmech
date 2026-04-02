@@ -1,7 +1,7 @@
-results/
-results/animations/
-data/
-external_data/
+results/*
+results/animations/*
+data/*
+external_data/*
 ./assets/original_images
 ./assets/animations
 .idea/
