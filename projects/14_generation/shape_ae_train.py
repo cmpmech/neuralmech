@@ -33,22 +33,15 @@ channel_dim = 1
 kernel_size = 3
 act = partial(nn.PReLU, init=0.2)
 
+# ----------------------------- prepare data -----------------------------
 domain_size = 128
 
-# ----------------------------- prepare data -----------------------------
-data = torch.from_numpy(
-    np.concatenate(
-        [
-            np.load(BASE_DIR / f"../../data/shapes_{'circle'}_{domain_size}.npy"),
-            np.load(BASE_DIR / f"../../data/shapes_{'square'}_{domain_size}.npy"),
-            np.load(BASE_DIR / f"../../data/shapes_{'triangle'}_{domain_size}.npy"),
-            np.load(BASE_DIR / f"../../data/shapes_{'star'}_{domain_size}.npy"),
-            np.load(BASE_DIR / f"../../data/shapes_{'ellipse'}_{domain_size}.npy"),
-            np.load(BASE_DIR / f"../../data/shapes_{'cross'}_{domain_size}.npy"),
-        ],
-        axis=0,
-    )
-)
+labels = ['circle', 'ellipse', 'square', 'triangle', 'cross', 'star']
+data = []
+for label in labels:
+    data.append(torch.from_numpy(
+        np.load(BASE_DIR / f"../../data/shapes_{label}_{domain_size}.npy")))
+data = torch.from_numpy(np.concatenate(data, axis=0))
 data = data.to(torch.float32).unsqueeze(1)
 
 dataset = TensorDataset(data)

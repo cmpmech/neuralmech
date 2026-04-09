@@ -31,7 +31,7 @@ def generate_square(N, domain_length=1, w=0.8):
     return domain
 
 
-def generate_triangle(N, domain_length=1, size=0.5):
+def generate_triangle(N, domain_length=1, size=0.4):
     domain = np.zeros((N, N))
     x = np.linspace(0, domain_length, N)
     y = np.linspace(0, domain_length, N)
@@ -115,9 +115,6 @@ def generate_cross(N, domain_length=1, w=0.2, h=0.8):
 if __name__ == "__main__":
     N = 128
     samples = 128  # per shape
-    x = np.linspace(0, 1, N)
-    y = np.linspace(0, 1, N)
-    x, y = np.meshgrid(x, y, indexing="ij")
 
     generators = [
         generate_circle,
@@ -139,7 +136,7 @@ if __name__ == "__main__":
 
 # ------------------------- book postprocessing --------------------------
         fig, ax = plt.subplots(figsize=(2, 2), dpi=N)
-        ax.pcolormesh(x, y, domains[0], cmap="binary")
+        ax.imshow(domains[0], cmap="binary", origin='lower')
         ax.set_aspect("equal")
         ax.axis("off")
         ax.set_rasterized(True)
