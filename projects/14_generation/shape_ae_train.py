@@ -18,21 +18,19 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 # -------------------------- training settings ---------------------------
-epochs = 10 #600
+epochs = 600
 lr = 2e-3
 weight_decay = 1e-2
 batch_size = 32
 
 # define loss
-cosf_fun = nn.MSELoss(reduction="mean")
+cost_fun = nn.MSELoss(reduction="mean")
 
 # ---------------------------- model settings ----------------------------
 base, depth, latent_dim = 2, 5, 2 # 2 as latent_dim for visualization
 conv_layers = 1
 channel_dim = 1
 kernel_size = 3
-# act = nn.GELU  # TODO change to PReLU?
-# act = nn.PReLU
 act = partial(nn.PReLU, init=0.2)
 
 domain_size = 128
@@ -114,7 +112,6 @@ summary(model, (1, 1, domain_size, domain_size), depth=4)
 
 # ------------------------ instantiate optimizer -------------------------
 optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-scheduler = None
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     optimizer, T_max=epochs, eta_min=lr * 1e-2
 )
@@ -157,50 +154,35 @@ model.standardizer = standardizex # just for saving
 torch.save(model, BASE_DIR / f'../../models/shape_ae_{domain_size}.pt2')
 
 # ---------------------------- postprocessing ----------------------------
-from datetime import datetime
-
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
 fig, ax = plt.subplots()
 ax.plot(train_cost, "k")
 ax.plot(val_cost, "r")
 ax.set_yscale("log")
-plt.savefig(BASE_DIR / f"../../tmp/history_{timestamp}.png")
 plt.show()
 
 
-# # TESTING ##################################################
+# ##########################################################################
+# # TRAINING DATA
 # from datetime import datetime
 
 # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-# fig, ax = plt.subplots()
-# ax.plot(train_cost, "k")
-# ax.plot(val_cost, "r")
-# ax.set_yscale("log")
-# plt.savefig(BASE_DIR / f"../../tmp/history_{timestamp}.png")
-# plt.show()
-
-# TRAINING DATA
-model.eval()
-
-fig, ax = plt.subplots(10, 3, figsize=(6, 20), dpi=domain_size)
-
+# model.eval()
+# fig, ax = plt.subplots(10, 3, figsize=(6, 20), dpi=domain_size)
+# # x = next(iter(train_loader))
 # x = next(iter(val_loader))
-x = next(iter(train_loader))
-x = standardizex(x[0]).to(device)  # unwrap & standardize
-x_pred = model(x)
-for i in range(10):
-    ax[i, 0].imshow(standardizex.inverse(x.cpu())[i, 0], cmap="binary", vmin=0, vmax=1)
-    ax[i, 1].imshow(
-        standardizex.inverse(x_pred.detach().cpu())[i, 0], cmap="binary", vmin=0, vmax=1
-    )
-    ax[i, 2].imshow(((x_pred.detach() - x).cpu() ** 2)[i, 0], cmap="hot_r")
+# x = standardizex(x[0]).to(device)  # unwrap & standardize
+# x_pred = model(x)
+# for i in range(10):
+#     ax[i, 0].imshow(standardizex.inverse(x.cpu())[i, 0], cmap="binary", vmin=0, vmax=1)
+#     ax[i, 1].imshow(
+#         standardizex.inverse(x_pred.detach().cpu())[i, 0], cmap="binary", vmin=0, vmax=1
+#     )
+#     ax[i, 2].imshow(((x_pred.detach() - x).cpu() ** 2)[i, 0], cmap="hot_r")
 
-    for j in range(3):
-        ax[i, j].set_aspect("equal")
-        ax[i, j].axis("off")
-        ax[i, j].set_rasterized(True)
-fig.tight_layout(pad=0)
-plt.savefig(BASE_DIR / f"../../tmp/prediction_{timestamp}.png")
-plt.show()
+#     for j in range(3):
+#         ax[i, j].set_aspect("equal")
+#         ax[i, j].axis("off")
+#         ax[i, j].set_rasterized(True)
+# fig.tight_layout(pad=0)
+# plt.savefig(BASE_DIR / f"../../tmp/prediction_{timestamp}.png")
+# plt.show()
