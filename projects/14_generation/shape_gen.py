@@ -31,7 +31,7 @@ def generate_square(N, domain_length=1, w=0.8):
     return domain
 
 
-def generate_triangle(N, domain_length=1, size=0.4):
+def generate_triangle(N, domain_length=1, size=0.45):
     domain = np.zeros((N, N))
     x = np.linspace(0, domain_length, N)
     y = np.linspace(0, domain_length, N)
