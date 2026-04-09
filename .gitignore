@@ -6,6 +6,8 @@ data/*
 !data/.gitkeep
 external_data/*
 !external_data/.gitkeep
+tmp/*
+!tmp/.gitkeep
 ./assets/original_images
 ./assets/animations
 .idea/
