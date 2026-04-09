@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -8,6 +10,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import time
 
+BASE_DIR = Path(__file__).parent
 key = jax.random.PRNGKey(0)
 print(jax.devices())
 
@@ -21,7 +24,7 @@ batch_size = 32
 layers = [1, 24, 24, 24, 1]
 
 # ----------------------------- prepare data -----------------------------
-data = np.load('../../data/sine.npz')
+data = np.load(BASE_DIR / '../../data/sine.npz')
 X = jnp.array(data['X'], dtype=jnp.float32)
 Y = jnp.array(data['Y'], dtype=jnp.float32)
 train_loader = DataLoader(TensorDataset(torch.from_numpy(np.array(X)),

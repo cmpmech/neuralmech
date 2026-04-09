@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import cupy as cp
 import matplotlib.pyplot as plt
@@ -5,6 +7,8 @@ import time
 from tqdm import tqdm
 import math
 import cmasher as cmr
+
+BASE_DIR = Path(__file__).parent
 
 # -------------------------- problem definition --------------------------
 # implementation
@@ -49,10 +53,10 @@ u1[:] = u0[:]
 # --------------------------- simulation setup ---------------------------
 # cuda V4
 if precompiled:
-    compiled_kernels = cp.RawModule(path='step2D_wave.ptx')
+    compiled_kernels = cp.RawModule(path=str(BASE_DIR / 'step2D_wave.ptx'))
     fd_kernel = compiled_kernels.get_function('fd_kernelV4')
 else:
-    fd_kernel = cp.RawKernel(open('step2D_wave.cu').read(),
+    fd_kernel = cp.RawKernel(open(BASE_DIR / 'step2D_wave.cu').read(),
                              'fd_kernelV4',
                              compiler_options)
 
