@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 from torch import nn
 import numpy as np
@@ -8,6 +10,7 @@ from DL import init_weights, Standardizer
 from NN import MLP, ELM
 import time
 
+BASE_DIR = Path(__file__).parent
 torch.manual_seed(0)
 device = torch.device('cpu')  # faster on cpu, because matrices are small
 
@@ -29,7 +32,7 @@ layers = [1, 24, 24, 24]
 activations = [torch.nn.GELU(approximate='tanh')] * (len(layers) - 1) # TODO instead of 2
 
 # ----------------------------- prepare data -----------------------------
-data = np.load('../../data/sine.npz')
+data = np.load(BASE_DIR / '../../data/sine.npz')
 dataset = TensorDataset(torch.from_numpy(data['X']).to(torch.float32),
                         torch.from_numpy(data['Y']).to(torch.float32))
 train_data, val_data = torch.utils.data.random_split(dataset, [0.5, 0.5])
@@ -97,7 +100,7 @@ ax.set_ylim(-2, 2)
 plt.show()
 
 # ------------------------- book postprocessing --------------------------
-save_csv('../../results/elm_sine_test.csv',
+save_csv(BASE_DIR / '../../results/elm_sine_test.csv',
          x=x_test[:,0], y=y_test[:,0], ypred=y_pred[:,0])
-save_csv(f'../../results/elm_sine_train.csv',
+save_csv(BASE_DIR / f'../../results/elm_sine_train.csv',
          x=X_train[:, 0], y=Y_train[:, 0])

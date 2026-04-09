@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import cupy as cp
 import matplotlib.pyplot as plt
@@ -5,6 +7,8 @@ import time
 from tqdm import tqdm
 import math
 import pandas as pd
+
+BASE_DIR = Path(__file__).parent
 
 for version in range(0, 2): # 0 is standard, 1 is mixed
 
@@ -58,10 +62,10 @@ for version in range(0, 2): # 0 is standard, 1 is mixed
         blocks_j = (Ny_padded + threads_j - 1) // threads_j  # cols (Ny is num cols)
         blocks_i = (Nx_padded + threads_i - 1) // threads_i  # rows (Nx is num rows)
         if version == 0:
-            compiled_kernels = cp.RawModule(path='step2D_wave.ptx')
+            compiled_kernels = cp.RawModule(path=str(BASE_DIR / 'step2D_wave.ptx'))
             fd_kernel = compiled_kernels.get_function('fd_kernelV3')
         elif version == 1:
-            compiled_kernels = cp.RawModule(path='step2D_wave.ptx')
+            compiled_kernels = cp.RawModule(path=str(BASE_DIR / 'step2D_wave.ptx'))
             fd_kernel = compiled_kernels.get_function('fd_kernelV5')
 
         def fd_step(u0, u1, u2):

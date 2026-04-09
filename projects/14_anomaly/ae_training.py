@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from NN import DCN, MLP, AE
 from torch.utils.data import TensorDataset, DataLoader, random_split
 from DL import init_weights, Standardizer
@@ -7,6 +9,7 @@ import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
+BASE_DIR = Path(__file__).parent
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.manual_seed(42)
 # -------------------------- training settings ---------------------------
@@ -32,7 +35,7 @@ base, depth, latent_dim = 2, 5, 32 #32 #32 # 16 also possible
 kernel_size = 3
 act = nn.GELU(approximate='tanh')
 # ----------------------------- prepare data -----------------------------
-data = torch.from_numpy(np.load(f'../../data/normal_3dof_{seq_len}.npy')).to(torch.float32).to(device)
+data = torch.from_numpy(np.load(BASE_DIR / f'../../data/normal_3dof_{seq_len}.npy')).to(torch.float32).to(device)
 
 clip = 1024 # is sufficient (but try with more)
 data = data[:clip]
@@ -127,7 +130,7 @@ for epoch in pbar:
         })
 
 model.standardizer = standardizex # just for saving
-torch.save(model, f'../../models/ae_3dof_{seq_len}.pt2')
+torch.save(model, BASE_DIR / f'../../models/ae_3dof_{seq_len}.pt2')
 
 # --------------------------- post-processing ----------------------------
 t = np.linspace(0, 1, seq_len) # normalized time (T=12.8)

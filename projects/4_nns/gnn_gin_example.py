@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 from torch import nn
 from torch_geometric.data import Data
@@ -9,6 +11,7 @@ from tqdm import tqdm
 
 # ---------------------------------- NN ----------------------------------
 
+BASE_DIR = Path(__file__).parent
 torch.manual_seed(0)
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -29,7 +32,7 @@ mlp_activations = [[nn.GELU(approximate='tanh')] * (len(layers) - 2)]
 # ----------------------------- prepare data -----------------------------
 f = lambda x1, x2 : torch.sin(14 * torch.pi * x1 * x2)
 
-data = torch.load('../../data/ghana_mesh.pt')
+data = torch.load(BASE_DIR / '../../data/ghana_mesh.pt')
 y = Data(x=f(data['pos'][:,0], data['pos'][:,1]).unsqueeze(-1),
          edge_index=data['edge_index'],
          pos=data['pos']).to(device)

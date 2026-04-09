@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import cupy as cp
 from PIL import Image
@@ -7,6 +9,8 @@ import cmasher as cmr
 from solvers.scalar_wave import (setup_simulation, setup_source, simulate2D)
 from numeric import sineburst
 
+BASE_DIR = Path(__file__).parent
+
 plot_every = 2
 
 # -------------------------- problem definition --------------------------
@@ -15,7 +19,7 @@ threads_j, threads_i = 128, 4
 precompiled = False # True
 
 # load material from CT scan
-indicator = np.ascontiguousarray(np.load('../../data/B_Hai_1.npy').T)
+indicator = np.ascontiguousarray(np.load(BASE_DIR / '../../data/B_Hai_1.npy').T)
 indicator[:50,:50] = 1.
 indicator[:5,:] = 1.
 indicator[-6:,:] = 1.

@@ -1,9 +1,12 @@
+from pathlib import Path
+
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import auc
 from scipy.spatial.distance import mahalanobis
 
+BASE_DIR = Path(__file__).parent
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # ----------------------------- select case ------------------------------
@@ -12,7 +15,7 @@ samples = 64
 problem = 'k'
 # problem = 'amp'
 
-path = f'../../data/anomaly_3dof_{problem}.npz'
+path = BASE_DIR / f'../../data/anomaly_3dof_{problem}.npz'
 data = np.load(path)
 x_a = torch.from_numpy(data['X']).to(torch.float32).to(device)
 widths = data['widths']
@@ -34,12 +37,12 @@ elif problem == 'amp':
     anomalous2 = (heights > 3.5) & (heights <= 5.5)
     anomalous3 = heights > 5.5
 
-path = '../../data/normal_3dof_test.npy'
+path = BASE_DIR / '../../data/normal_3dof_test.npy'
 x_n = torch.from_numpy(np.load(path)).to(torch.float32).to(device)
 
 # -------------------------- load trained model --------------------------
 seq_len = 128
-model = torch.load(f'../../models/vae_3dof_{seq_len}.pt2', weights_only=False).to(device)
+model = torch.load(BASE_DIR / f'../../models/vae_3dof_{seq_len}.pt2', weights_only=False).to(device)
 model.eval()
 standardizex = model.standardizer
 
@@ -126,7 +129,7 @@ ax2.set_ylim(0, 5e-4)
 plt.show()
 
 # ----------------------------- mahalanobis ------------------------------
-path = f'../../data/normal_3dof_{seq_len}.npy'
+path = BASE_DIR / f'../../data/normal_3dof_{seq_len}.npy'
 x_train = torch.from_numpy(np.load(path)).to(torch.float32).to(device)
 with torch.no_grad():
     z_train = model.encode(standardizex(x_train))

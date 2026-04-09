@@ -1,13 +1,16 @@
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 import numpy as np
 from PIL import Image
 from postprocessing import show_image
 
+BASE_DIR = Path(__file__).parent
 torch.manual_seed(0)
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-img = np.asarray(Image.open('../../data/images/onions.jpg').convert('L')).copy()
+img = np.asarray(Image.open(BASE_DIR / '../../data/images/onions.jpg').convert('L')).copy()
 x = torch.from_numpy(img).unsqueeze(0).unsqueeze(0).to(dtype=torch.float32)
 # x = torch.randn((1, 1, 5, 5))
 
@@ -17,5 +20,5 @@ with torch.no_grad():
 y = model(x)
 
 # ---------------------------- postprocessing ----------------------------
-show_image(x[0, 0].detach().cpu().numpy(), grayscale=True, path='../../results/checkerboarding1.jpg')
-show_image(y[0, 0].detach().cpu().numpy(), grayscale=True, path='../../results/checkerboarding2.jpg')
+show_image(x[0, 0].detach().cpu().numpy(), grayscale=True, path=BASE_DIR / '../../results/checkerboarding1.jpg')
+show_image(y[0, 0].detach().cpu().numpy(), grayscale=True, path=BASE_DIR / '../../results/checkerboarding2.jpg')

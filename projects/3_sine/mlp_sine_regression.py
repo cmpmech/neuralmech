@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 from torch import nn
 import numpy as np
@@ -9,6 +11,7 @@ from DL import init_weights, Standardizer
 from NN import MLP
 import time
 
+BASE_DIR = Path(__file__).parent
 torch.manual_seed(0)
 device = torch.device('cpu')  # faster on cpu, because matrices are small
 
@@ -26,7 +29,7 @@ layers = [1, 24, 24, 24, 1] # three hidden layers is sufficient (five to show ov
 activations = [nn.GELU(approximate='tanh')] * (len(layers) - 2)
 
 # ----------------------------- prepare data -----------------------------
-data = np.load('../../data/sine.npz')
+data = np.load(BASE_DIR / '../../data/sine.npz')
 dataset = TensorDataset(torch.from_numpy(data['X']).to(torch.float32),
                         torch.from_numpy(data['Y']).to(torch.float32))
 train_data, val_data = torch.utils.data.random_split(dataset, [0.5, 0.5])
@@ -108,13 +111,13 @@ ax.plot(x_test, y_pred_test, 'r--')
 plt.show()
 
 # ------------------------- book postprocessing --------------------------
-save_csv(f'../../results/mlp_sine_test_{epochs}.csv',
+save_csv(BASE_DIR / f'../../results/mlp_sine_test_{epochs}.csv',
          x=x_test[:,0], y=y_test[:,0], ypred=y_pred_test[:,0])
-save_csv(f'../../results/mlp_sine_train.csv',
+save_csv(BASE_DIR / f'../../results/mlp_sine_train.csv',
          x=X_train[:, 0], y=Y_train[:, 0])
-save_csv(f'../../results/mlp_sine_val.csv',
+save_csv(BASE_DIR / f'../../results/mlp_sine_val.csv',
          x=X_val[:, 0], y=Y_val[:, 0])
 if epochs == 4000:
-    save_csv(f'../../results/mlp_sine_cost_history.csv',
+    save_csv(BASE_DIR / f'../../results/mlp_sine_cost_history.csv',
              train=np.array(train_cost) / train_cost[0],
              val=np.array(val_cost) / val_cost[0])

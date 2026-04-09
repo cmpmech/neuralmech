@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from NN import DCN, MLP, VAE
 from torch.utils.data import TensorDataset, DataLoader, random_split
 from DL import init_weights, Standardizer
@@ -7,6 +9,7 @@ import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
+BASE_DIR = Path(__file__).parent
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.manual_seed(42)
 
@@ -49,7 +52,7 @@ base, depth, latent_dim = 2, 3, 16 #4/5, 32
 kernel_size = 3
 act = nn.GELU(approximate='tanh')
 # ----------------------------- prepare data -----------------------------
-data = torch.from_numpy(np.load(f'../../data/normal_3dof_{seq_len}.npy')).to(torch.float32).to(device)
+data = torch.from_numpy(np.load(BASE_DIR / f'../../data/normal_3dof_{seq_len}.npy')).to(torch.float32).to(device)
 
 clip = 1024 #2048 #1024 #512 #512 #128
 data = data[:clip]
@@ -145,7 +148,7 @@ for epoch in pbar:
         })
 
 model.standardizer = standardizex # just for saving
-torch.save(model, f'../../models/vae_3dof_{seq_len}.pt2')
+torch.save(model, BASE_DIR / f'../../models/vae_3dof_{seq_len}.pt2')
 
 # --------------------------- post-processing ----------------------------
 print(f'training {train_cost[-1]:.2e}, (mse) {train_mse[-1]:.2e} (kl) {train_kl[-1]:.2e}')
