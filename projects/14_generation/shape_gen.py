@@ -25,7 +25,9 @@ def generate_square(N, domain_length=1, w=0.8):
     xc = np.random.uniform(w / 2, domain_length - w / 2)
     yc = np.random.uniform(w / 2, domain_length - w / 2)
     dx, dy = x - xc, y - yc
-    domain[(np.abs(dx) < w / 2) & (np.abs(dy) < w / 2)] = 1
+    mask = (np.abs(dx) < w / 2) & (np.abs(dy) < w / 2)
+
+    domain[mask] = 1
     return domain
 
 
@@ -43,9 +45,9 @@ def generate_triangle(N, domain_length=1, size=0.5):
     d1 = (dx - vx[1]) * (vy[0] - vy[1]) - (vx[0] - vx[1]) * (dy - vy[1])
     d2 = (dx - vx[2]) * (vy[1] - vy[2]) - (vx[1] - vx[2]) * (dy - vy[2])
     d3 = (dx - vx[0]) * (vy[2] - vy[0]) - (vx[2] - vx[0]) * (dy - vy[0])
-    domain[
-        ((d1 >= 0) & (d2 >= 0) & (d3 >= 0)) | ((d1 <= 0) & (d2 <= 0) & (d3 <= 0))
-    ] = 1
+    mask = ((d1 >= 0) & (d2 >= 0) & (d3 >= 0)) | ((d1 <= 0) & (d2 <= 0) & (d3 <= 0))
+
+    domain[mask] = 1
     return domain
 
 
@@ -57,7 +59,9 @@ def generate_ellipse(N, domain_length=1, a=0.4, b=0.1):
     xc = np.random.uniform(a, domain_length - a)
     yc = np.random.uniform(b, domain_length - b)
     dx, dy = x - xc, y - yc
-    domain[(dx / a) ** 2 + (dy / b) ** 2 < 1] = 1
+    mask = (dx / a) ** 2 + (dy / b) ** 2 < 1
+
+    domain[mask] = 1
     return domain
 
 
@@ -77,7 +81,7 @@ def generate_star(N, domain_length=1, r_outer=0.4, r_inner=0.2, n_points=5):
     vy = radii * np.sin(angles)
 
     # ray casting point-in-polygon
-    inside = np.zeros(dx.shape, dtype=bool)
+    mask = np.zeros(dx.shape, dtype=bool)
     n = len(vx)
     for i in range(n):
         j = (i + 1) % n
@@ -86,14 +90,13 @@ def generate_star(N, domain_length=1, r_outer=0.4, r_inner=0.2, n_points=5):
         intersect = ((yi > dy) != (yj > dy)) & (
             dx < (xj - xi) * (dy - yi) / (yj - yi) + xi
         )
-        inside ^= intersect
+        mask ^= intersect
 
-    domain[inside] = 1
+    domain[mask] = 1
     return domain
 
 
 def generate_cross(N, domain_length=1, w=0.2, h=0.8):
-    """Cross shape: two overlapping rectangles (horizontal + vertical)."""
     domain = np.zeros((N, N))
     x = np.linspace(0, domain_length, N)
     y = np.linspace(0, domain_length, N)
@@ -103,37 +106,45 @@ def generate_cross(N, domain_length=1, w=0.2, h=0.8):
     dx, dy = x - xc, y - yc
     horizontal = (np.abs(dx) < h / 2) & (np.abs(dy) < w / 2)
     vertical = (np.abs(dx) < w / 2) & (np.abs(dy) < h / 2)
-    domain[horizontal | vertical] = 1
+    mask = horizontal | vertical
+
+    domain[mask] = 1
     return domain
 
 
-N = 128  # 256
-samples = 128  # 128  # 256  # 512  # 128  # per shape
-x = np.linspace(0, 1, N)
-y = np.linspace(0, 1, N)
-x, y = np.meshgrid(x, y, indexing="ij")
+if __name__ == "__main__":
+    N = 128
+    samples = 128  # per shape
+    x = np.linspace(0, 1, N)
+    y = np.linspace(0, 1, N)
+    x, y = np.meshgrid(x, y, indexing="ij")
 
-generators = [
-    generate_circle,
-    generate_square,
-    generate_triangle,
-    generate_ellipse,
-    generate_star,
-    generate_cross,
-]
-labels = ["circle", "square", "triangle", "ellipse", "star", "cross"]
-for label, generator in zip(labels, generators):
-    domains = np.zeros((samples, N, N))
-    for sample in range(samples):
-        domains[sample] = generator(N)
+    generators = [
+        generate_circle,
+        generate_square,
+        generate_triangle,
+        generate_ellipse,
+        generate_star,
+        generate_cross,
+    ]
+    labels = ["circle", "square", "triangle", "ellipse", "star", "cross"]
 
-    np.save(f"../../data/shapes_{label}_{N}.npy", domains.astype(np.float32))
+    # --------------------------- data generation ----------------------------
+    for label, generator in zip(labels, generators):
+        domains = np.zeros((samples, N, N))
+        for sample in range(samples):
+            domains[sample] = generator(N)
 
-    fig, ax = plt.subplots(figsize=(2, 2), dpi=N)
-    ax.pcolormesh(x, y, domains[0], cmap="binary")
-    ax.set_aspect("equal")
-    ax.axis("off")
-    ax.set_rasterized(True)
-    fig.tight_layout(pad=0)
-    plt.savefig(f"../../results/shapes_{label}.pdf", bbox_inches="tight", pad_inches=0)
-    plt.close()
+        np.save(f"../../data/shapes_{label}_{N}.npy", domains.astype(np.float32))
+
+        # ------------------------- book postprocessing --------------------------
+        fig, ax = plt.subplots(figsize=(2, 2), dpi=N)
+        ax.pcolormesh(x, y, domains[0], cmap="binary")
+        ax.set_aspect("equal")
+        ax.axis("off")
+        ax.set_rasterized(True)
+        fig.tight_layout(pad=0)
+        plt.savefig(
+            f"../../results/shapes_{label}.pdf", bbox_inches="tight", pad_inches=0
+        )
+        plt.close()
