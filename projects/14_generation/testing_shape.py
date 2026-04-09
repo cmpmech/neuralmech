@@ -1,6 +1,7 @@
 from functools import partial
 from pathlib import Path
 
+import cmasher as cmr
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -15,11 +16,12 @@ from NN import AE, DCN, MLP, VAE
 BASE_DIR = Path(__file__).parent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(42)
+torch.backends.cudnn.deterministic = True
 # -------------------------- training settings ---------------------------
-epochs = 500  # 1000
+epochs = 400  # 1000
 lr = 1e-3  # 2e-3
-weight_decay = 1e-10
-batch_size = 64  # 32  # 16  # 16  # 64  # 32  # 64  # 16
+weight_decay = 1e-2  # 1e-2  # 1e-10
+batch_size = 32  # 32  # 64  # 32  # 64  # 32  # 16  # 16  # 64  # 32  # 64  # 16
 
 # define loss
 reconstruction_loss = nn.MSELoss(reduction="mean")  # sum for vae?
@@ -28,9 +30,9 @@ reconstruction_loss = nn.MSELoss(reduction="mean")  # sum for vae?
 cost_fun = reconstruction_loss
 
 # ---------------------------- model settings ----------------------------
-base, depth, latent_dim = 2, 4, 2  # 32  # 2
-conv_layers = 1  # 0
-channel_dim = 8  # 8  # 16  # 32  # 16  # 16  # 1  # 16  # "fake" input dim
+base, depth, latent_dim = 2, 4, 2  # 2  # 32  # 2
+conv_layers = 1  # 1  # 0
+channel_dim = 8  # 8  # 8  # 16  # 32  # 16  # 16  # 1  # 16  # "fake" input dim
 kernel_size = 3
 # act = nn.GELU  # TODO change to PReLU?
 # act = nn.PReLU
@@ -40,24 +42,47 @@ domain_size = 128  # 256  # 256
 
 # ----------------------------- prepare data -----------------------------
 data = torch.from_numpy(
-    np.load(BASE_DIR / f"../../data/shapes_{'circle'}_{domain_size}.npy")
+    np.concatenate(
+        [
+            np.load(BASE_DIR / f"../../data/shapes_{'circle'}_{domain_size}.npy"),
+            np.load(BASE_DIR / f"../../data/shapes_{'square'}_{domain_size}.npy"),
+            np.load(BASE_DIR / f"../../data/shapes_{'triangle'}_{domain_size}.npy"),
+            np.load(BASE_DIR / f"../../data/shapes_{'star'}_{domain_size}.npy"),
+        ],
+        axis=0,
+    )
 )
+
+# data = torch.cat(
+#     [
+#         torch.from_numpy(
+#             np.load(BASE_DIR / f"../../data/shapes_{'circle'}_{domain_size}.npy")
+#         ),
+#         torch.from_numpy(
+#             np.load(BASE_DIR / f"../../data/shapes_{'square'}_{domain_size}.npy")
+#         ),
+#     ],
+#     dim=0,
+# )
 data = data.to(torch.float32).unsqueeze(1)
 
-clip = 40  # 71  # 40 good
-# 160  # with 20 good, 40 okayish, 80 not really, 160 seems good and generalizes
-data = data[:clip]  # TODO
+# clip = 256  # 180  # 140 is good 90  # 70ish works # 40  # 40  # 71  # 40 good
+# # 160  # with 20 good, 40 okayish, 80 not really, 160 seems good and generalizes
+# data = data[:clip]  # TODO
 
 dataset = TensorDataset(data)
 train_data, val_data = random_split(dataset, [0.9, 0.1])  # TODO 0.9, 0.1
-train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+train_loader = DataLoader(
+    train_data, batch_size=batch_size, shuffle=True, drop_last=True
+)  # TODO check
 val_loader = DataLoader(val_data, batch_size=len(val_data), shuffle=True)  # full batch
 
 X_train = train_data.dataset.tensors[0][train_data.indices]
-standardizex = Standardizer(X_train, dim=(0, 3))
+# standardizex = Standardizer(X_train, dim=(0, 3))
+standardizex = Standardizer(X_train, dim=(0, 2, 3))
 # TRIAL DEACTIVATING STANDARDIZER
-# Standardizer.x_mean = 0.0
-# Standardizer.x_std = 1.0
+# standardizex.x_mean = 0.0
+# standardizex.x_std = 1.0
 
 # -------------------------- instantiate model ---------------------------
 #################
@@ -82,10 +107,18 @@ Encoder.append(
 Encoder.append(nn.Flatten())
 Encoder.append(MLP(layers, [act()]))  # TODO no activation?
 
+# upsamplings = [
+#     nn.Upsample(scale_factor=2, mode="nearest") if s == 2 else None
+#     for s in strides[::-1]
+# ]
 upsamplings = [
-    nn.Upsample(scale_factor=2, mode="nearest") if s == 2 else None
+    nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
+    if s == 2
+    else None
     for s in strides[::-1]
 ]
+
+
 Decoder = nn.Sequential()
 Decoder.append(MLP([latent_dim, red_domain_size**2 * channels[-1]], [act()]))
 Decoder.append(nn.Unflatten(1, (channels[-1], red_domain_size, red_domain_size)))
@@ -98,8 +131,8 @@ Decoder.append(
         padding=kernel_size // 2,
         dim=2,
         resamplings=upsamplings,
-        normalizations=[nn.GroupNorm(1, channel) for channel in channels[:-1:-1]],
-        # normalizations=[nn.BatchNorm2d(channel) for channel in channels[:-1:-1]],
+        normalizations=[nn.GroupNorm(1, channel) for channel in channels[-2:0:-1]],
+        # normalizations=[nn.BatchNorm2d(channel) for channel in channels[-1::-1]],
     )
 )
 # TODO sigmoid could be added
@@ -108,6 +141,9 @@ Decoder.append(
 
 model = AE(Encoder, Decoder).to(device)
 init_weights(model, act())
+
+# print(channels)
+# print(channels[-2:1:-1])
 
 print(summary(model, (1, 1, domain_size, domain_size), depth=4))
 
@@ -152,30 +188,39 @@ for epoch in pbar:
         )
 
 # TESTING ##################################################
+from datetime import datetime
+
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
 fig, ax = plt.subplots()
 ax.plot(train_cost, "k")
 ax.plot(val_cost, "r")
 ax.set_yscale("log")
+plt.savefig(BASE_DIR / f"../../tmp/history_{timestamp}.png")
 plt.show()
 
 # TRAINING DATA
 model.eval()
 
-# x = next(iter(train_loader))
-x = next(iter(val_loader))
+fig, ax = plt.subplots(6, 3, figsize=(6, 12), dpi=domain_size)
+
+# x = next(iter(val_loader))
+x = next(iter(train_loader))
 x = standardizex(x[0]).to(device)  # unwrap & standardize
 x_pred = model(x)
+for i in range(6):
+    ax[i, 0].imshow(standardizex.inverse(x.cpu())[i, 0], cmap="binary", vmin=0, vmax=1)
+    ax[i, 1].imshow(
+        standardizex.inverse(x_pred.detach().cpu())[i, 0], cmap="binary", vmin=0, vmax=1
+    )
+    ax[i, 2].imshow(((x_pred.detach() - x).cpu() ** 2)[i, 0], cmap="hot_r")
 
-fig, ax = plt.subplots(1, 2, figsize=(4, 2), dpi=domain_size)
-ax[0].imshow(standardizex.inverse(x.cpu())[0, 0], cmap="binary", vmin=0, vmax=1)
-ax[1].imshow(
-    standardizex.inverse(x_pred.detach().cpu())[0, 0], cmap="binary", vmin=0, vmax=1
-)
-for i in range(2):
-    ax[i].set_aspect("equal")
-    ax[i].axis("off")
-    ax[i].set_rasterized(True)
+    for j in range(3):
+        ax[i, j].set_aspect("equal")
+        ax[i, j].axis("off")
+        ax[i, j].set_rasterized(True)
 fig.tight_layout(pad=0)
+plt.savefig(BASE_DIR / f"../../tmp/prediction_{timestamp}.png")
 plt.show()
 
 
