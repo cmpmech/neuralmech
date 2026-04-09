@@ -1,8 +1,15 @@
 import torch
 
-x = torch.zeros((16, 32, 3, 3))
+x = torch.tensor([1.0], requires_grad=True)
+y = 2 * x
+z = y**2
 
-y1, y2 = torch.chunk(x, chunks=2, dim=1)
+print(x)
+print(y)
+print(z)
 
+# y.retain_grad()
+# z.backward(torch.ones_like(z))
 
-print(y1.shape, y2.shape)
+# print(x.grad)
+# print(y.grad)

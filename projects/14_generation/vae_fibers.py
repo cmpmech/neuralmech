@@ -15,7 +15,7 @@ BASE_DIR = Path(__file__).parent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(42)
 # -------------------------- training settings ---------------------------
-epochs = 1000  # 500
+epochs = 500
 lr = 1e-2  # 1e-2 #5e-3 #5e-3 #1e-2
 weight_decay = 1e-10
 batch_size = 32
@@ -23,7 +23,7 @@ batch_size = 32
 # define loss
 reconstruction_loss = nn.MSELoss(reduction="sum")
 kl_anneal_epochs = 400
-kl_weight_final = 1e-2
+kl_weight_final = 1e-1
 
 
 def cost_fun(x_pred, mean_pred, logvar_pred, x, epoch):
@@ -47,8 +47,8 @@ act = nn.GELU(approximate="tanh")
 data = torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_{domain_size}.npy"))
 data = data.to(torch.float32).unsqueeze(1)
 
-# clip = 80  # 40 # TODO
-# data = data[:clip]
+clip = 80  # 40 # TODO
+data = data[:clip]
 
 dataset = TensorDataset(data)
 train_data, val_data = random_split(dataset, [0.9, 0.1])  # TODO 0.9, 0.1
@@ -186,7 +186,10 @@ pbar = tqdm(range(epochs), desc="Training: ", ncols=90)
 for epoch in pbar:
     model.train()
     for x in train_loader:
-        x = standardizex(x[0]).to(device)  # unwrap & standardize
+        x = x[0]
+        if torch.rand(1) > 0.5: x = torch.flip(x, dims=[-1])   # random H flip
+        if torch.rand(1) > 0.5: x = torch.flip(x, dims=[-2])   # random V flip
+        x = standardizex(x).to(device)  # standardize
         optimizer.zero_grad()
         x_pred, mean_pred, logvar_pred = model(x)
         cost, mse, kl = cost_fun(x_pred, mean_pred, logvar_pred, x, epoch)
