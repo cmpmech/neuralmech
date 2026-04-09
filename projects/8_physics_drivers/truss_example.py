@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from solvers.truss import (global_stiffness_matrix, edge_to_eft,
                            multi_freedom_constraint, get_strains)
 import numpy as np
@@ -6,8 +8,10 @@ import matplotlib
 import matplotlib.colors as colors
 import time
 
+BASE_DIR = Path(__file__).parent
+
 # ---------------------------- preprocessing -----------------------------
-structure = np.load('../../data/truss.npz')
+structure = np.load(BASE_DIR / '../../data/truss.npz')
 coords = np.vstack([structure['x'], structure['y']]).T
 edges = structure['edges']
 num_nodes = int(np.sqrt(len(coords)))

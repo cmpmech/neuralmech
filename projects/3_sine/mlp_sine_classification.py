@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 from torch import nn
 import numpy as np
@@ -10,6 +12,7 @@ from DL import init_weights, Standardizer
 from NN import MLP
 import time
 
+BASE_DIR = Path(__file__).parent
 torch.manual_seed(0)
 device = torch.device('cpu')  # faster on cpu, because matrices are small
 
@@ -28,12 +31,12 @@ layers = [1, 24, 24, 24, classes] # three hidden layers is sufficient (five to s
 activations = [torch.nn.GELU(approximate='tanh')] * (len(layers) - 2)
 
 # ----------------------------- prepare data -----------------------------
-data = np.load('../../data/discrete_sine.npz')
+data = np.load(BASE_DIR / '../../data/discrete_sine.npz')
 dataset = TensorDataset(torch.from_numpy(data['X']).to(torch.float32),
                         torch.from_numpy(data['Y']).to(torch.long))
 train_data, val_data = torch.utils.data.random_split(dataset, [0.5, 0.5])
 
-test_data = np.load('../../data/discrete_sine_test.npz')
+test_data = np.load(BASE_DIR / '../../data/discrete_sine_test.npz')
 x_test = torch.from_numpy(test_data['X']).to(torch.float32).to(device)
 y_test = torch.from_numpy(test_data['Y']).to(torch.long).to(device)
 
@@ -109,7 +112,7 @@ ax.plot(x_test.cpu(), y_pred_test.cpu(), 'b.')
 plt.show()
 
 # ------------------------- book post-processing -------------------------
-save_csv('../../results/mlp_discrete_sine_test.csv', x=x_test[:,0],
+save_csv(BASE_DIR / '../../results/mlp_discrete_sine_test.csv', x=x_test[:,0],
          y=y_test, ypred=y_pred_test)
-save_csv('../../results/mlp_discrete_sine_train.csv', x=X_train[:,0], y=Y_train)
-save_csv('../../results/mlp_discrete_sine_val.csv', x=X_val[:,0], y=Y_val)
+save_csv(BASE_DIR / '../../results/mlp_discrete_sine_train.csv', x=X_train[:,0], y=Y_train)
+save_csv(BASE_DIR / '../../results/mlp_discrete_sine_val.csv', x=X_val[:,0], y=Y_val)

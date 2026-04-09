@@ -1,11 +1,15 @@
+from pathlib import Path
+
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from postprocessing import show_image
 
+BASE_DIR = Path(__file__).parent
+
 # ------------------------------ load image ------------------------------
-img = Image.open("../../data/images/duckling.jpg").convert("L")
+img = Image.open(BASE_DIR / "../../data/images/duckling.jpg").convert("L")
 # img = Image.open("output.jpg").convert("L")
 img_arr = np.array(img, dtype=float)
 

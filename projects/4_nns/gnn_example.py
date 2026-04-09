@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 from torch import nn
 from torch_geometric.data import Data
@@ -7,6 +9,7 @@ import matplotlib.tri as mtri
 import time
 from tqdm import tqdm
 
+BASE_DIR = Path(__file__).parent
 torch.manual_seed(0)
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -24,7 +27,7 @@ activations = [torch.nn.GELU(approximate='tanh')] * (len(channels) - 2)
 # ----------------------------- prepare data -----------------------------
 f = lambda x1, x2 : torch.sin(14 * torch.pi * x1 * x2)
 
-data = torch.load('../../data/ghana_mesh.pt')
+data = torch.load(BASE_DIR / '../../data/ghana_mesh.pt')
 y = Data(x=f(data['pos'][:,0], data['pos'][:,1]).unsqueeze(-1),
          edge_index=data['edge_index'],
          pos=data['pos']).to(device)
@@ -79,7 +82,7 @@ plt.gca().set_aspect('equal')
 ax.axis('off')
 ax.set_rasterized(True)
 fig.tight_layout(pad=0)
-plt.savefig(f'../../results/GNN_target.pdf', bbox_inches='tight', pad_inches=0, transparent=True)
+plt.savefig(BASE_DIR / f'../../results/GNN_target.pdf', bbox_inches='tight', pad_inches=0, transparent=True)
 plt.show()
 
 # prediction
@@ -93,7 +96,7 @@ plt.gca().set_aspect('equal')
 ax.axis('off')
 ax.set_rasterized(True)
 fig.tight_layout(pad=0)
-plt.savefig(f'../../results/GNN_prediction.pdf', bbox_inches='tight', pad_inches=0, transparent=True)
+plt.savefig(BASE_DIR / f'../../results/GNN_prediction.pdf', bbox_inches='tight', pad_inches=0, transparent=True)
 plt.show()
 
 for i in range(channels[0]):
@@ -107,7 +110,7 @@ for i in range(channels[0]):
     ax.axis('off')
     ax.set_rasterized(True)
     fig.tight_layout(pad=0)
-    plt.savefig(f'../../results/GNN_input_{i}.pdf', bbox_inches='tight', pad_inches=0, transparent=True)
+    plt.savefig(BASE_DIR / f'../../results/GNN_input_{i}.pdf', bbox_inches='tight', pad_inches=0, transparent=True)
     plt.show()
 
 fig, ax = plt.subplots(figsize=(5,10), dpi=200)
@@ -119,5 +122,5 @@ plt.gca().set_aspect('equal')
 ax.axis('off')
 ax.set_rasterized(True)
 fig.tight_layout(pad=0)
-plt.savefig(f'../../results/GNN_target_points.pdf', bbox_inches='tight', pad_inches=0, transparent=True)
+plt.savefig(BASE_DIR / f'../../results/GNN_target_points.pdf', bbox_inches='tight', pad_inches=0, transparent=True)
 plt.show()

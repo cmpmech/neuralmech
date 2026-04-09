@@ -1,9 +1,12 @@
+from pathlib import Path
+
 import numpy as np
 import torch
 from torch import nn
 from PIL import Image
 from postprocessing import show_image
 
+BASE_DIR = Path(__file__).parent
 torch.manual_seed(0)
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -58,7 +61,7 @@ for filter in range(7):
             print(model.weight)
 
     # ------------------------------ input data ------------------------------
-    img = Image.open('../../data/images/water.jpg').convert('L')
+    img = Image.open(BASE_DIR / '../../data/images/water.jpg').convert('L')
 
     x = torch.from_numpy(np.asarray(img)).unsqueeze(0).unsqueeze(0).to(dtype=torch.float32)
 
@@ -67,4 +70,4 @@ for filter in range(7):
         y = model(x)
 
 # ---------------------------- postprocessing ----------------------------
-    show_image(y[0, 0].numpy(), grayscale=True, path=f'../../results/filter_example_{filter}.jpg')
+    show_image(y[0, 0].numpy(), grayscale=True, path=BASE_DIR / f'../../results/filter_example_{filter}.jpg')

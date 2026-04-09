@@ -36,6 +36,10 @@ git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
 | `external_data/` | Data generation tools (excluded from main repo) |
 | `results/` | Post-processing outputs (gitignored) |
 
+## Path Convention
+
+All project scripts use `BASE_DIR = Path(__file__).parent` (with `from pathlib import Path`) so that file paths are relative to the script's location, not the working directory. Apply this pattern to every new script that reads or writes files.
+
 ## Key Conventions
 
 - **Architecture style**: All networks are `nn.Module` subclasses; take `layers`, `activations`, `normalizations` lists — length-matched to layer count
