@@ -16,6 +16,7 @@ from NN import AE, DCN, MLP, VAE
 BASE_DIR = Path(__file__).parent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(42)
+torch.backends.cudnn.deterministic = True
 # -------------------------- training settings ---------------------------
 epochs = 500
 lr = 1e-2  # 1e-2 #5e-3 #5e-3 #1e-2
