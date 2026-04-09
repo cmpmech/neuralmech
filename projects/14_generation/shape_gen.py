@@ -129,7 +129,7 @@ if __name__ == "__main__":
     ]
     labels = ["circle", "square", "triangle", "ellipse", "star", "cross"]
 
-    # --------------------------- data generation ----------------------------
+# --------------------------- data generation ----------------------------
     for label, generator in zip(labels, generators):
         domains = np.zeros((samples, N, N))
         for sample in range(samples):
@@ -137,7 +137,7 @@ if __name__ == "__main__":
 
         np.save(f"../../data/shapes_{label}_{N}.npy", domains.astype(np.float32))
 
-        # ------------------------- book postprocessing --------------------------
+# ------------------------- book postprocessing --------------------------
         fig, ax = plt.subplots(figsize=(2, 2), dpi=N)
         ax.pcolormesh(x, y, domains[0], cmap="binary")
         ax.set_aspect("equal")

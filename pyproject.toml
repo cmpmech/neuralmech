@@ -7,4 +7,4 @@ name = "neuralmech"
 version = "0.1.0"
 
 [tool.setuptools]
-py-modules = ["NN", "DL", "postprocessing", "banner"]
+py-modules = ["NN", "DL", "postprocessing"]
