@@ -3,7 +3,7 @@ import numpy as np
 from scipy.ndimage import rotate
 
 
-def generate_circle(N, domain_length=1, radius=0.1):
+def generate_circle(N, domain_length=1, radius=0.3):
     domain = np.zeros((N, N))
     x = np.linspace(0, domain_length, N)
     y = np.linspace(0, domain_length, N)
@@ -18,14 +18,15 @@ def generate_circle(N, domain_length=1, radius=0.1):
     return domain
 
 
-def generate_square(N, domain_length=1, w=0.2):
+def generate_square(N, domain_length=1, w=0.6):
     domain = np.zeros((N, N))
     x = np.linspace(0, domain_length, N)
     y = np.linspace(0, domain_length, N)
     x, y = np.meshgrid(x, y)
     xc = np.random.uniform(w / 2, domain_length - w / 2)
     yc = np.random.uniform(w / 2, domain_length - w / 2)
-    angle = np.random.uniform(0, 2 * np.pi)
+    angle = 0
+    # angle = np.random.uniform(0, 2 * np.pi)
     # rotate query points around center (inverse rotation)
     dx, dy = x - xc, y - yc
     xr = dx * np.cos(angle) + dy * np.sin(angle)
@@ -34,14 +35,15 @@ def generate_square(N, domain_length=1, w=0.2):
     return domain
 
 
-def generate_triangle(N, domain_length=1, size=0.2):
+def generate_triangle(N, domain_length=1, size=0.5):  # 0.6
     domain = np.zeros((N, N))
     x = np.linspace(0, domain_length, N)
     y = np.linspace(0, domain_length, N)
     x, y = np.meshgrid(x, y)
     xc = np.random.uniform(size, domain_length - size)
     yc = np.random.uniform(size, domain_length - size)
-    angle = np.random.uniform(0, 2 * np.pi)
+    angle = 0
+    # angle = np.random.uniform(0, 2 * np.pi)
     dx, dy = x - xc, y - yc
     xr = dx * np.cos(angle) + dy * np.sin(angle)
     yr = -dx * np.sin(angle) + dy * np.cos(angle)
@@ -57,7 +59,7 @@ def generate_triangle(N, domain_length=1, size=0.2):
     return domain
 
 
-def generate_ellipse(N, domain_length=1, a=0.25, b=0.1):
+def generate_ellipse(N, domain_length=1, a=0.4, b=0.1):
     domain = np.zeros((N, N))
     x = np.linspace(0, domain_length, N)
     y = np.linspace(0, domain_length, N)
@@ -65,6 +67,7 @@ def generate_ellipse(N, domain_length=1, a=0.25, b=0.1):
     xc = np.random.uniform(a, domain_length - a)
     yc = np.random.uniform(b, domain_length - b)
     angle = np.random.uniform(0, 2 * np.pi)
+    angle = 0
     dx, dy = x - xc, y - yc
     xr = dx * np.cos(angle) + dy * np.sin(angle)
     yr = -dx * np.sin(angle) + dy * np.cos(angle)
@@ -72,14 +75,15 @@ def generate_ellipse(N, domain_length=1, a=0.25, b=0.1):
     return domain
 
 
-def generate_star(N, domain_length=1, r_outer=0.15, r_inner=0.06, n_points=5):
+def generate_star(N, domain_length=1, r_outer=0.5, r_inner=0.2, n_points=5):
     domain = np.zeros((N, N))
     x = np.linspace(0, domain_length, N)
     y = np.linspace(0, domain_length, N)
     x, y = np.meshgrid(x, y)
     xc = np.random.uniform(r_outer, domain_length - r_outer)
     yc = np.random.uniform(r_outer, domain_length - r_outer)
-    angle = np.random.uniform(0, 2 * np.pi)
+    # angle = np.random.uniform(0, 2 * np.pi)
+    angle = 0
     dx, dy = x - xc, y - yc
     xr = dx * np.cos(angle) + dy * np.sin(angle)
     yr = -dx * np.sin(angle) + dy * np.cos(angle)
@@ -107,7 +111,7 @@ def generate_star(N, domain_length=1, r_outer=0.15, r_inner=0.06, n_points=5):
 
 
 N = 128  # 256
-samples = 512  # 128  # per shape
+samples = 256  # 512  # 128  # per shape
 x = np.linspace(0, 1, N)
 y = np.linspace(0, 1, N)
 x, y = np.meshgrid(x, y, indexing="ij")
@@ -135,4 +139,3 @@ for label, generator in zip(labels, generators):
     fig.tight_layout(pad=0)
     plt.savefig(f"../../results/shapes_{label}.pdf", bbox_inches="tight", pad_inches=0)
     plt.close()
-#    plt.show()
