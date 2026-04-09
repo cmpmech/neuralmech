@@ -18,10 +18,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 # -------------------------- training settings ---------------------------
-epochs = 400  # 1000
-lr = 1e-3  # 2e-3
-weight_decay = 1e-2  # 1e-2  # 1e-10
-batch_size = 32  # 32  # 64  # 32  # 64  # 32  # 16  # 16  # 64  # 32  # 64  # 16
+epochs = 600  # 400  # 1000
+lr = 2e-3  # 1e-2  # 4e-3  # 2e-3  # 4e-3  # 1e-3  # 1e-3  # 2e-3
+weight_decay = 1e-2  # 5e-2  # 1e-2  # 1e-2  # 1e-10
+batch_size = 32  # 128  # 256  # 128
+# 64  # 32  # 32  # 64  # 32  # 64  # 32  # 16  # 16  # 64  # 32  # 64  # 16
 
 # define loss
 reconstruction_loss = nn.MSELoss(reduction="mean")  # sum for vae?
@@ -30,9 +31,10 @@ reconstruction_loss = nn.MSELoss(reduction="mean")  # sum for vae?
 cost_fun = reconstruction_loss
 
 # ---------------------------- model settings ----------------------------
-base, depth, latent_dim = 2, 4, 2  # 2  # 32  # 2
-conv_layers = 1  # 1  # 0
-channel_dim = 8  # 8  # 8  # 16  # 32  # 16  # 16  # 1  # 16  # "fake" input dim
+base, depth, latent_dim = 2, 5, 2  # 2  # 32  # 2
+conv_layers = 1  # 1  # 1  # 0
+channel_dim = 1
+# 4  # 8  # 8  # 8  # 16  # 32  # 16  # 16  # 1  # 16  # "fake" input dim
 kernel_size = 3
 # act = nn.GELU  # TODO change to PReLU?
 # act = nn.PReLU
@@ -48,6 +50,8 @@ data = torch.from_numpy(
             np.load(BASE_DIR / f"../../data/shapes_{'square'}_{domain_size}.npy"),
             np.load(BASE_DIR / f"../../data/shapes_{'triangle'}_{domain_size}.npy"),
             np.load(BASE_DIR / f"../../data/shapes_{'star'}_{domain_size}.npy"),
+            np.load(BASE_DIR / f"../../data/shapes_{'ellipse'}_{domain_size}.npy"),
+            np.load(BASE_DIR / f"../../data/shapes_{'cross'}_{domain_size}.npy"),
         ],
         axis=0,
     )
@@ -132,7 +136,7 @@ Decoder.append(
         dim=2,
         resamplings=upsamplings,
         normalizations=[nn.GroupNorm(1, channel) for channel in channels[-2:0:-1]],
-        # normalizations=[nn.BatchNorm2d(channel) for channel in channels[-1::-1]],
+        # normalizations=[nn.BatchNorm2d(channel) for channel in channels[-2:0:-1]],
     )
 )
 # TODO sigmoid could be added
@@ -150,9 +154,9 @@ print(summary(model, (1, 1, domain_size, domain_size), depth=4))
 # ------------------------ instantiate optimizer -------------------------
 optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 scheduler = None
-# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-#     optimizer, T_max=epochs, eta_min=lr * 1e-2
-# )
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer, T_max=epochs, eta_min=lr * 1e-2
+)
 
 # ------------------------------- training -------------------------------
 print_every = 10
@@ -202,13 +206,13 @@ plt.show()
 # TRAINING DATA
 model.eval()
 
-fig, ax = plt.subplots(6, 3, figsize=(6, 12), dpi=domain_size)
+fig, ax = plt.subplots(10, 3, figsize=(6, 20), dpi=domain_size)
 
 # x = next(iter(val_loader))
 x = next(iter(train_loader))
 x = standardizex(x[0]).to(device)  # unwrap & standardize
 x_pred = model(x)
-for i in range(6):
+for i in range(10):
     ax[i, 0].imshow(standardizex.inverse(x.cpu())[i, 0], cmap="binary", vmin=0, vmax=1)
     ax[i, 1].imshow(
         standardizex.inverse(x_pred.detach().cpu())[i, 0], cmap="binary", vmin=0, vmax=1
