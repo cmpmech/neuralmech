@@ -35,72 +35,73 @@ for label in labels:
 
 
 
-# # -------------------------- load trained model --------------------------
-# model = torch.load(BASE_DIR / f'../../models/shape_ae_{domain_size}.pt2', weights_only=False, map_location=device)
-# model.eval()
-# standardizex = model.standardizer
+# -------------------------- load trained model --------------------------
+model = torch.load(BASE_DIR / f'../../models/shape_ae_{domain_size}.pt2', weights_only=False, map_location=device)
+model.eval()
+standardizex = model.standardizer
 
-# # ----------------------- latent space projection ------------------------
-# latents = []
-# with torch.no_grad():
-#     for shape in data:
-#         latents.append(model.encode(standardizex(shape)).cpu())
+# ----------------------- latent space projection ------------------------
+latents = []
+with torch.no_grad():
+    for shape in data:
+        latents.append(model.encode(standardizex(shape)).cpu())
 
-# # ------------------------ latent space sampling -------------------------
-# box = 2
+# ------------------------ latent space sampling -------------------------
+box = 2
 
-# samplesx = 10
-# samplesy = 6
+if box == 1:
+    samplesx = 10
+    samplesy = 6
+    x = torch.linspace(-0.9, 0.3, samplesx)
+    y = torch.linspace(-0.2, 0.6, samplesy)
+elif box == 2:
+    samplesx = 6
+    samplesy = 8
+    x = torch.linspace(0.1, 0.6, samplesx)
+    y = torch.linspace(0.6, 1.5, samplesy)
 
-# if box == 1:
-#     x = torch.linspace(-0.5, 0.5, samplesx)
-#     y = torch.linspace(-0.5, 0.1, samplesy)
-# elif box == 2:
-#     x = torch.linspace(0.5, 1, samplesx)
-#     y = torch.linspace(0.6, 0.9, samplesy)
+x, y = torch.meshgrid(x, y, indexing='ij')
+z = torch.cat([x.reshape(-1, 1), y.reshape(-1, 1)], dim=1)
 
-# x, y = torch.meshgrid(x, y, indexing='ij')
-# z = torch.cat([x.reshape(-1, 1), y.reshape(-1, 1)], dim=1)
+with torch.no_grad():
+    gen_shapes = standardizex.inverse(model.decode(z))
+gen_shapes = gen_shapes.reshape(*x.shape, domain_size, domain_size)
 
-# with torch.no_grad():
-#     gen_shapes = standardizex.inverse(model.decode(z))
-# gen_shapes = gen_shapes.reshape(*x.shape, domain_size, domain_size)
+# ---------------------------- postprocessing ----------------------------
+colors = cm.tab10(np.linspace(0, 1, len(latents)))
 
-# # ---------------------------- postprocessing ----------------------------
-# colors = cm.tab10(np.linspace(0, 1, len(latents)))
+fig, ax = plt.subplots()
+for i, latent in enumerate(latents):
+    ax.plot(latent[:,0], latent[:,1], 'o', color=colors[i])
+# ax.plot([x[0,0], x[-1,0]], [y[0,0], y[0,-1]], 'k')
+ax.plot(x.flatten(), y.flatten(), 'k.')
+ax.set_aspect("equal")
+plt.show()
 
-# fig, ax = plt.subplots()
-# for i, latent in enumerate(latents):
-#     ax.plot(latent[:,0], latent[:,1], 'o', color=colors[i])
-# # ax.plot([x[0,0], x[-1,0]], [y[0,0], y[0,-1]], 'k')
-# ax.plot(x.flatten(), y.flatten(), 'k.')
-# ax.set_aspect("equal")
-# plt.show()
+fig, ax = plt.subplots(samplesy, samplesx, figsize=(samplesx,samplesy))
+for i in range(samplesx):
+    for j in range(samplesy):
+        ax[j,i].imshow(gen_shapes[i, j].cpu(), cmap="binary", origin='lower')
+        ax[j,i].set_aspect("equal")
+        ax[j,i].axis("off")
+        ax[j,i].set_rasterized(True)
+fig.tight_layout(pad=0)
+plt.show()
 
-# fig, ax = plt.subplots(samplesy, samplesx, figsize=(samplesx,samplesy))
-# for i in range(samplesx):
-#     for j in range(samplesy):
-#         ax[j,i].imshow(gen_shapes[i, j].cpu(), cmap="binary", origin='lower')
-#         ax[j,i].set_aspect("equal")
-#         ax[j,i].axis("off")
-#         ax[j,i].set_rasterized(True)
-# fig.tight_layout(pad=0)
-# plt.show()
+# ------------------------- book postprocessing --------------------------
+for label, latent in zip(labels, latents):
+    save_csv(BASE_DIR / f'../../results/shapes_ae_latent_{label}.csv',
+            x=latent[:,0], y=latent[:,1])
 
-# # ------------------------- book postprocessing --------------------------
-# for label, latent in zip(labels, latents):
-#     save_csv(BASE_DIR / f'../../results/shapes_ae_latent_{label}.csv',
-#             x=latent[:,0], y=latent[:,1])
-
-# for i in range(samplesx):
-#     for j in range(samplesy):
-#         fig, ax = plt.subplots(figsize=(1, 1), dpi=domain_size)
-#         ax.imshow(gen_shapes[i, j].cpu(), cmap="binary", origin='lower', vmin=0, vmax=1)
-#         ax.set_aspect("equal")
-#         ax.axis("off")
-#         ax.set_rasterized(True)
-#         fig.tight_layout(pad=0)
-#         plt.savefig(
-#             BASE_DIR / f"../../results/genshapes_ae_{i}{j}_{box}.pdf", bbox_inches="tight", pad_inches=0
-#         )
-#         plt.close()
+for i in range(samplesx):
+    for j in range(samplesy):
+        fig, ax = plt.subplots(figsize=(1, 1), dpi=domain_size)
+        ax.imshow(gen_shapes[i, j].cpu(), cmap="binary", origin='lower', vmin=0, vmax=1)
+        ax.set_aspect("equal")
+        ax.axis("off")
+        ax.set_rasterized(True)
+        fig.tight_layout(pad=0)
+        plt.savefig(
+            BASE_DIR / f"../../results/genshapes_ae_{i}{j}_{box}.pdf", bbox_inches="tight", pad_inches=0
+        )
+        plt.close()
