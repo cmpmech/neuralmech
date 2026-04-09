@@ -2,6 +2,7 @@ DL.py
 LICENSE
 NN.py
 README.md
+banner.py
 postprocessing.py
 pyproject.toml
 neuralmech.egg-info/PKG-INFO
