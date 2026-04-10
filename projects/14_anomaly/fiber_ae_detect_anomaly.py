@@ -22,7 +22,7 @@ for i in range(10):
     data[-1] = data[-1].to(torch.float32).unsqueeze(1).to(device)
 
 # -------------------------- load trained model --------------------------
-bottleneck_layers = 1 #1
+bottleneck_layers = 2 #1
 
 model = torch.load(BASE_DIR / f'../../models/fiber_ae_{bottleneck_layers}_{domain_size}.pt2', weights_only=False, map_location=device)
 model.eval()
@@ -37,7 +37,7 @@ with torch.no_grad():
         errors.append((reconstructions[-1] - fibers.cpu())**2)
 
 # ---------------------------- postprocessing ----------------------------
-anomaly_deg = 1 # 0 does not work
+anomaly_deg = 0 # 0 does not work
 sample = 0
 
 fig, ax = plt.subplots()
@@ -56,3 +56,5 @@ ax.imshow(errors[anomaly_deg][sample][0].T, origin='lower',
 plt.show()
 
 # TODO INCREASE MINIMUM FIBER SIZE
+# TODO CHECK DATASET
+# TODO MAYBE FEWER BOTTLENECK LAYERS BETTER? -> SHOULD/COULD BE 1x1 CONVOLUTIONS?
