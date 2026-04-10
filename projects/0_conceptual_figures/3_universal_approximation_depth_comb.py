@@ -4,6 +4,7 @@ from postprocessing import save_csv
 from NN import MLP
 
 torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
 device = torch.device('cpu')
 
 neurons = 3

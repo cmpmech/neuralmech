@@ -136,7 +136,7 @@ if __name__ == "__main__":
 
 # ------------------------- book postprocessing --------------------------
         fig, ax = plt.subplots(figsize=(2, 2), dpi=N)
-        ax.imshow(domains[0], cmap="binary", origin='lower')
+        ax.imshow(domains[0].T, cmap="binary", origin='lower')
         ax.set_aspect("equal")
         ax.axis("off")
         ax.set_rasterized(True)

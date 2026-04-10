@@ -8,6 +8,7 @@ import time
 from tqdm import tqdm
 
 torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
 device = torch.device('cpu')
 
 # -------------------------- training settings ---------------------------

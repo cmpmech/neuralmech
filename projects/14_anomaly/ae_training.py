@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 BASE_DIR = Path(__file__).parent
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.manual_seed(42)
+torch.backends.cudnn.deterministic = True
 # -------------------------- training settings ---------------------------
 epochs = 1000 #3000 #3000
 lr = 4e-3 #4e-3

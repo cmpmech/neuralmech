@@ -8,6 +8,7 @@ from NN import MLP
 from DL import init_weights
 
 torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
 device = torch.device('cpu')
 
 # -------------------------- training settings ---------------------------

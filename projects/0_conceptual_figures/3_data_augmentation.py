@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from postprocessing import show_image
 
 torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
 
 # ------------------------------ load image ------------------------------
 img = Image.open('../../data/images/pasta.jpg').convert('RGB')

@@ -20,20 +20,7 @@ data = []
 for label in labels:
     data.append(torch.from_numpy(
         np.load(BASE_DIR / f"../../data/shapes_{label}_{domain_size}.npy")))
-    data[-1] = data[-1].to(torch.float32).unsqueeze(1)
-
-
-
-# # TESSTING
-# test = data[3][0,0]
-# for i in range(1, 4):
-#     test += data[3][i,0]
-
-# fig, ax = plt.subplots()
-# ax.imshow(test, origin='lower')
-# plt.show()
-
-
+    data[-1] = data[-1].to(torch.float32).unsqueeze(1).to(device)
 
 # -------------------------- load trained model --------------------------
 model = torch.load(BASE_DIR / f'../../models/shape_ae_{domain_size}.pt2', weights_only=False, map_location=device)
@@ -47,7 +34,7 @@ with torch.no_grad():
         latents.append(model.encode(standardizex(shape)).cpu())
 
 # ------------------------ latent space sampling -------------------------
-box = 2
+box = 1
 
 if box == 1:
     samplesx = 10
@@ -61,7 +48,7 @@ elif box == 2:
     y = torch.linspace(0.6, 1.5, samplesy)
 
 x, y = torch.meshgrid(x, y, indexing='ij')
-z = torch.cat([x.reshape(-1, 1), y.reshape(-1, 1)], dim=1)
+z = torch.cat([x.reshape(-1, 1), y.reshape(-1, 1)], dim=1).to(device)
 
 with torch.no_grad():
     gen_shapes = standardizex.inverse(model.decode(z))
@@ -96,7 +83,7 @@ for label, latent in zip(labels, latents):
 for i in range(samplesx):
     for j in range(samplesy):
         fig, ax = plt.subplots(figsize=(1, 1), dpi=domain_size)
-        ax.imshow(gen_shapes[i, j].cpu(), cmap="binary", origin='lower', vmin=0, vmax=1)
+        ax.imshow(gen_shapes[i, j].cpu().T, cmap="binary", origin='lower', vmin=0, vmax=1)
         ax.set_aspect("equal")
         ax.axis("off")
         ax.set_rasterized(True)

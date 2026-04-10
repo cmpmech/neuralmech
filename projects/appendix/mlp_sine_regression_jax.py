@@ -6,6 +6,7 @@ import numpy as np
 import optax
 from torch.utils.data import TensorDataset, DataLoader
 import torch
+torch.backends.cudnn.deterministic = True
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import time
