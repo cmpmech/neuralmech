@@ -48,7 +48,7 @@ def generate_squares(N, num_circles, num_squares, width=0.2,
 N = 256 #128
 
 # ------------------------- generate normal data -------------------------
-samples = 200
+samples = 500
 
 domains = np.zeros((samples, N, N))
 for i in range(samples):
