@@ -11,7 +11,7 @@ from torchinfo import summary
 from tqdm import tqdm
 
 from DL import Standardizer, build_ae_cnn_config, init_weights
-from NN import AE, DCN, MLP, VAE
+from NN import AE, DCN, MLP
 
 BASE_DIR = Path(__file__).parent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

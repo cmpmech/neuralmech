@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+# -------------------------------- helper --------------------------------
 def generate_circle(N, domain_length=1, radius=0.4):
     domain = np.zeros((N, N))
     x = np.linspace(0, domain_length, N)
