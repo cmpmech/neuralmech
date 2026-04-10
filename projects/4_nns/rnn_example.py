@@ -9,6 +9,7 @@ from DL import init_weights
 from postprocessing import save_csv
 
 torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # -------------------------- training settings ---------------------------

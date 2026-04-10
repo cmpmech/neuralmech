@@ -1,4 +1,5 @@
 import torch
+torch.backends.cudnn.deterministic = True
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 

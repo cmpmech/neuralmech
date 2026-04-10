@@ -12,6 +12,7 @@ import time
 
 BASE_DIR = Path(__file__).parent
 torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
 device = torch.device('cpu')  # faster on cpu, because matrices are small
 
 # --------------------------- fitting settings ---------------------------

@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from NN import MLP as MLPtorch
 from torch import nn
 import torch
+torch.backends.cudnn.deterministic = True
 
 np.random.seed(1)
 

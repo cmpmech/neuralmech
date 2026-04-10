@@ -9,6 +9,7 @@ import numpy as np
 from tqdm import tqdm
 
 torch.manual_seed(1)
+torch.backends.cudnn.deterministic = True
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 activation_id = None
 

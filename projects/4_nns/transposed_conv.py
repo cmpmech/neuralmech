@@ -8,6 +8,7 @@ from postprocessing import show_image
 
 BASE_DIR = Path(__file__).parent
 torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 img = np.asarray(Image.open(BASE_DIR / '../../data/images/onions.jpg').convert('L')).copy()

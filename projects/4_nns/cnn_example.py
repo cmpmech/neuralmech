@@ -8,6 +8,7 @@ from NN import DCN
 from DL import init_weights
 
 torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # -------------------------- training settings ---------------------------

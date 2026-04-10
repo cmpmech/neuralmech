@@ -7,6 +7,7 @@ import numpy as np
 from postprocessing import save_csv
 
 torch.manual_seed(1)
+torch.backends.cudnn.deterministic = True
 
 # ------------------------------- NN model -------------------------------
 use_normalization = True

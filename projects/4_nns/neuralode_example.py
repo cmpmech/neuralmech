@@ -9,6 +9,7 @@ from postprocessing import save_csv
 from NN import MLP, NODE
 
 torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
 device = torch.device('cpu') # faster on a cpu
 
 # -------------------------- training settings ---------------------------

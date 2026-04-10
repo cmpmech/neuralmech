@@ -6,6 +6,7 @@ from torchvision.models.segmentation import deeplabv3_resnet101, DeepLabV3_ResNe
 from torchvision.models.detection import fasterrcnn_resnet50_fpn_v2, FasterRCNN_ResNet50_FPN_V2_Weights
 from torchvision.utils import draw_bounding_boxes
 import torch
+torch.backends.cudnn.deterministic = True
 import numpy as np
 from postprocessing import show_image
 

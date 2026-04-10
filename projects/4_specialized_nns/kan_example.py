@@ -7,6 +7,7 @@ from tqdm import tqdm
 from NN import KAN
 
 torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # -------------------------- training settings ---------------------------

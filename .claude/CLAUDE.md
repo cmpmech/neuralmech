@@ -40,6 +40,21 @@ git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
 
 All project scripts use `BASE_DIR = Path(__file__).parent` (with `from pathlib import Path`) so that file paths are relative to the script's location, not the working directory. Apply this pattern to every new script that reads or writes files.
 
+## Reproducibility
+
+Every PyTorch script must include these two lines at the top level (after device setup):
+```python
+torch.manual_seed(<seed>)
+torch.backends.cudnn.deterministic = True
+```
+This ensures consistent results across runs on GPU.
+
+When loading models with `torch.load`, always pass `map_location=device` directly instead of calling `.to(device)` afterward:
+```python
+model = torch.load('model.pt2', weights_only=False, map_location=device)  # correct
+model = torch.load('model.pt2', weights_only=False).to(device)             # avoid
+```
+
 ## Key Conventions
 
 - **Architecture style**: All networks are `nn.Module` subclasses; take `layers`, `activations`, `normalizations` lists — length-matched to layer count
