@@ -4,6 +4,8 @@ results/animations/*
 !results/animations.gitkeep
 data/*
 !data/.gitkeep
+models/*
+!models/.gitkeep
 external_data/*
 !external_data/.gitkeep
 tmp/*
