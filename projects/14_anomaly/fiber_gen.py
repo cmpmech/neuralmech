@@ -52,8 +52,10 @@ samples = 500
 
 domains = np.zeros((samples, N, N))
 for i in range(samples):
-    num_circles = np.random.randint(1, 10)
-    radius = np.random.uniform(0.02, 0.1)
+    # num_circles = np.random.randint(1, 10)
+    # radius = np.random.uniform(0.02, 0.1)
+    num_circles = np.random.randint(5, 10)
+    radius = np.random.uniform(0.06, 0.12)
     domains[i] = generate_circles(N, num_circles, radius)
 
 # -------------------------------- export --------------------------------
@@ -80,7 +82,8 @@ num_circles = 10
 for num_squares in range(num_circles):
     domains = np.zeros((samples, N, N))
     for i in range(samples):
-        radius = np.random.uniform(0.02, 0.2)
+        # radius = np.random.uniform(0.02, 0.2)
+        radius = np.random.uniform(0.06, 0.12)
         domains[i] = generate_squares(N, num_circles - num_squares,
                                       num_squares, radius)
 
