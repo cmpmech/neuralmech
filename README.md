@@ -4,6 +4,12 @@
 **NeuralMech** is a collection of ml-enhanced physics solvers & optimizers answering
 <p align="center"><b><i>When and where is deep learning useful in numerical simulation?</i></b></p>
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".assets/images/logo_dark.png">
+  <source media="(prefers-color-scheme: light)" srcset=".assets/images/logo_light.png">
+  <img src="logo-light.png" alt="NeuralMech">
+</picture>
+
 **Features**
 - simplistic & extendable implementations
 - reproducible results
