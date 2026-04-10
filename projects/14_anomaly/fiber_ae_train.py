@@ -33,7 +33,7 @@ channel_dim = 1
 kernel_size = 3
 act = partial(nn.PReLU, init=0.2)
 
-bottleneck_layers = 4 # run with 0, 1, 2, 3, (4)?
+bottleneck_layers = 2 # run with 0, 1, 2, 3, (4)?
 # act = nn.GELU
 compression = 2**(-depth - bottleneck_layers)
 print(f'compression ratio {compression * 100:.2f} %')
