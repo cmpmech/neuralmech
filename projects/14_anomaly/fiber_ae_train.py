@@ -18,8 +18,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 # -------------------------- training settings ---------------------------
-epochs = 600
-lr = 2e-3
+epochs = 300 #600
+lr = 4e-3 #2e-3 #2e-3
 weight_decay = 1e-2
 batch_size = 32
 
@@ -33,18 +33,18 @@ channel_dim = 1
 kernel_size = 3
 act = partial(nn.PReLU, init=0.2)
 
-
 bottleneck_layers = 2
 # act = nn.GELU
-# latent_dim = 128
+compression = 2**(-depth - bottleneck_layers)
+print(f'compression ratio {compression * 100:.2f} %')
 # ----------------------------- prepare data -----------------------------
 domain_size = 256
 
 data = torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_{domain_size}.npy"))
 data = data.to(torch.float32).unsqueeze(1)
 
-clip = 80 # 40 worse than 20?     #160 #80 #80  # 40 # TODO
-data = data[:clip]
+# clip = 380 #160 #80 # 40 worse than 20?     #160 #80 #80  # 40 # TODO
+# data = data[:clip]
 
 dataset = TensorDataset(data)
 train_data, val_data = random_split(dataset, [0.9, 0.1])
@@ -160,6 +160,7 @@ fig, ax = plt.subplots()
 ax.plot(train_cost, "k")
 ax.plot(val_cost, "r")
 ax.set_yscale("log")
+plt.savefig(BASE_DIR / '../../tmp/history.png')
 plt.show()
 
 
@@ -183,6 +184,7 @@ for i in range(2):
     ax[i].axis("off")
     ax[i].set_rasterized(True)
 fig.tight_layout(pad=0)
+plt.savefig(BASE_DIR / '../../tmp/prediction.png')
 plt.show()
 
 
