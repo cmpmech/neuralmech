@@ -8,6 +8,7 @@ from scipy.spatial.distance import mahalanobis
 
 BASE_DIR = Path(__file__).parent
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+torch.backends.cudnn.deterministic = True
 
 # ----------------------------- select case ------------------------------
 problem = 'k'
@@ -40,7 +41,7 @@ x_n = torch.from_numpy(np.load(path)).to(torch.float32).to(device)
 
 # -------------------------- load trained model --------------------------
 seq_len = 128
-model = torch.load(BASE_DIR / f'../../models/ae_3dof_{seq_len}.pt2', weights_only=False).to(device)
+model = torch.load(BASE_DIR / f'../../models/ae_3dof_{seq_len}.pt2', weights_only=False, map_location=device)
 model.eval()
 standardizex = model.standardizer
 

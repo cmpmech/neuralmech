@@ -9,6 +9,8 @@ from torch_geometric.nn import GATConv, GCNConv, GINConv, SAGEConv
 from torch_geometric.nn.conv.message_passing import HookDict
 from torchdiffeq import odeint
 
+torch.backends.cudnn.deterministic = True
+
 
 # TODO: helper
 def get_layer_param(param, i):
