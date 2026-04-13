@@ -1,7 +1,6 @@
 from functools import partial
 from pathlib import Path
 
-import cmasher as cmr
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -17,9 +16,10 @@ BASE_DIR = Path(__file__).parent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(42)
 torch.backends.cudnn.deterministic = True
+
 # -------------------------- training settings ---------------------------
-epochs = 300 #600
-lr = 4e-3 #2e-3 #2e-3
+epochs = 300
+lr = 4e-3
 weight_decay = 1e-2
 batch_size = 32
 
@@ -33,22 +33,21 @@ channel_dim = 1
 kernel_size = 3
 act = partial(nn.PReLU, init=0.2)
 
-bottleneck_layers = 2 # run with 0, 1, 2, 3, (4)?
-# act = nn.GELU
-compression = 2**(-depth - bottleneck_layers)
-print(f'compression ratio {compression * 100:.2f} %')
+bottleneck_layers = 1  # controls compression ratio
+compression = 2 ** (-depth - bottleneck_layers)
+print(f"compression ratio {compression * 100:.2f} %")
+
 # ----------------------------- prepare data -----------------------------
 domain_size = 256
 
 data = torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_{domain_size}.npy"))
 data = data.to(torch.float32).unsqueeze(1)
 
-# clip = 380 #160 #80 # 40 worse than 20?     #160 #80 #80  # 40 # TODO
-# data = data[:clip]
-
 dataset = TensorDataset(data)
 train_data, val_data = random_split(dataset, [0.9, 0.1])
-train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
+train_loader = DataLoader(
+    train_data, batch_size=batch_size, shuffle=True, drop_last=True
+)
 val_loader = DataLoader(val_data, batch_size=len(val_data), shuffle=True)  # full batch
 
 X_train = train_data.dataset.tensors[0][train_data.indices]
@@ -58,15 +57,13 @@ standardizex = Standardizer(X_train, dim=(0, 2, 3))
 channels, strides = build_ae_cnn_config(depth, conv_layers, channel_dim, base)
 channels[0] = 1  # true input size (in case channel_dim != 1)
 
-bottleneck_channels = [int(channels[-1] / 2**(i + 1)) for i in range(bottleneck_layers)]
+bottleneck_channels = [
+    int(channels[-1] / 2 ** (i + 1)) for i in range(bottleneck_layers)
+]
 bottleneck_strides = [1] * bottleneck_layers
 
 channels += bottleneck_channels
 strides += bottleneck_strides
-
-
-# red_domain_size = domain_size // 2**depth
-# layers = [red_domain_size**2 * channels[-1], latent_dim]
 
 Encoder = nn.Sequential()
 Encoder.append(
@@ -81,21 +78,13 @@ Encoder.append(
     )
 )
 
-# Encoder.append(nn.Flatten())
-# Encoder.append(MLP(layers, [act()]))
-
 upsamplings = [
-    # nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
-    nn.Upsample(scale_factor=2, mode="nearest")
-    if s == 2
-    else None
+    nn.Upsample(scale_factor=2, mode="nearest") if s == 2 else None
     for s in strides[::-1]
 ]
 
-
 Decoder = nn.Sequential()
-# Decoder.append(MLP([latent_dim, red_domain_size**2 * channels[-1]], [act()]))
-# Decoder.append(nn.Unflatten(1, (channels[-1], red_domain_size, red_domain_size)))
+
 Decoder.append(
     DCN(
         channels[::-1],
@@ -153,8 +142,10 @@ for epoch in pbar:
         )
 
 # ----------------------------- export model -----------------------------
-model.standardizer = standardizex # just for saving
-torch.save(model, BASE_DIR / f'../../models/fiber_ae_{bottleneck_layers}_{domain_size}.pt2')
+model.standardizer = standardizex  # just for saving
+torch.save(
+    model, BASE_DIR / f"../../models/fiber_ae_{bottleneck_layers}_{domain_size}.pt2"
+)
 
 # ---------------------------- postprocessing ----------------------------
 fig, ax = plt.subplots()
@@ -164,10 +155,7 @@ ax.set_yscale("log")
 # plt.savefig(BASE_DIR / '../../tmp/history.png')
 plt.show()
 
-
-
-
-###### TESTING
+# testing
 model.eval()
 
 # x = next(iter(train_loader))
