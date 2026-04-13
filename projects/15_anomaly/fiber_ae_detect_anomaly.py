@@ -4,6 +4,7 @@ import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from matplotlib.colors import LogNorm
 
 from postprocessing import save_csv
 
@@ -16,13 +17,13 @@ torch.backends.cudnn.deterministic = True
 domain_size = 256
 
 data = []
-for i in range(10):
+for i in range(11):
     data.append(torch.from_numpy(
         np.load(BASE_DIR / f"../../data/fibers_anomaly_{i}_{domain_size}.npy")))
     data[-1] = data[-1].to(torch.float32).unsqueeze(1).to(device)
 
 # -------------------------- load trained model --------------------------
-bottleneck_layers = 2 #1
+bottleneck_layers = 1 #1 # but even 0 seems fine?
 
 model = torch.load(BASE_DIR / f'../../models/fiber_ae_{bottleneck_layers}_{domain_size}.pt2', weights_only=False, map_location=device)
 model.eval()
@@ -37,24 +38,55 @@ with torch.no_grad():
         errors.append((reconstructions[-1] - fibers.cpu())**2)
 
 # ---------------------------- postprocessing ----------------------------
-anomaly_deg = 0 # 0 does not work
+anomaly_deg = 0 #1 #10 #0 #1
 sample = 0
 
-fig, ax = plt.subplots()
+# reconstructions
+fig, ax = plt.subplots(figsize=(1,1), dpi=domain_size)
 ax.imshow(data[anomaly_deg][sample][0].T.cpu(), origin='lower',
           cmap='binary', vmin=0, vmax=1)
+ax.axis("off")
+fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+plt.savefig(
+    f"../../results/fibers_detection_true_{anomaly_deg}.pdf", bbox_inches="tight",
+    pad_inches=0
+)
 plt.show()
 
-fig, ax = plt.subplots()
+fig, ax = plt.subplots(figsize=(1,1), dpi=domain_size)
 ax.imshow(reconstructions[anomaly_deg][sample][0].T, origin='lower',
           cmap='binary', vmin=0, vmax=1)
+ax.axis("off")
+fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+plt.savefig(
+    f"../../results/fibers_detection_pred_{anomaly_deg}.pdf", bbox_inches="tight",
+    pad_inches=0
+)
 plt.show()
 
-fig, ax = plt.subplots()
+fig, ax = plt.subplots(figsize=(1,1), dpi=domain_size)
 ax.imshow(errors[anomaly_deg][sample][0].T, origin='lower',
-          cmap='hot_r', vmin=0)
+          cmap='hot_r', norm=LogNorm(vmin=1e-5, vmax=1.3))
+ax.axis("off")
+fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+plt.savefig(
+    f"../../results/fibers_detection_error_{anomaly_deg}.pdf", bbox_inches="tight",
+    pad_inches=0
+)
 plt.show()
+
+# histogram
+fig, ax = plt.subplots()
+for i, error in enumerate(errors):
+    ax.hist(torch.mean(error, dim=(1,2,3)), bins=50)
+plt.show()
+
+for i, error in enumerate(errors):
+    save_csv(f'../../results/fibers_mean_error_{i}.csv', x=torch.arange(1, error.shape[0] + 1), y=torch.mean(error, dim=(1,2,3)))
+
 
 # TODO INCREASE MINIMUM FIBER SIZE # BUG FIX
 # TODO CHECK DATASET
 # TODO MAYBE FEWER BOTTLENECK LAYERS BETTER? -> SHOULD/COULD BE 1x1 CONVOLUTIONS?
+
+# ---------------------------- distributions -----------------------------
