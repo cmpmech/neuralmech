@@ -27,7 +27,7 @@ batch_size = 32
 cost_fun = nn.MSELoss(reduction="mean")
 
 # ---------------------------- model settings ----------------------------
-base, depth, latent_dim = 2, 5, 2 # 2 as latent_dim for visualization
+base, depth, latent_dim = 2, 5, 2  # 2 as latent_dim for visualization
 conv_layers = 1
 channel_dim = 1
 kernel_size = 3
@@ -36,11 +36,14 @@ act = partial(nn.PReLU, init=0.2)
 # ----------------------------- prepare data -----------------------------
 domain_size = 128
 
-labels = ['circle', 'ellipse', 'square', 'triangle', 'cross', 'star']
+labels = ["circle", "ellipse", "square", "triangle", "cross", "star"]
 data = []
 for label in labels:
-    data.append(torch.from_numpy(
-        np.load(BASE_DIR / f"../../data/shapes_{label}_{domain_size}.npy")))
+    data.append(
+        torch.from_numpy(
+            np.load(BASE_DIR / f"../../data/shapes_{label}_{domain_size}.npy")
+        )
+    )
 data = torch.from_numpy(np.concatenate(data, axis=0))
 data = data.to(torch.float32).unsqueeze(1)
 
@@ -73,7 +76,7 @@ Encoder.append(
     )
 )
 Encoder.append(nn.Flatten())
-Encoder.append(MLP(layers, [act()]))
+Encoder.append(MLP(layers, [act() for _ in range(len(layers) - 1)]))
 
 upsamplings = [
     nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
@@ -84,7 +87,8 @@ upsamplings = [
 
 
 Decoder = nn.Sequential()
-Decoder.append(MLP([latent_dim, red_domain_size**2 * channels[-1]], [act()]))
+Decoder.append(MLP(layers[::-1], [act() for _ in range(len(layers) - 1)]))
+# Decoder.append(MLP([latent_dim, red_domain_size**2 * channels[-1]], [act()]))
 Decoder.append(nn.Unflatten(1, (channels[-1], red_domain_size, red_domain_size)))
 Decoder.append(
     DCN(
@@ -143,8 +147,8 @@ for epoch in pbar:
         )
 
 # ----------------------------- export model -----------------------------
-model.standardizer = standardizex # just for saving
-torch.save(model, BASE_DIR / f'../../models/shape_ae_{domain_size}.pt2')
+model.standardizer = standardizex  # just for saving
+torch.save(model, BASE_DIR / f"../../models/shape_ae_{domain_size}.pt2")
 
 # ---------------------------- postprocessing ----------------------------
 fig, ax = plt.subplots()
