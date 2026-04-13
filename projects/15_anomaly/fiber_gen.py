@@ -57,17 +57,17 @@ for i in range(samples):
     # radius = np.random.uniform(0.02, 0.1)
     num_circles = np.random.randint(5, 10)
     radius = np.random.uniform(0.05, 0.1)
+    # radius = 0.08
     domains[i] = generate_circles(N, num_circles, radius)
 
 # -------------------------------- export --------------------------------
 np.save(f'../../data/fibers_{N}.npy', domains)
 
 # ---------------------------- postprocessing ----------------------------
-fig, ax = plt.subplots(figsize=(2,2), dpi=N)
+fig, ax = plt.subplots(figsize=(1,1), dpi=N)
 ax.imshow(domains[0], cmap='binary')
 ax.set_aspect("equal")
 ax.axis("off")
-ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 plt.savefig(
     f"../../results/fibers.pdf", bbox_inches="tight", pad_inches=0
@@ -80,12 +80,12 @@ samples = 50
 num_circles = 10
 
 
-for num_squares in range(num_circles):
+for num_squares in range(num_circles + 1):
     domains = np.zeros((samples, N, N))
     for i in range(samples):
         # radius = np.random.uniform(0.02, 0.2)
         radius = np.random.uniform(0.05, 0.1)
-        # radius = 0.15
+        radius = 0.08
         domains[i] = generate_squares(N, num_circles - num_squares,
                                       num_squares, radius)
 
@@ -95,11 +95,9 @@ for num_squares in range(num_circles):
 # ---------------------------- postprocessing ----------------------------
     if num_squares == 1:
 
-        fig, ax = plt.subplots(figsize=(2,2), dpi=N)
+        fig, ax = plt.subplots(figsize=(1,1), dpi=N)
         ax.imshow(domains[0], cmap='binary')
-        ax.set_aspect("equal")
         ax.axis("off")
-        ax.set_rasterized(True)
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         plt.savefig(
             f"../../results/fibers_anomaly.pdf", bbox_inches="tight",
