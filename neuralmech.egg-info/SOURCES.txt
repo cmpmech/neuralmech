@@ -2,10 +2,15 @@ DL.py
 LICENSE
 NN.py
 README.md
-banner.py
 postprocessing.py
 pyproject.toml
 neuralmech.egg-info/PKG-INFO
 neuralmech.egg-info/SOURCES.txt
 neuralmech.egg-info/dependency_links.txt
 neuralmech.egg-info/top_level.txt
+solvers/__init__.py
+solvers/bouncing_balls.py
+solvers/dynamic_mdof.py
+solvers/scalar_wave.py
+solvers/scalar_wave_sensitivity.py
+solvers/truss.py

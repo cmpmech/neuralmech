@@ -7,4 +7,5 @@ name = "neuralmech"
 version = "0.1.0"
 
 [tool.setuptools]
+packages = ["solvers"]
 py-modules = ["NN", "DL", "postprocessing"]
