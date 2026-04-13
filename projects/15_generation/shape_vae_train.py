@@ -18,12 +18,20 @@ torch.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 
 # -------------------------- training settings ---------------------------
-epochs = 600
-lr = 2e-3
+epochs = 100 #500 #500 #300 #600
+lr = 4e-3 #2e-3
 weight_decay = 1e-2
 batch_size = 32
 
-beta = 300.0
+# beta = lambda epoch : 0. # works for showing latent space issue
+# beta = lambda epoch : 0.01 # VERY GOOD RECONSTRUCTION
+# beta = lambda epoch : 0.04 / epochs * epoch + 0.01 # VERY GOOD LATENT SPACE -> maybe increase iterations? -> didn't help
+# beta = lambda epoch : 0.02 / epochs * epoch + 0.01 # COULD BE A COMPROMISE
+
+beta = lambda epoch : 100
+
+
+# TODO next step: testing -> interpolation plot as
 
 # define loss TODO: could also both be with mean/sum
 recon_loss = nn.MSELoss(reduction="mean")
@@ -33,16 +41,21 @@ def kl_div(mean_pred, logvar_pred):
     var_pred = torch.exp(logvar_pred)
     kl = 0.5 * torch.mean(var_pred + mean_pred**2 - logvar_pred - 1)
     return kl
+# def kl_div(mean_pred, logvar_pred):
+#     var_pred = torch.exp(logvar_pred)
+#     kl = 0.5 * torch.sum(var_pred + mean_pred**2 - logvar_pred - 1, dim=1)
+#     return kl.mean()  # mean over batch, sum over latent dims
+
 
 
 def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
     mse = recon_loss(x_pred, x)
     kl = kl_div(mean_pred, logvar_pred)
-    return mse + beta * kl
+    return 0 *mse + beta * kl
 
 
 # ---------------------------- model settings ----------------------------
-base, depth, latent_dim = 2, 5, 2  # 2 as latent_dim for visualization
+base, depth, latent_dim = 2, 5, 2 #2  # 2 as latent_dim for visualization
 conv_layers = 1
 channel_dim = 1
 kernel_size = 3
@@ -127,6 +140,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_dec
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     optimizer, T_max=epochs, eta_min=lr * 1e-2
 )
+# scheduler = None
 
 # ------------------------------- training -------------------------------
 print_every = 10
@@ -139,7 +153,7 @@ for epoch in pbar:
         x = standardizex(x[0]).to(device)  # unwrap & standardize
         optimizer.zero_grad()
         x_pred, mean_pred, logvar_pred = model(x)
-        cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta)
+        cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta(epoch))
         # x_pred = model(x)
         # cost = cost_fun(x_pred, x)
         cost.backward()
@@ -154,7 +168,7 @@ for epoch in pbar:
         for x in val_loader:
             x = standardizex(x[0]).to(device)  # unwrap & standardize
             x_pred, mean_pred, logvar_pred = model(x)
-            cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta)
+            cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta(epoch))
             # x_pred = model(x)
             # cost = cost_fun(x_pred, x)
             val_cost[epoch] += cost.item()
@@ -192,22 +206,78 @@ plt.show()
 
 
 model.eval()
-fig, ax = plt.subplots(10, 3, figsize=(6, 20), dpi=domain_size)
-x = next(iter(train_loader))
-# x = next(iter(val_loader))
-x = standardizex(x[0]).to(device)  # unwrap & standardize
-x_pred = model(x)
-for i in range(10):
-    ax[i, 0].imshow(standardizex.inverse(x.cpu())[i, 0], cmap="binary", vmin=0, vmax=1)
-    ax[i, 1].imshow(
-        standardizex.inverse(x_pred.detach().cpu())[i, 0], cmap="binary", vmin=0, vmax=1
-    )
-    ax[i, 2].imshow(((x_pred.detach() - x).cpu() ** 2)[i, 0], cmap="hot_r")
+samples = 4
+z = torch.randn(samples, latent_dim, device=device)
+with torch.no_grad():
+    x_pred = standardizex.inverse(model.decode(z).cpu())[:,0,:,:]
 
-    for j in range(3):
-        ax[i, j].set_aspect("equal")
-        ax[i, j].axis("off")
-        ax[i, j].set_rasterized(True)
+fig, ax = plt.subplots(1, 4, figsize=(8, 1), dpi=domain_size)
+for i in range(4):
+    ax[i].imshow(x_pred[i], cmap="binary", vmin=0, vmax=1)
+    ax[i].set_aspect("equal")
+    ax[i].axis("off")
+    ax[i].set_rasterized(True)
 fig.tight_layout(pad=0)
 plt.savefig(BASE_DIR / f"../../tmp/prediction_{timestamp}.png")
 plt.show()
+
+
+# latent space
+if latent_dim == 2:
+    fig, ax = plt.subplots()
+
+    with torch.no_grad():
+        for x in train_loader:
+            distributions = model.encode(standardizex(x[0]).to(device))
+            mean, logvar = torch.chunk(distributions, chunks=2, dim=1)
+            std = torch.exp(0.5 * logvar)
+            z = mean + torch.randn_like(std) * std
+            z = z.cpu()
+            ax.plot(z[:,0], z[:,1], 'ko', markersize=2)
+
+        # for x in train_loader:
+        #     _, z, _ = model(standardizex(x[0]).to(device))
+        #     z = z.cpu()
+        #     ax.plot(z[:,0], z[:,1], 'ko')
+        for x in val_loader:
+            _, z, logvar = model(standardizex(x[0]).to(device)) # TODO remove logvar
+            z = z.cpu()
+            ax.plot(z[:,0], z[:,1], 'ro')
+            print(logvar.mean())
+            print(z.mean())
+    plt.savefig(BASE_DIR / f"../../tmp/latents_{timestamp}.png")
+    plt.show()
+
+# TODO DEBUGGING -> ADD MORE SAMPLES + CLEAN UP
+# DO SAME LATENT SPACE SAMPLING WITH BETA NOT AS HIGH
+# INCREASE SAMPLES BACK TO 500
+
+
+
+
+
+
+# fig, ax = plt.subplots(10, 3, figsize=(6, 20), dpi=domain_size)
+
+
+
+
+# fig, ax = plt.subplots(10, 3, figsize=(6, 20), dpi=domain_size)
+# x = next(iter(train_loader))
+# # x = next(iter(val_loader))
+# x = standardizex(x[0]).to(device)  # unwrap & standardize
+# x_pred = model(x)
+# for i in range(10):
+#     ax[i, 0].imshow(standardizex.inverse(x.cpu())[i, 0], cmap="binary", vmin=0, vmax=1)
+#     ax[i, 1].imshow(
+#         standardizex.inverse(x_pred.detach().cpu())[i, 0], cmap="binary", vmin=0, vmax=1
+#     )
+#     ax[i, 2].imshow(((x_pred.detach() - x).cpu() ** 2)[i, 0], cmap="hot_r")
+
+#     for j in range(3):
+#         ax[i, j].set_aspect("equal")
+#         ax[i, j].axis("off")
+#         ax[i, j].set_rasterized(True)
+# fig.tight_layout(pad=0)
+# plt.savefig(BASE_DIR / f"../../tmp/prediction_{timestamp}.png")
+# plt.show()
