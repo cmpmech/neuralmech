@@ -31,7 +31,7 @@ beta = 0.05
 # beta = 0.2
 
 model = torch.load(
-    BASE_DIR / f"../../models/shape_vae_{beta}_{domain_size}.pt2",
+    BASE_DIR / f"../../models/shape_vae_2_{beta}_{domain_size}.pt2",
     weights_only=False,
     map_location=device,
 )
