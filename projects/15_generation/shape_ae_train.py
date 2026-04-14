@@ -46,6 +46,7 @@ for label in labels:
     )
 data = torch.from_numpy(np.concatenate(data, axis=0))
 data = data.to(torch.float32).unsqueeze(1)
+data = data[:768] # more data available (1536)
 
 dataset = TensorDataset(data)
 train_data, val_data = random_split(dataset, [0.9, 0.1])

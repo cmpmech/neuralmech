@@ -18,17 +18,27 @@ torch.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 
 # -------------------------- training settings ---------------------------
-epochs = 100 #500 #500 #300 #600
-lr = 4e-3 #2e-3
-weight_decay = 1e-2
-batch_size = 32
+epochs = 600 #500 #500 #500 #300 #600
+lr = 1e-2 #4e-3 #1e-2 #4e-3 #2e-3
+weight_decay = 1e-2 #0 #1e-2
+batch_size = 64 #32
 
-# beta = lambda epoch : 0. # works for showing latent space issue
-# beta = lambda epoch : 0.01 # VERY GOOD RECONSTRUCTION
+# beta = 0. # GOOD RECONSTRUCTION
+beta = 0.05 # latents goodish/reconstruction okayish
+# beta = 0.2 # GOOD LATENT
+
+
+
+
+
+# beta = lambda epoch : 0.01 # VERY GOOD RECONSTRUCTION, but latent not so good
+
 # beta = lambda epoch : 0.04 / epochs * epoch + 0.01 # VERY GOOD LATENT SPACE -> maybe increase iterations? -> didn't help
 # beta = lambda epoch : 0.02 / epochs * epoch + 0.01 # COULD BE A COMPROMISE
 
-beta = lambda epoch : 100
+
+
+# beta = lambda epoch : 100
 
 
 # TODO next step: testing -> interpolation plot as
@@ -51,7 +61,7 @@ def kl_div(mean_pred, logvar_pred):
 def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
     mse = recon_loss(x_pred, x)
     kl = kl_div(mean_pred, logvar_pred)
-    return 0 *mse + beta * kl
+    return mse + beta * kl
 
 
 # ---------------------------- model settings ----------------------------
@@ -140,7 +150,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_dec
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     optimizer, T_max=epochs, eta_min=lr * 1e-2
 )
-# scheduler = None
+scheduler = None
 
 # ------------------------------- training -------------------------------
 print_every = 10
@@ -153,7 +163,7 @@ for epoch in pbar:
         x = standardizex(x[0]).to(device)  # unwrap & standardize
         optimizer.zero_grad()
         x_pred, mean_pred, logvar_pred = model(x)
-        cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta(epoch))
+        cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta)
         # x_pred = model(x)
         # cost = cost_fun(x_pred, x)
         cost.backward()
@@ -168,7 +178,7 @@ for epoch in pbar:
         for x in val_loader:
             x = standardizex(x[0]).to(device)  # unwrap & standardize
             x_pred, mean_pred, logvar_pred = model(x)
-            cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta(epoch))
+            cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta)
             # x_pred = model(x)
             # cost = cost_fun(x_pred, x)
             val_cost[epoch] += cost.item()
@@ -180,8 +190,8 @@ for epoch in pbar:
         )
 
 # ----------------------------- export model -----------------------------
-# model.standardizer = standardizex  # just for saving
-# torch.save(model, BASE_DIR / f"../../models/shape_vae_{domain_size}.pt2")
+model.standardizer = standardizex  # just for saving
+torch.save(model, BASE_DIR / f"../../models/shape_vae_{beta}_{domain_size}.pt2")
 
 # ---------------------------- postprocessing ----------------------------
 # fig, ax = plt.subplots()
@@ -223,28 +233,39 @@ plt.show()
 
 
 # latent space
+sampling_steps = 4
+
 if latent_dim == 2:
     fig, ax = plt.subplots()
 
     with torch.no_grad():
-        for x in train_loader:
-            distributions = model.encode(standardizex(x[0]).to(device))
-            mean, logvar = torch.chunk(distributions, chunks=2, dim=1)
-            std = torch.exp(0.5 * logvar)
-            z = mean + torch.randn_like(std) * std
-            z = z.cpu()
-            ax.plot(z[:,0], z[:,1], 'ko', markersize=2)
+        for _ in range(sampling_steps):
+            for x in train_loader:
+                distributions = model.encode(standardizex(x[0]).to(device))
+                mean, logvar = torch.chunk(distributions, chunks=2, dim=1)
+                std = torch.exp(0.5 * logvar)
+                z = mean + torch.randn_like(std) * std
+                z = z.cpu()
+                ax.plot(z[:,0], z[:,1], 'ko', markersize=2)
+
+            for x in val_loader:
+                distributions = model.encode(standardizex(x[0]).to(device))
+                mean, logvar = torch.chunk(distributions, chunks=2, dim=1)
+                std = torch.exp(0.5 * logvar)
+                z = mean + torch.randn_like(std) * std
+                z = z.cpu()
+                ax.plot(z[:,0], z[:,1], 'ro', markersize=2)
 
         # for x in train_loader:
         #     _, z, _ = model(standardizex(x[0]).to(device))
         #     z = z.cpu()
         #     ax.plot(z[:,0], z[:,1], 'ko')
-        for x in val_loader:
-            _, z, logvar = model(standardizex(x[0]).to(device)) # TODO remove logvar
-            z = z.cpu()
-            ax.plot(z[:,0], z[:,1], 'ro')
-            print(logvar.mean())
-            print(z.mean())
+        # for x in val_loader:
+        #     _, z, logvar = model(standardizex(x[0]).to(device)) # TODO remove logvar
+        #     z = z.cpu()
+        #     ax.plot(z[:,0], z[:,1], 'ro')
+        #     print(logvar.mean())
+        #     print(z.mean())
     plt.savefig(BASE_DIR / f"../../tmp/latents_{timestamp}.png")
     plt.show()
 
