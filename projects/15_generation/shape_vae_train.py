@@ -65,7 +65,8 @@ def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
 
 
 # ---------------------------- model settings ----------------------------
-base, depth, latent_dim = 2, 5, 32 #32 # 2 as latent_dim for visualization
+base, depth = 2, 5
+latent_dim = 512 # 2 8 32 128 512 # 2 as latent_dim for visualization
 conv_layers = 1
 channel_dim = 1
 kernel_size = 3
