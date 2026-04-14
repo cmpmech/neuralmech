@@ -9,3 +9,5 @@ python3 frames_to_animation.py --frames_dir ../../results/animations/animation_f
 python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/BM-105 --output ../../results/animations/BM-105.mp4 --pattern "frame_%d.jpg"
 python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/WD-2 --output ../../results/animations/WD-2.mp4 --pattern "frame_%d.jpg"
 python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/WD-150 --output ../../results/animations/WD-150.mp4 --pattern "frame_%d.jpg"
+python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/vae_high_latent_2 --output ../../results/animations/vae_high_latent_2.mp4 --pattern "frame_%d.jpg"
+python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/vae_high_latent_32 --output ../../results/animations/vae_high_latent_32.mp4 --pattern "frame_%d.jpg"

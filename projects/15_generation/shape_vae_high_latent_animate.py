@@ -22,9 +22,8 @@ model.eval()
 standardizex = model.standardizer
 
 # ------------------------ latent space sampling -------------------------
-samples = 15
-scale = 0.3  # 0.2
-# scale = 2.0
+samples = 1000
+scale = 2.0
 
 start = scale * torch.ones((1, latent_dim), dtype=torch.float32, device=device)
 end = -scale * torch.ones((1, latent_dim), dtype=torch.float32, device=device)
@@ -36,21 +35,15 @@ with torch.no_grad():
     gen_shapes = standardizex.inverse(model.decode(z))
 gen_shapes = gen_shapes.squeeze().cpu()
 
-# ---------------------------- postprocessing ----------------------------
-fig, ax = plt.subplots(1, samples, figsize=(samples, 1), dpi=domain_size)
-for i in range(samples):
-    ax[i].imshow(gen_shapes[i].T, cmap="binary", vmin=0, vmax=1, origin="lower")
-    ax[i].axis("off")
-plt.show()
-
-# ------------------------- book postprocessing --------------------------
+# ----------------------- animation postprocessing -----------------------
 for i in range(samples):
     fig, ax = plt.subplots(figsize=(1, 1), dpi=domain_size)
     ax.imshow(gen_shapes[i].T, cmap="binary", origin="lower", vmin=0, vmax=1)
     ax.axis("off")
     fig.tight_layout(pad=0)
     plt.savefig(
-        BASE_DIR / f"../../results/genshapes_vae_high_{latent_dim}_{i}.png",
+        BASE_DIR
+        / f"../../results/animations/animation_frames/vae_high_latent_{latent_dim}/frame_{i}.jpg",
         bbox_inches="tight",
         pad_inches=0,
     )
