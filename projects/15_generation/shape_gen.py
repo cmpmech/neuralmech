@@ -115,7 +115,7 @@ def generate_cross(N, domain_length=1, w=0.2, h=0.8):
 
 if __name__ == "__main__":
     N = 128
-    samples = 128  # per shape
+    samples = 256  # per shape
 
     generators = [
         generate_circle,
