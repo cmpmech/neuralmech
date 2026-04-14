@@ -65,7 +65,7 @@ def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
 
 
 # ---------------------------- model settings ----------------------------
-base, depth, latent_dim = 2, 5, 2 #2  # 2 as latent_dim for visualization
+base, depth, latent_dim = 2, 5, 32 #32 # 2 as latent_dim for visualization
 conv_layers = 1
 channel_dim = 1
 kernel_size = 3
@@ -191,7 +191,7 @@ for epoch in pbar:
 
 # ----------------------------- export model -----------------------------
 model.standardizer = standardizex  # just for saving
-torch.save(model, BASE_DIR / f"../../models/shape_vae_{beta}_{domain_size}.pt2")
+torch.save(model, BASE_DIR / f"../../models/shape_vae_{latent_dim}_{beta}_{domain_size}.pt2")
 
 # ---------------------------- postprocessing ----------------------------
 # fig, ax = plt.subplots()
