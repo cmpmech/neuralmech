@@ -14,6 +14,6 @@ tmp/*
 ./assets/animations
 .idea/
 # /projects/0_conceptual_figures
-/projects/0_helpers
+# /projects/0_helpers
 /solvers/mlhp_build
 /solvers/kenels_build
