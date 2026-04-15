@@ -20,7 +20,7 @@
   <td><img src=".assets/images/book1.png" alt="deep learning in computational mechanics book 1" width="150"></td>
 </tr></table>
 
-As this project is ongoing, feedback is highly welcome. Finished chapters are available on request  — feel free to reach out via [email](#contact).
+As this project is ongoing, feedback is highly welcome. Finished chapters are available on request  — feel free to reach out via [email](#contact). Copies are provided under a personal-use license: no redistribution, sharing, or uploading permitted. By requesting a copy, you agree to these terms.
 
 <details>
 <summary><b>Chapters available on request</b></summary>
