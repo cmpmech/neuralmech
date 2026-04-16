@@ -30,6 +30,8 @@ ackley = Problem(
     f=lambda x: (
         -20 * np.exp(-0.2 * np.sqrt(0.5 * (x[0] ** 2 + x[1] ** 2)))
         - np.exp(0.5 * (np.cos(2 * np.pi * x[0]) + np.cos(2 * np.pi * x[1])))
+        + 20
+        + np.exp(1)
     ),
     guess=[3.0, 3.0],
     xrange=(-4, 4),

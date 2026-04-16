@@ -43,7 +43,7 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 <details>
 <summary><b>Chapters in progress</b></summary>
 
-- **Computational Mechanics meets Artificial Intelligence** (chapter 1)
+- **Computational Mechanics Meets Artificial Intelligence** (chapter 1)
 - **Machine Learning Algorithms** (chapter 6)
 - **Practical Machine Learning** (chapter 7)
 - **Governing Equations** (chapter 8)
@@ -58,7 +58,7 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 <img src=".assets/images/fwi.png" alt="full waveform inversion" width="300">
 
 - **Deep Reinforcement Learning** (chapter 19)
-- **Deep Learning's Future in Computational Mechanics** (chapter 20)
+- **Computational Mechanics After Artificial Intelligence** (chapter 20)
 </details>
 
 ## Requirements
