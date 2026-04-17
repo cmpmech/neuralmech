@@ -4,6 +4,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from optimization_config import ackley as objective
+
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
@@ -14,6 +15,8 @@ parser.add_argument("--book", action="store_true")
 args = parser.parse_args()
 
 rng = np.random.default_rng(3)
+
+
 f, xrange, yrange, guess = (
     objective.f,
     objective.xrange,
@@ -21,7 +24,7 @@ f, xrange, yrange, guess = (
     objective.guess,
 )
 
-# ------------------------- particle swarm optimizer ------------------------
+# ----------------------- particle swarm optimizer -----------------------
 N, G = 10, 40  # particles, iterations
 W, C1, C2 = 0.5, 0.1, 0.3  # inertia, cognitive, social
 
@@ -56,6 +59,7 @@ y = np.linspace(*yrange, resolution)
 xx, yy = np.meshgrid(x, y, indexing="ij")
 z = f(np.stack([xx, yy], axis=0))
 
+# optimization trajectories
 fig, ax = plt.subplots(figsize=(4, 4), dpi=resolution // 4)
 ax.contourf(xx, yy, z, levels=36, cmap="cividis")
 for i in range(N):
@@ -64,10 +68,9 @@ for i in range(N):
             [history[k][i, 0], history[k + 1][i, 0]],
             [history[k][i, 1], history[k + 1][i, 1]],
             "-o",
-            ms=2,
-            lw=1,
+            ms=4,
+            lw=2,
             color=plt.cm.Greys(0.2 + 0.8 * k / len(history)),
-            alpha=0.6,
         )
 ax.set_aspect("equal")
 ax.axis("off")
@@ -77,6 +80,7 @@ ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
 if args.book:
+# ------------------------- book postprocessing --------------------------
     fig.savefig(RESULTS_DIR / "pso.png")
 else:
     plt.show()
@@ -84,6 +88,7 @@ plt.close(fig)
 
 # cost history
 if args.book:
+# ------------------------- book postprocessing --------------------------
     save_csv(
         RESULTS_DIR / "pso_history.csv",
         x=np.arange(0, G + 1),

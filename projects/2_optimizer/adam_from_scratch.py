@@ -30,28 +30,28 @@ def grad_f(x):
     return 4 * (x - 2) ** 3 + 2 * (x - 2)
 
 
-x = np.array([7.0])
-opt = Adam(lr=0.3)
+GUESS = 7.0
+LR, EPOCHS = 0.3, 30
+
+x = np.array([GUESS])
+opt = Adam(lr=LR)
 x_history = [x[0]]
 
-for _ in range(30):
+for _ in range(EPOCHS):
     x = opt.step(x, grad_f(x))
     x_history.append(x[0])
 
 print(f"minimum at x={x[0]:.6f}, f(x)={f(x).item():.2e}")
 
+# ---------------------------- postprocessing ----------------------------
 xs = np.linspace(-1, 8, 400)
 fig, ax = plt.subplots()
-ax.plot(xs, f(xs), "k", lw=1.5)
+ax.plot(xs, f(xs), "k")
 for k in range(len(x_history) - 1):
     ax.plot(
         [x_history[k], x_history[k + 1]],
         [f(x_history[k]), f(x_history[k + 1])],
         "-o",
-        ms=5,
-        lw=1,
         color=plt.cm.Greys(0.2 + 0.8 * k / len(x_history)),
     )
-ax.set_xlabel("x")
-ax.set_ylabel("f(x)")
 plt.show()
