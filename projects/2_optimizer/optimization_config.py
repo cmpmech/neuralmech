@@ -55,6 +55,7 @@ def plot(problem: Problem, name: str, book: bool, resolution: int = 800):
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
     if book:
+# ------------------------- book postprocessing --------------------------
         fig.savefig(RESULTS_DIR / f"{name}.png")
     else:
         plt.show()

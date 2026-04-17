@@ -1,46 +1,57 @@
-import numpy as np
-from postprocessing import save_csv
-import matplotlib.pyplot as plt
-from ML import PolynomialRegression
+import argparse
+from pathlib import Path
 
-np.random.seed(1)
+import matplotlib.pyplot as plt
+import numpy as np
+
+from ML import PolynomialRegression
+from postprocessing import save_csv
+
+BASE_DIR = Path(__file__).parent
+RESULTS_DIR = BASE_DIR / "../../results"
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+args = parser.parse_args()
+
+rng = np.random.default_rng(1)
 
 # select case
-case = 0
-# case = 1
-# case = 2
+CASE = 0
+# CASE = 1
+# CASE = 2
 
 # ------------------------------- settings -------------------------------
-if case == 0: # number of data points scaling
-    regularization, p = 0, 5
-    samples = 8
-    # samples = 12
-    # samples = 16
-elif case == 1: # capacity
-    regularization, samples = 0, 16
-    p = 2
-    # p = 5
-    # p = 7
-elif case == 2: # regularization
-    p, samples = 7, 16
-    regularization = 0
-    # regularization = 1e-5
-    # regularization = 1e-1
+if CASE == 0:  # number of data points scaling
+    REGULARIZATION, P = 0, 5
+    SAMPLES = 8
+    # SAMPLES = 12
+    # SAMPLES = 16
+elif CASE == 1:  # capacity
+    REGULARIZATION, SAMPLES = 0, 16
+    P = 2
+    # P = 5
+    # P = 7
+elif CASE == 2:  # regularization
+    P, SAMPLES = 7, 16
+    REGULARIZATION = 0
+    # REGULARIZATION = 1e-5
+    # REGULARIZATION = 1e-1
 
 num_fits = 1000
-y_true = lambda x : np.cos(np.pi * x)
+y_true = lambda x: np.cos(np.pi * x)
 
 y_preds = []
 for i in range(num_fits):
 # --------------------------- data generation ----------------------------
-    x_train = np.random.uniform(-1, 1, samples)
+    x_train = rng.uniform(-1, 1, SAMPLES)
     x_train[0] = -1
     x_train[1] = 1
-    noise = np.random.uniform(-1, 1, samples) * 0.1
+    noise = rng.uniform(-1, 1, SAMPLES) * 0.1
     y_train = y_true(x_train) + noise
 
 # --------------------------------- fit ----------------------------------
-    model = PolynomialRegression(p, regularization)
+    model = PolynomialRegression(P, REGULARIZATION)
     model.fit(x_train, y_train)
 
 # ------------------------------ prediction ------------------------------
@@ -55,46 +66,54 @@ y_pred_std = np.std(y_preds, axis=0)
 variance = y_pred_std**2
 bias = y_pred_mean - y_true(x_pred)
 
+print(f"bias: {np.mean(np.abs(bias)):.2e}, variance: {np.mean(variance):.2e}")
+
+if not args.book:
 # ---------------------------- postprocessing ----------------------------
-print(f'bias: {np.mean(np.abs(bias)):.2e}, variance: {np.mean(variance):.2e}')
+    # variance
+    fig, ax = plt.subplots()
+    for i in range(num_fits):
+        ax.plot(x_pred, y_preds[i], "k", alpha=0.01)
+    ax.plot(x_pred, y_pred_mean, "r")
+    ax.fill_between(
+        x_pred,  # 95 % confidence interval
+        y_pred_mean - 2 * y_pred_std,
+        y_pred_mean + 2 * y_pred_std,
+        color="r",
+        alpha=0.2,
+    )
+    ax.plot(x_pred, y_pred_mean - 2 * y_pred_std, "r")
+    ax.plot(x_pred, y_pred_mean + 2 * y_pred_std, "r")
+    ax.set_ylim(-2, 2)
+    plt.show()
 
-# variance
-fig, ax = plt.subplots()
-for i in range(num_fits):
-    ax.plot(x_pred, y_preds[i], 'k', alpha=0.01)
-ax.plot(x_pred, y_pred_mean, 'r')
-ax.fill_between(x_pred, # 95 % confidence interval
-                y_pred_mean - 2 * y_pred_std,
-                y_pred_mean + 2 * y_pred_std,
-                color='r', alpha=0.2)
-ax.plot(x_pred, y_pred_mean - 2 * y_pred_std, 'r')
-ax.plot(x_pred, y_pred_mean + 2 * y_pred_std, 'r')
-ax.set_ylim(-2, 2)
-plt.show()
+    # bias
+    fig, ax = plt.subplots()
+    for i in range(num_fits):
+        ax.plot(x_pred, y_preds[i], "k", alpha=0.01)
+    ax.plot(x_pred, y_pred_mean, "b")
+    ax.plot(x_pred, y_true(x_pred), "k")
+    ax.fill_between(
+        x_pred,  # bias
+        y_true(x_pred),
+        y_pred_mean,
+        color="b",
+        alpha=0.2,
+    )
 
-# bias
-fig, ax = plt.subplots()
-for i in range(num_fits):
-    ax.plot(x_pred, y_preds[i], 'k', alpha=0.01)
-ax.plot(x_pred, y_pred_mean, 'b')
-ax.plot(x_pred, y_true(x_pred), 'k')
-ax.fill_between(x_pred, # bias
-                y_true(x_pred),
-                y_pred_mean,
-                color='b', alpha=0.2)
-
-ax.set_ylim(-2, 2)
-plt.show()
-
+    ax.set_ylim(-2, 2)
+    plt.show()
+else:
 # ------------------------- book postprocessing --------------------------
-data = {'x' : x_pred, 'mean' : y_pred_mean, 'std' : y_pred_std,
-        'true' : y_true(x_pred)}
+    data = {"x": x_pred, "mean": y_pred_mean, "std": y_pred_std, "true": y_true(x_pred)}
 
-for i in range(100):
-    data[f'y_pred_{i}'] = y_preds[i]
-if case == 0:
-    save_csv(f'../../results/polynomial_regression_{case}_{samples}.csv', **data)
-elif case == 1:
-    save_csv(f'../../results/polynomial_regression_{case}_{p}.csv', **data)
-elif case == 2:
-    save_csv(f'../../results/polynomial_regression_{case}_{regularization}.csv', **data)
+    for i in range(100):
+        data[f"y_pred_{i}"] = y_preds[i]
+    if CASE == 0:
+        save_csv(RESULTS_DIR / f"polynomial_regression_{CASE}_{SAMPLES}.csv", **data)
+    elif CASE == 1:
+        save_csv(RESULTS_DIR / f"polynomial_regression_{CASE}_{P}.csv", **data)
+    elif CASE == 2:
+        save_csv(
+            RESULTS_DIR / f"polynomial_regression_{CASE}_{REGULARIZATION}.csv", **data
+        )

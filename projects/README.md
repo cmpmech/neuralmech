@@ -1,11 +1,9 @@
 # Projects
-## chapter 2: ml introduction (`2_intro_ml`)
-- `linear_regression.py`
-- `logistic_regression.py`
 
-## TODOs
-- 2_optimizer/adam.py
-- 2_optimizer/lbfgs.py
-- 2_optimizer/gradientfree_optimizers.py
-- 3_sine/mlp_sine_regularization.py
-- wo kommt b-hai her?
+Most Python drivers accept the following **flags**:
+
+| flag        | output                      | destination           |
+| ----------- | --------------------------- | --------------------- |
+| `--book`    | figure data for book        | `results/`            |
+| `--animate` | animation frames for slides | `results/animations/` |
+| _(none)_    | inline visualization        | —                     |
