@@ -45,6 +45,7 @@ def evolve():
         # mutation
         children += rng.normal(0, sigma, size=(N - ELITE, 2))
         population = np.vstack([parents, children])
+        # decay
         sigma *= RHO
         history.append(population.copy())
     return history
@@ -62,6 +63,7 @@ y = np.linspace(*yrange, resolution)
 xx, yy = np.meshgrid(x, y, indexing="ij")
 z = f(np.stack([xx, yy], axis=0))
 
+# optimization trajectories
 fig, ax = plt.subplots(figsize=(4, 4), dpi=resolution // 4)
 ax.contourf(xx, yy, z, levels=36, cmap="cividis")
 for k, P in enumerate(history):
@@ -69,9 +71,8 @@ for k, P in enumerate(history):
         P[:, 0],
         P[:, 1],
         "o",
-        ms=3,
+        ms=4,
         color=plt.cm.Greys(0.2 + 0.8 * k / len(history)),
-        alpha=0.6,
     )
 ax.plot(guess[0], guess[1], "bo", ms=4)
 ax.set_aspect("equal")
@@ -82,6 +83,7 @@ ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
 if args.book:
+# ------------------------- book postprocessing --------------------------
     fig.savefig(RESULTS_DIR / "ga.png")
 else:
     plt.show()
@@ -89,12 +91,14 @@ plt.close(fig)
 
 # cost history
 if args.book:
+# ------------------------- book postprocessing --------------------------
     save_csv(
         RESULTS_DIR / "ga_history.csv",
         x=np.arange(0, G + 1),
         y=cost_history,
     )
 else:
+# ---------------------------- postprocessing ----------------------------
     fig, ax = plt.subplots()
     ax.set_yscale("log")
     ax.plot(cost_history, "k")

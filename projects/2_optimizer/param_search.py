@@ -14,6 +14,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
 args = parser.parse_args()
 
+rng = np.random.default_rng(42)
+
 f, xrange, yrange = objective.f, objective.xrange, objective.yrange
 
 
@@ -27,8 +29,7 @@ def structured(n):
 
 
 # -------------------- unstructured parameter search ---------------------
-def unstructured(n, seed=42):
-    rng = np.random.default_rng(seed)
+def unstructured(n):
     lo = (xrange[0] + MARGIN, yrange[0] + MARGIN)
     hi = (xrange[1] - MARGIN, yrange[1] - MARGIN)
     return rng.uniform(lo, hi, (n, 2))
@@ -43,14 +44,15 @@ def plot(X, best, name, resolution=800):
 
     fig, ax = plt.subplots(figsize=(4, 4), dpi=(resolution // 4))
     ax.contourf(xx, yy, z, levels=48, cmap="cividis")
-    ax.plot(X[:, 0], X[:, 1], "ko", ms=3)
-    ax.plot(best[0], best[1], "ro", ms=5)
+    ax.plot(X[:, 0], X[:, 1], "ko", ms=4)
+    ax.plot(best[0], best[1], "ro", ms=4)
     ax.set_aspect("equal")
     ax.axis("off")
     ax.set_rasterized(True)  # avoid contourline artifacts
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
     if args.book:
+# ------------------------- book postprocessing --------------------------
         fig.savefig(RESULTS_DIR / f"param_search_{name}.png")
     else:
         plt.show()

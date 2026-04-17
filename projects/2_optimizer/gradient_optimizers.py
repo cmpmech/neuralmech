@@ -82,12 +82,12 @@ def plot(xr, yr, filename, final_markers=False):
 
     for name, color, ls, extra in STYLES:
         t = trajectories[name]
-        ax.plot(t[:, 0], t[:, 1], color=color, linestyle=ls, linewidth=3, **extra)
+        ax.plot(t[:, 0], t[:, 1], color=color, linestyle=ls, linewidth=3, ms=4, **extra)
 
     if final_markers:
         for name, color in [("adam", "k"), ("momentum", "r")]:
             t = trajectories[name]
-            ax.plot(t[-1, 0], t[-1, 1], color + "o", linewidth=3)
+            ax.plot(t[-1, 0], t[-1, 1], color + "o", linewidth=3, ms=4)
 
     ax.set_xlim(xx.min(), xx.max())
     ax.set_ylim(yy.min(), yy.max())
@@ -96,6 +96,7 @@ def plot(xr, yr, filename, final_markers=False):
     fig.tight_layout(pad=0)
 
     if args.book:
+# ------------------------- book postprocessing --------------------------
         fig.savefig(RESULTS_DIR / filename)
     else:
         plt.show()
