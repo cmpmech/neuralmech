@@ -15,6 +15,7 @@ parser.add_argument("--book", action="store_true")
 args = parser.parse_args()
 
 rng = np.random.default_rng(3)
+
 f, xrange, yrange, guess = (
     objective.f,
     objective.xrange,
@@ -22,9 +23,10 @@ f, xrange, yrange, guess = (
     objective.guess,
 )
 
-# --------------------------- evolution strategy -------------------------
+# --------------------------- genetic algorithm --------------------------
 N, G = 10, 40  # population size, generations
-SIGMA0, ELITE = 0.5, 2
+SIGMA0, ELITE = 0.5, 3  # initial mutation strength, elite count
+RHO = 0.9  # mutation decay rate
 
 
 def evolve():
@@ -32,13 +34,18 @@ def evolve():
     sigma = SIGMA0
     history = [population.copy()]
     for _ in range(G):
+        # elitism: keep the ELITE best as parents
         idx = np.argsort(f(population.T))
         parents = population[idx[:ELITE]]
-        children = parents[rng.integers(0, ELITE, size=N - ELITE)] + rng.normal(
-            0, sigma, size=(N - ELITE, 2)
-        )
+        # crossover: sample two parents and a blend weight per child
+        p1 = parents[rng.integers(0, ELITE, size=N - ELITE)]
+        p2 = parents[rng.integers(0, ELITE, size=N - ELITE)]
+        gamma = rng.uniform(0, 1, size=(N - ELITE, 1))
+        children = gamma * p1 + (1 - gamma) * p2
+        # mutation
+        children += rng.normal(0, sigma, size=(N - ELITE, 2))
         population = np.vstack([parents, children])
-        sigma *= 0.95
+        sigma *= RHO
         history.append(population.copy())
     return history
 
@@ -66,6 +73,7 @@ for k, P in enumerate(history):
         color=plt.cm.Greys(0.2 + 0.8 * k / len(history)),
         alpha=0.6,
     )
+ax.plot(guess[0], guess[1], "bo", ms=4)
 ax.set_aspect("equal")
 ax.axis("off")
 ax.set_xlim(xrange)
@@ -74,7 +82,7 @@ ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
 if args.book:
-    fig.savefig(RESULTS_DIR / "ea.png")
+    fig.savefig(RESULTS_DIR / "ga.png")
 else:
     plt.show()
 plt.close(fig)
@@ -82,7 +90,7 @@ plt.close(fig)
 # cost history
 if args.book:
     save_csv(
-        RESULTS_DIR / "ea_history.csv",
+        RESULTS_DIR / "ga_history.csv",
         x=np.arange(0, G + 1),
         y=cost_history,
     )
