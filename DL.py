@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 
@@ -76,3 +77,43 @@ def build_ae_cnn_config(depth, conv_layers, channel_dim, base):
             strides[-1] = 2  # last stride in each group downsamples
 
     return channels, strides[:-1]
+
+
+# ----------------- optimization landscape visualization -----------------
+def get_params(model: nn.Module) -> list[torch.Tensor]:
+    return [p.detach().clone() for p in model.parameters()]
+
+
+def set_params(model: nn.Module, params: list[torch.Tensor]) -> None:
+    with torch.no_grad():
+        for p, v in zip(model.parameters(), params):
+            p.copy_(v)
+
+
+def flatten_params(params: list[torch.Tensor]) -> torch.Tensor:
+    return torch.cat([p.view(-1) for p in params])
+
+
+def unflatten_params(vec: torch.Tensor, ref: list[torch.Tensor]) -> list[torch.Tensor]:
+    out, i = [], 0
+    for p in ref:
+        n = p.numel()
+        out.append(vec[i : i + n].view_as(p))
+        i += n
+    return out
+
+
+def filter_normalize_direction(
+    direction: list[torch.Tensor], reference: list[torch.Tensor]
+) -> list[torch.Tensor]:
+    """Scale each filter (inputs to each output neuron) in direction to match the norm of the corresponding filter
+    in reference. Makes alpha meaningful across architectures."""
+    normed = []
+    for d, w in zip(direction, reference):
+        if d.dim() >= 2:
+            d_norm = d.norm(dim=tuple(range(1, d.dim())), keepdim=True) + 1e-10
+            w_norm = w.norm(dim=tuple(range(1, w.dim())), keepdim=True)
+            normed.append(d * (w_norm / d_norm))
+        else:
+            normed.append(d * (w.norm() / (d.norm() + 1e-10)))
+    return normed
