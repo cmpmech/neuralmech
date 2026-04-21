@@ -40,6 +40,7 @@ class MLP(nn.Module):
         layers: list[int],
         activations: list[nn.Module | None] | None = None,
         normalizations: list[nn.Module | None] | None = None,
+        dropouts: list[float | None] | None = None,
     ) -> None:
         super().__init__()
         modules = []
@@ -51,6 +52,9 @@ class MLP(nn.Module):
             if activations and i < len(activations):
                 if activations[i]:
                     modules.append(activations[i])
+            if dropouts and i < len(dropouts):
+                if dropouts[i]:
+                    modules.append(nn.Dropout(dropouts[i]))
         self.model = nn.Sequential(*modules)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
