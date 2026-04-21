@@ -11,3 +11,7 @@ python3 frames_to_animation.py --frames_dir ../../results/animations/animation_f
 python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/WD-150 --output ../../results/animations/WD-150.mp4 --pattern "frame_%d.jpg"
 python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/vae_high_latent_2 --output ../../results/animations/vae_high_latent_2.mp4 --pattern "frame_%d.jpg"
 python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/vae_high_latent_32 --output ../../results/animations/vae_high_latent_32.mp4 --pattern "frame_%d.jpg"
+
+# TODO SORT CHAPTERS
+python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/expressivity_0_2_128 --output ../../results/animations/expressivity_0_2_128.mp4 --pattern "frame_%d.jpg"
+python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/expressivity_0_8_128 --output ../../results/animations/expressivity_0_8_128.mp4 --pattern "frame_%d.jpg"
