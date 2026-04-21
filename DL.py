@@ -46,7 +46,21 @@ def init_weights(model, activation=None):
                 nn.init.zeros_(m.bias)
 
 
-# ----------------------------- standardizer -----------------------------
+# ----------------- data normalization & standardization -----------------
+class Normalizer(nn.Module):
+    def __init__(self, X, dim=0):  # default is to have sample dim at 0
+        super().__init__()
+        self.x_max = X.max(dim=dim, keepdim=True)
+        self.x_min = X.min(dim=dim, keepdim=True)
+        self.span = (self.x_max - self.x_in).clamp_min(1e-8)
+
+    def __call__(self, x):
+        return (x - self.x_min) / self.span
+
+    def inverse(self, x):
+        return x * self.span + self.x_min
+
+
 class Standardizer(nn.Module):
     def __init__(self, X, dim=0):  # default is to have sample dim at 0
         super().__init__()
@@ -80,8 +94,22 @@ def build_ae_cnn_config(depth, conv_layers, channel_dim, base):
 
 
 # ----------------- optimization landscape visualization -----------------
-def get_params(model: nn.Module) -> list[torch.Tensor]:
-    return [p.detach().clone() for p in model.parameters()]
+def get_params(model: nn.Module, kind: str = "all") -> list[torch.Tensor]:
+    if kind == "all":
+        return [p.detach().clone() for p in model.parameters()]
+    if kind == "weights":
+        return [
+            p.detach().clone()
+            for n, p in model.named_parameters()
+            if not n.endswith(".bias")
+        ]
+    if kind == "biases":
+        return [
+            p.detach().clone()
+            for n, p in model.named_parameters()
+            if n.endswith(".bias")
+        ]
+    raise ValueError(f"unknown kind: {kind!r}")
 
 
 def set_params(model: nn.Module, params: list[torch.Tensor]) -> None:
