@@ -1,4 +1,5 @@
 import argparse
+import copy
 import time
 from pathlib import Path
 
@@ -26,17 +27,19 @@ torch.backends.cudnn.deterministic = True
 device = torch.device("cpu")  # faster on cpu, because matrices are small
 
 # -------------------------- training settings ---------------------------
-EPOCHS = 4000  # 400
+EPOCHS = 1000  # 400
 LR = 1e-2
 REGULARIZATION = 0  # 1e0
 BATCH_SIZE = 32
+
+PATIENCE = 200  # early stopping (disable with NONE)
 
 # define loss
 cost_fun = nn.MSELoss(reduction="mean")
 
 # ---------------------------- model settings ----------------------------
 # three hidden layers is sufficient (five to show overfitting)
-layers = [1, 24, 24, 24, 1]
+layers = [1, 24, 24, 24, 24, 1]
 activations = [nn.GELU(approximate="tanh")] * (len(layers) - 2)
 
 # ----------------------------- prepare data -----------------------------
@@ -66,6 +69,9 @@ train_cost = [0] * EPOCHS
 val_cost = [0] * EPOCHS
 tic = time.time()
 print_every = 10
+best_val = float("inf")
+epochs_since_improve = 0
+best_state = None
 pbar = tqdm(range(EPOCHS))
 for epoch in pbar:
     model.train()
@@ -94,6 +100,23 @@ for epoch in pbar:
         pbar.set_postfix(
             {"train": f"{train_cost[epoch]:.2e}", "val": f"{val_cost[epoch]:.2e}"}
         )
+
+    if PATIENCE is not None:
+        if val_cost[epoch] < best_val:
+            best_val = val_cost[epoch]
+            epochs_since_improve = 0
+            best_state = copy.deepcopy(model.state_dict())
+        else:
+            epochs_since_improve += 1
+            if epochs_since_improve >= PATIENCE:
+                print(f"early stopping at epoch {epoch} (best val {best_val:.2e})")
+                train_cost = train_cost[: epoch + 1]
+                val_cost = val_cost[: epoch + 1]
+                break
+
+if PATIENCE is not None and best_state is not None:
+    last_state = copy.deepcopy(model.state_dict())  # normally not needed
+    model.load_state_dict(best_state)
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
@@ -102,37 +125,26 @@ x_test = torch.linspace(-1.3, 1.3, 100).unsqueeze(1)
 y_test = torch.sin(2 * torch.pi * x_test)
 model.eval()
 with torch.no_grad():
-    y_pred_test = model(standardizex(x_test).to(device))
-    y_pred_test = standardizey.inverse(y_pred_test).cpu().numpy()
+    y_best_test = model(standardizex(x_test).to(device))
+    y_best_test = standardizey.inverse(y_best_test).cpu().numpy()
+    model.load_state_dict(last_state)
+    y_last_test = model(standardizex(x_test).to(device))
+    y_last_test = standardizey.inverse(y_last_test).cpu().numpy()
 X_val = train_data.dataset.tensors[0][val_data.indices]
 Y_val = train_data.dataset.tensors[1][val_data.indices]
-if not args.book:
-# ---------------------------- postprocessing ----------------------------
-    fig, ax = plt.subplots()
-    ax.set_yscale("log")
-    ax.plot(train_cost, "k")
-    ax.plot(val_cost, "r")
-    plt.show()
 
-    fig, ax = plt.subplots()
-    ax.plot(x_test, y_test, "k")
-    ax.plot(X_train, Y_train, "ko")
-    ax.plot(X_val, Y_val, "ro")
-    ax.plot(x_test, y_pred_test, "r--")
-    plt.show()
-else:
-# ------------------------- book postprocessing --------------------------
-    save_csv(
-        RESULTS_DIR / f"mlp_sine_test_{EPOCHS}.csv",
-        x=x_test[:, 0],
-        y=y_test[:, 0],
-        ypred=y_pred_test[:, 0],
-    )
-    save_csv(RESULTS_DIR / f"mlp_sine_train.csv", x=X_train[:, 0], y=Y_train[:, 0])
-    save_csv(RESULTS_DIR / f"mlp_sine_val.csv", x=X_val[:, 0], y=Y_val[:, 0])
-    if EPOCHS == 4000:
-        save_csv(
-            RESULTS_DIR / f"mlp_sine_cost_history.csv",
-            train=np.array(train_cost) / train_cost[0],
-            val=np.array(val_cost) / val_cost[0],
-        )
+
+# ========================================================================
+fig, ax = plt.subplots()
+ax.plot(x_test, y_test, "k")
+ax.plot(X_train, Y_train, "ko")
+ax.plot(X_val, Y_val, "ro")
+ax.plot(x_test, y_best_test, "r--")
+ax.plot(x_test, y_last_test, "b:")
+plt.show()
+
+fig, ax = plt.subplots()
+ax.set_yscale("log")
+ax.plot(train_cost, "k")
+ax.plot(val_cost, "r")
+plt.show()
