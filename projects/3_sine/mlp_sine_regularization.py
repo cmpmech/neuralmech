@@ -1,5 +1,6 @@
 import argparse
 import copy
+import math
 import time
 from pathlib import Path
 
@@ -29,11 +30,11 @@ device = torch.device("cpu")  # faster on cpu, because matrices are small
 # -------------------------- training settings ---------------------------
 EPOCHS = 1000  # 400
 LR = 1e-2
-REGULARIZATION = 0  # 0  # 1e0
+REGULARIZATION = 0  # 0 # 1e0  # 5e0  # 1e1
 DROPOUT = 0.0  # 0.1
 BATCH_SIZE = 32
 
-# PATIENCE = 200  # early stopping (disable with None)
+# PATIENCE = 200
 PATIENCE = None
 
 # define loss
@@ -41,8 +42,8 @@ cost_fun = nn.MSELoss(reduction="mean")
 
 # ---------------------------- model settings ----------------------------
 # three hidden layers is sufficient (five to show overfitting)
-# layers = [1, 24, 24, 24, 24, 1]
-layers = [1, 48, 48, 48, 48, 1]
+layers = [1, 24, 24, 24, 24, 1]
+# layers = [1, 48, 48, 48, 48, 1]
 activations = [nn.GELU(approximate="tanh")] * (len(layers) - 2)
 
 # ----------------------------- prepare data -----------------------------
@@ -71,7 +72,7 @@ val_loader = DataLoader(val_data, batch_size=len(val_data), shuffle=True)
 # ------------------------------- training -------------------------------
 train_cost = [0] * EPOCHS
 val_cost = [0] * EPOCHS
-weight_magnitude = [0] * EPOCHS
+weight_rms = [0] * EPOCHS
 tic = time.time()
 print_every = 10
 best_val = float("inf")
@@ -79,9 +80,9 @@ epochs_since_improve = 0
 best_state = None
 pbar = tqdm(range(EPOCHS))
 for epoch in pbar:
-    weight_magnitude[epoch] = torch.norm(
-        flatten_params(get_params(model, kind="weights"))
-    )
+    weights = flatten_params(get_params(model, kind="weights"))
+    weight_rms[epoch] = torch.norm(weights).item() / math.sqrt(len(weights))
+
     model.train()
     for x, y in train_loader:
         x, y = x.to(device), y.to(device)
@@ -120,7 +121,7 @@ for epoch in pbar:
                 print(f"early stopping at epoch {epoch} (best val {best_val:.2e})")
                 train_cost = train_cost[: epoch + 1]
                 val_cost = val_cost[: epoch + 1]
-                weight_magnitude = weight_magnitude[: epoch + 1]
+                weight_rms = weight_rms[: epoch + 1]
                 break
 
 if PATIENCE is not None and best_state is not None:
@@ -144,23 +145,37 @@ X_val = train_data.dataset.tensors[0][val_data.indices]
 Y_val = train_data.dataset.tensors[1][val_data.indices]
 
 
-# ========================================================================
-fig, ax = plt.subplots()
-ax.plot(x_test, y_test, "k")
-ax.plot(X_train, Y_train, "ko")
-ax.plot(X_val, Y_val, "ro")
-ax.plot(x_test, y_best_test, "r--")
-if PATIENCE is not None:
-    ax.plot(x_test, y_last_test, "b:")
-plt.show()
+if not args.book:
+# ---------------------------- postprocessing ----------------------------
+    fig, ax = plt.subplots()
+    ax.plot(x_test, y_test, "k")
+    ax.plot(X_train, Y_train, "ko")
+    ax.plot(X_val, Y_val, "ro")
+    ax.plot(x_test, y_best_test, "r--")
+    if PATIENCE is not None:
+        ax.plot(x_test, y_last_test, "b:")
+    plt.show()
 
-fig, ax = plt.subplots()
-ax.set_yscale("log")
-ax.plot(train_cost, "k")
-ax.plot(val_cost, "r")
-ax2 = ax.twinx()
-ax2.plot(weight_magnitude, "b")
-plt.show()
+    fig, ax = plt.subplots()
+    ax.set_yscale("log")
+    ax.plot(train_cost, "k")
+    ax.plot(val_cost, "r")
+    ax2 = ax.twinx()
+    ax2.plot(weight_rms, "b")
+    plt.show()
+else:
+# ------------------------- book postprocessing --------------------------
+    save_csv(
+        RESULTS_DIR
+        / f"mlp_sine_regularization_{PATIENCE}_{REGULARIZATION}_{DROPOUT}.csv",
+        ct=train_cost,
+        cv=val_cost,
+        w=weight_rms,
+    )
 
-
-# TODO ADD PROCESSING
+    if PATIENCE == None and DROPOUT == 0.0:
+        save_csv(
+            RESULTS_DIR / f"mlp_sine_regularization_pred_{REGULARIZATION}.csv",
+            x=x_test.flatten(),
+            y=y_best_test.flatten(),
+        )
