@@ -31,14 +31,15 @@ torch.backends.cudnn.deterministic = True
 device = torch.device("cpu")
 
 
-# CASE = 0
-CASE = 1
+CASE = 0
+# CASE = 1
 
 # -------------------------- training settings ---------------------------
 EPOCHS = 500  # 500  # 4000
 LR = 1e-2
 BATCH_SIZE = 32
 REGULARIZATION = 0.0
+HIDDEN_LAYERS = 12  # 1 # 12
 
 # define loss
 cost_fun = nn.MSELoss(reduction="mean")
@@ -49,7 +50,7 @@ GRID_STEPS = 200  # 200  # 40  # resolution of the landscape grid
 ALPHA_RANGE = 2.0  # half-range along each direction
 
 # ---------------------------- model settings ----------------------------
-layers = [1] + [24] * 12 + [1]
+layers = [1] + [24] * HIDDEN_LAYERS + [1]
 activations = [nn.Tanh()] * (len(layers) - 2)
 
 # ----------------------------- prepare data -----------------------------
@@ -127,7 +128,7 @@ fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
 if args.book:
 # ------------------------- book postprocessing --------------------------
-    fig.savefig(RESULTS_DIR / f"NN_landscape_{CASE}.pdf")
+    fig.savefig(RESULTS_DIR / f"NN_landscape_{HIDDEN_LAYERS}_{CASE}.pdf")
 else:
     plt.show()
 plt.close(fig)
