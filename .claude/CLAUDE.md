@@ -55,6 +55,10 @@ model = torch.load('model.pt2', weights_only=False, map_location=device)  # corr
 model = torch.load('model.pt2', weights_only=False).to(device)             # avoid
 ```
 
+## Style guide
+
+See `.claude/style.md` for the full driver coding style (imports, constants, training loop, plotting, comments, section headers) and a summary of the `NN.py` / `DL.py` / `postprocessing.py` APIs. Read it before writing or extending any driver.
+
 ## Key Conventions
 
 - **Architecture style**: All networks are `nn.Module` subclasses; take `layers`, `activations`, `normalizations` lists — length-matched to layer count

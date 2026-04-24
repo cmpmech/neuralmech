@@ -1,6 +1,16 @@
+import argparse
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.ndimage as ndimage
+
+BASE_DIR = Path(__file__).parent
+RESULTS_DIR = BASE_DIR / "../../results"
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+args = parser.parse_args()
 
 np.random.seed(0)
 
@@ -33,8 +43,7 @@ def cost_grad(a, b, x, y):
 
 
 def optimize(params0, lr, epochs, batch_size):
-    param_history = []
-    param_history.append(params0.copy())
+    param_history = [params0.copy()]
     indices = np.arange(len(x))
     params = params0.copy()
     for epoch in range(epochs):
@@ -44,8 +53,7 @@ def optimize(params0, lr, epochs, batch_size):
             grad = cost_grad(params[0], params[1], x[batchindices], y[batchindices])
             params -= lr * grad
             param_history.append(params.copy())
-    param_history = np.vstack(param_history)
-    return param_history
+    return np.vstack(param_history)
 
 
 def find_local_minima(a, b, landscape):
@@ -87,7 +95,7 @@ minima_regularized_cost = find_local_minima(a, b, regularized_cost)
 
 # ---------------------------- postprocessing ----------------------------
 fig, ax = plt.subplots(figsize=(4, 4), dpi=150)
-cb = ax.contourf(a, b, cost_landscape, levels=36, cmap="cividis")
+ax.contourf(a, b, cost_landscape, levels=36, cmap="cividis")
 for i in range(len(minima_cost)):
     if abs(minima_cost[i, 1] - 16) > 1e-1:
         ax.plot(minima_cost[i, 0], minima_cost[i, 1], "wo")
@@ -97,25 +105,28 @@ ax.set_ylim(0, 20)
 ax.axis("off")
 ax.set_rasterized(True)
 fig.tight_layout(pad=0)
-plt.savefig(f"../../results/gabor_landscape_standard.pdf")
-plt.show()
+if args.book:
+    plt.savefig(RESULTS_DIR / "gabor_landscape_standard.pdf")
+    plt.close()
+else:
+    plt.show()
 
 fig, ax = plt.subplots(figsize=(4, 4), dpi=150)
-cb = ax.contourf(a, b, cost_landscape, levels=36, cmap="cividis")
-cb = ax.contourf(a, b, regularization, levels=36, cmap="cividis")
+ax.contourf(a, b, regularization, levels=36, cmap="cividis")
 ax.plot(minima_regularization[:, 0], minima_regularization[:, 1], "ro")
 ax.set_xlim(-10, 10)
 ax.set_ylim(0, 20)
 ax.axis("off")
 ax.set_rasterized(True)
 fig.tight_layout(pad=0)
-plt.savefig(f"../../results/regularization_landscape.pdf")
-plt.show()
+if args.book:
+    plt.savefig(RESULTS_DIR / "regularization_landscape.pdf")
+    plt.close()
+else:
+    plt.show()
 
 fig, ax = plt.subplots(figsize=(4, 4), dpi=150)
-cb = ax.contourf(a, b, cost_landscape, levels=36, cmap="cividis")
-cb = ax.contourf(a, b, regularization, levels=36, cmap="cividis")
-cb = ax.contourf(a, b, regularized_cost, levels=36, cmap="cividis")
+ax.contourf(a, b, regularized_cost, levels=36, cmap="cividis")
 ax.plot(minima_regularized_cost[:, 0], minima_regularized_cost[:, 1], "wo")
 ax.plot(0, 16, "yo")
 ax.plot(0, b0, "ro")
@@ -124,5 +135,8 @@ ax.set_ylim(0, 20)
 ax.axis("off")
 ax.set_rasterized(True)
 fig.tight_layout(pad=0)
-plt.savefig(f"../../results/regularized_gabor_landscape.pdf")
-plt.show()
+if args.book:
+    plt.savefig(RESULTS_DIR / "regularized_gabor_landscape.pdf")
+    plt.close()
+else:
+    plt.show()

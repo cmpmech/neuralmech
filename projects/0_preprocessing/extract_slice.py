@@ -1,11 +1,15 @@
-import numpy as np
-import nrrd
-import matplotlib.pyplot as plt
+from pathlib import Path
 
-data, _ = nrrd.read('B-HAI-1.nrrd')
+import matplotlib.pyplot as plt
+import nrrd
+import numpy as np
+
+BASE_DIR = Path(__file__).parent
+
+data, _ = nrrd.read(BASE_DIR / "B-HAI-1.nrrd")
 data = np.array(data)
 
-data = data[data.shape[0] // 2, :, :] # center slice
+data = data[data.shape[0] // 2, :, :]  # center slice
 
 data_min = np.min(data)
 data_max = np.max(data)
@@ -16,7 +20,7 @@ data[data > 0.5] = 1
 data = data[256:772, 1:1060]
 
 fig, ax = plt.subplots()
-ax.imshow(data, cmap='Grays')
+ax.imshow(data, cmap="Grays")
 plt.show()
 
-np.save('output/B_Hai_1.npy', data)
+np.save(BASE_DIR / "output/B_Hai_1.npy", data)
