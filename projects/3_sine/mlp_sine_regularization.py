@@ -34,8 +34,8 @@ REGULARIZATION = 0  # 0 # 1e0  # 5e0  # 1e1
 DROPOUT = 0.0  # 0.1
 BATCH_SIZE = 32
 
-# PATIENCE = 200
-PATIENCE = None
+PATIENCE = 200
+# PATIENCE = None
 
 # define loss
 cost_fun = nn.MSELoss(reduction="mean")

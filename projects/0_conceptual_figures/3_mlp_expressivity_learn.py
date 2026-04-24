@@ -1,4 +1,6 @@
+import argparse
 import time
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,54 +12,69 @@ from tqdm import tqdm
 from NN import MLP
 from postprocessing import show_image
 
+BASE_DIR = Path(__file__).parent
+DATA_DIR = BASE_DIR / "../../data"
+RESULTS_DIR = BASE_DIR / "../../results"
+ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames"
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+parser.add_argument("--animate", action="store_true")
+args = parser.parse_args()
+
 torch.manual_seed(1)
 torch.backends.cudnn.deterministic = True
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-activation_id = None
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-initialization = 0  # 0  # 0 # 1 # 2
+INITIALIZATION = 1  # 0 # 1 # 2
+
+if args.book or args.animate:
+    close = True
+    if args.book:
+        save_at = [0, 10, 100, 200, 400, 1000, 10000]
+    else:
+        SAVE_EVERY = 1
+        save_at = np.arange(0, 2000, SAVE_EVERY)
+        folder = f"learning_image_{INITIALIZATION}"
+        (ANIMATION_DIR / folder).mkdir(parents=True, exist_ok=True)
+else:
+    close = False
+    save_at = []
 
 
 # -------------------------------- helper --------------------------------
 def init_weights(m):
     if type(m) == torch.nn.Linear:
-        if initialization == 0:
+        if INITIALIZATION == 0:
             torch.nn.init.uniform_(m.weight, a=-10, b=10)
             torch.nn.init.uniform_(m.bias, a=-10, b=10)
-        elif initialization == 1:
+        elif INITIALIZATION == 1:
             torch.nn.init.uniform_(m.weight, a=-1, b=1)
             torch.nn.init.uniform_(m.bias, a=-1, b=1)
-        elif initialization == 2:
+        elif INITIALIZATION == 2:
             gain = nn.init.calculate_gain("tanh")
             nn.init.xavier_uniform_(m.weight, gain=gain)
             nn.init.zeros_(m.bias)
 
 
 # --------------------------- hyperparameters ----------------------------
-# depth study
-hidden_layers = 4
-neurons = 128
-
-parameters = (
-    neurons * 8 + neurons * neurons * (hidden_layers - 1) + neurons * hidden_layers
-)
-print(f"parameters: {parameters}")
-
-samples = 800
+HIDDEN_LAYERS = 4
+NEURONS = 128
+SAMPLES = 800
 activation = torch.nn.Tanh()
 
 # ---------------------------- preprocessing -----------------------------
-layers = [2] + [neurons] * hidden_layers + [3]
-activations = [activation] * hidden_layers
+layers = [2] + [NEURONS] * HIDDEN_LAYERS + [3]
+activations = [activation] * HIDDEN_LAYERS
 
-x = torch.linspace(-1, 1, samples)
-y = torch.linspace(-1, 1, samples)
+x = torch.linspace(-1, 1, SAMPLES)
+y = torch.linspace(-1, 1, SAMPLES)
 x, y = torch.meshgrid(x, y, indexing="ij")
 mlp_input = torch.cat((x.flatten().unsqueeze(1), y.flatten().unsqueeze(1)), 1).to(
     device
 )
 
-# --------------------------- model prediction ---------------------------
+# -------------------- instantiate model & optimizer ---------------------
 model = MLP(layers, activations)
 model.apply(init_weights)
 model.to(device)
@@ -69,31 +86,31 @@ def normalize_output(y, eps=1e-8):
     return (y - y_min) / (y_max - y_min + eps)
 
 
-if initialization == 1:
-    lr = 1e-2
-    epochs = 10001
-elif initialization == 0:
-    lr = 2e-2
-    epochs = 10001
-elif initialization == 2:
-    lr = 2e-3
-    epochs = 10001
-cost_fun = nn.MSELoss()
-optimizer = torch.optim.AdamW(model.parameters(), lr)
+if INITIALIZATION == 0:
+    LR, EPOCHS = 2e-2, 10001
+elif INITIALIZATION == 1:
+    LR, EPOCHS = 1e-2, 10001
+elif INITIALIZATION == 2:
+    LR, EPOCHS = 2e-3, 10001
+if args.animate:
+    EPOCHS = EPOCHS // 5
+
+cost_fun = nn.MSELoss(reduction="mean")
+optimizer = torch.optim.AdamW(model.parameters(), LR)
 
 # -------------------------------- target --------------------------------
-img = Image.open("../../data/images/memphis.jpg").convert("RGB")
+img = Image.open(DATA_DIR / "images/memphis.jpg").convert("RGB")
 target = torch.from_numpy(np.asarray(img)).to(torch.float32).to(device)
 
-# ---------------------------- training loop -----------------------------
-train_cost = [0] * epochs
+# ------------------------------- training -------------------------------
+train_cost = [0] * EPOCHS
 tic = time.time()
 print_every = 1
-pbar = tqdm(range(epochs))
+pbar = tqdm(range(EPOCHS))
 model.train()
 for epoch in pbar:
     optimizer.zero_grad()
-    y_pred = model(mlp_input).reshape(samples, samples, 3)
+    y_pred = model(mlp_input).reshape(SAMPLES, SAMPLES, 3)
     cost = cost_fun(y_pred, target)
     cost.backward()
     optimizer.step()
@@ -102,39 +119,34 @@ for epoch in pbar:
     if epoch % print_every == 0:
         pbar.set_postfix({"train": f"{train_cost[epoch]:.2e}"})
 
-    # postprocessing
-    if (
-        epoch == 0
-        or epoch == 10
-        or epoch == 100
-        or epoch == 200
-        or epoch == 400
-        or epoch == 1000
-        or epoch == 2000
-        or epoch == 10000
-    ):
+    if epoch in save_at:
+        if args.book:
+            path = RESULTS_DIR / f"learning_image_{INITIALIZATION}_{epoch}.png"
+        elif args.animate:
+            path = ANIMATION_DIR / f"{folder}/frame_{epoch // SAVE_EVERY}.jpg"
+        else:
+            path = None
         show_image(
-            normalize_output(y_pred.detach().cpu()).numpy(),
-            path=f"../../results/learning_image_{initialization}_{epoch}.png",
-            close=True,
+            normalize_output(y_pred.detach().cpu()).numpy(), path=path, close=close
         )
 
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
 with torch.no_grad():
-    z_pred = model(mlp_input).reshape(samples, samples, 3).cpu()
+    z_pred = model(mlp_input).reshape(SAMPLES, SAMPLES, 3).cpu()
     z_pred = normalize_output(z_pred)
 
 # ---------------------------- postprocessing ----------------------------
+if not args.book and not args.animate:
+    fig, ax = plt.subplots()
+    ax.set_yscale("log")
+    ax.plot(train_cost, "k")
+    plt.show()
 
-fig, ax = plt.subplots()
-ax.set_yscale("log")
-ax.plot(train_cost, "k")
-plt.show()
-
-show_image(
-    normalize_output(target.detach().cpu()).numpy(),
-    path=f"../../results/memphis_target.png",
-    close=True,
-)
+if not args.animate:
+    show_image(
+        normalize_output(target.detach().cpu()).numpy(),
+        path=RESULTS_DIR / "memphis_target.png",
+        close=close,
+    )
