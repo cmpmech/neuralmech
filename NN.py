@@ -4,6 +4,7 @@ from modulefinder import test
 import torch
 import torch.nn.functional as F
 from efficient_kan import KAN
+from neuralop.models import FNO
 from torch import nn
 from torch_geometric.nn import GATConv, GCNConv, GINConv, SAGEConv
 from torch_geometric.nn.conv.message_passing import HookDict
@@ -586,10 +587,10 @@ class AE(nn.Module):
         Decoder: Network that reconstructs input from latent representation.
     """
 
-    def __init__(self, Encoder: nn.Module, Decoder: nn.Module) -> None:
+    def __init__(self, encoder: nn.Module, decoder: nn.Module) -> None:
         super().__init__()
-        self.encode = Encoder
-        self.decode = Decoder
+        self.encode = encoder
+        self.decode = decoder
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.encode(x)
@@ -631,6 +632,27 @@ class VAE(AE):
         y = self.decode(z)
         return y, mean, logvar
 
+
+# --------------------------- neural operators ---------------------------
+# https://arxiv.org/abs/1910.03193
+class DeepONet(nn.Module):
+    def __init__(
+        self, branchNet: nn.Module, trunkNet: nn.Module, output_dim: int = 1
+    ) -> None:
+        super().__init__()
+        self.q = output_dim
+        self.branch = branchNet  # output: (batch, p * q)
+        self.trunk = trunkNet  # output: (batch, p)
+        self.bias = nn.Parameter(torch.zeros(self.q))
+
+    def forward(self, x: torch.Tensor, g: torch.Tensor) -> torch.Tensor:
+        t = self.trunk(x).unsqueeze(1)  # (batch, p)
+        b = self.branch(g).view(-1, self.q, t.shape[-1])  # (batch, q, p)
+        return (b * t).sum(dim=-1) + self.bias  # (batch, q)
+
+
+# FNO defined via efficient_kan
+# https://arxiv.org/abs/2010.08895
 
 # ---------------------------- siren network -----------------------------
 
