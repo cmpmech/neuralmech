@@ -27,13 +27,18 @@ torch.backends.cudnn.deterministic = True
 device = torch.device("cpu")  # faster on cpu, because matrices are small
 
 # -------------------------- training settings ---------------------------
-EPOCHS = 4000  # 400
+EPOCHS = 400
 LR = 1e-2
-REGULARIZATION = 0  # 1e0
+REGULARIZATION = 0
 BATCH_SIZE = 32
 
 # define loss
-cost_fun = nn.MSELoss(reduction="mean")
+mse = nn.MSELoss(reduction="sum")
+
+
+def cost_fun(y_pred, dy_pred, y, dy):
+    return (mse(y_pred, y) + mse(dy_pred, dy)) / (len(y) + len(dy))
+
 
 # ---------------------------- model settings ----------------------------
 # three hidden layers is sufficient (five to show overfitting)
@@ -41,18 +46,21 @@ layers = [1, 24, 24, 24, 1]
 activations = [nn.GELU(approximate="tanh")] * (len(layers) - 2)
 
 # ----------------------------- prepare data -----------------------------
-data = np.load(DATA_DIR / "sine.npz")
+data = np.load(DATA_DIR / "sobolev_sine.npz")
 dataset = TensorDataset(
     torch.from_numpy(data["X"]).to(torch.float32),
     torch.from_numpy(data["Y"]).to(torch.float32),
+    torch.from_numpy(data["DY"]).to(torch.float32),
 )
 train_data, val_data = torch.utils.data.random_split(dataset, [0.5, 0.5])
 
 # standardization
 X_train = train_data.dataset.tensors[0][train_data.indices]
 Y_train = train_data.dataset.tensors[1][train_data.indices]
+DY_train = train_data.dataset.tensors[2][train_data.indices]
 standardizex = Standardizer(X_train, dim=0)
 standardizey = Standardizer(Y_train, dim=0)
+# standaradize dy as y
 
 # ----------------- instantiate model & prepare training -----------------
 model = MLP(layers, activations)
@@ -70,26 +78,31 @@ print_every = 10
 pbar = tqdm(range(EPOCHS))
 for epoch in pbar:
     model.train()
-    for x, y in train_loader:
-        x, y = x.to(device), y.to(device)
-        x, y = standardizex(x), standardizey(y)
+    for x, y, dy in train_loader:
         optimizer.zero_grad()
-        y_pred = model(x)
-        cost = cost_fun(y_pred, y)
+        x, y, dy = x.to(device), y.to(device), dy.to(device)
+        x.requires_grad = True  # to enable differentiation
+        y, dy = standardizey(y), standardizey(dy)
+        y_pred = model(standardizex(x))
+        dy_pred = grad(
+            y_pred, x, torch.ones_like(x), retain_graph=True, create_graph=True
+        )[0]
+        cost = cost_fun(y_pred, dy_pred, y, dy)
         cost.backward()
         optimizer.step()
         train_cost[epoch] += cost.item()
     train_cost[epoch] /= len(train_loader)  # avg per batch
 
     model.eval()
-    with torch.no_grad():
-        for x, y in val_loader:
-            x, y = x.to(device), y.to(device)
-            x, y = standardizex(x), standardizey(y)
-            y_pred = model(x)
-            cost = cost_fun(y_pred, y)
-            val_cost[epoch] += cost.item()
-        val_cost[epoch] /= len(val_loader)  # avg per batch
+    for x, y, dy in val_loader:
+        x, y, dy = x.to(device), y.to(device), dy.to(device)
+        x.requires_grad = True  # to enable differentiation
+        y_pred = model(standardizex(x))
+        y, dy = standardizey(y), standardizey(dy)
+        dy_pred = grad(y_pred, x, torch.ones_like(x))[0]
+        cost = cost_fun(y_pred, dy_pred, y, dy)
+        val_cost[epoch] += cost.item()
+    val_cost[epoch] /= len(val_loader)  # avg per batch
 
     if epoch % print_every == 0:
         pbar.set_postfix(
@@ -121,45 +134,44 @@ if not args.book:
     ax.plot(X_val, Y_val, "ro")
     ax.plot(x_test, y_pred_test, "r--")
     plt.show()
+
+# ----------------------- gradient postprocessing ------------------------
+x_test.requires_grad = True
+y_pred = model(standardizex(x_test).to(device))
+y_pred = standardizey.inverse(y_pred)
+
+dy_pred = grad(
+    y_pred, x_test, torch.ones_like(x_test), retain_graph=True, create_graph=True
+)[0]
+ddy_pred = grad(
+    dy_pred, x_test, torch.ones_like(x_test), retain_graph=True, create_graph=True
+)[0]
+dddy_pred = grad(
+    ddy_pred, x_test, torch.ones_like(x_test), retain_graph=True, create_graph=True
+)[0]
+
+if not args.book:
+    fig, ax = plt.subplots()
+    ax.plot(x_test.detach(), y_pred.detach(), "k")
+    ax.plot(x_test.detach(), dy_pred.detach() / 2 / np.pi, "r")
+    ax.plot(x_test.detach(), ddy_pred.detach() / 4 / np.pi**2, "b")
+    ax.plot(x_test.detach(), dddy_pred.detach() / 8 / np.pi**3, "g")
+    plt.show()
 else:
-# ------------------------- book postprocessing --------------------------
-    save_csv(
-        RESULTS_DIR / f"mlp_sine_test_{EPOCHS}.csv",
-        x=x_test[:, 0],
-        y=y_test[:, 0],
-        ypred=y_pred_test[:, 0],
-    )
-    save_csv(RESULTS_DIR / f"mlp_sine_train.csv", x=X_train[:, 0], y=Y_train[:, 0])
-    save_csv(RESULTS_DIR / f"mlp_sine_val.csv", x=X_val[:, 0], y=Y_val[:, 0])
-    if EPOCHS == 4000:
-        save_csv(
-            RESULTS_DIR / f"mlp_sine_cost_history.csv",
-            train=np.array(train_cost) / train_cost[0],
-            val=np.array(val_cost) / val_cost[0],
-        )
-
 # --------------------- gradient book postprocessing ---------------------
-if args.book:
-    x_test.requires_grad = True
-    y_pred = model(standardizex(x_test).to(device))
-    y_pred = standardizey.inverse(y_pred)
-
-    dy_pred = grad(
-        y_pred, x_test, torch.ones_like(x_test), retain_graph=True, create_graph=True
-    )[0]
-    ddy_pred = grad(
-        dy_pred, x_test, torch.ones_like(x_test), retain_graph=True, create_graph=True
-    )[0]
-    dddy_pred = grad(
-        ddy_pred, x_test, torch.ones_like(x_test), retain_graph=True, create_graph=True
-    )[0]
-
     if EPOCHS == 400:
         save_csv(
-            RESULTS_DIR / f"mlp_sine_grad.csv",
+            RESULTS_DIR / f"mlp_sine_sobolev_grad.csv",
             x=x_test.detach()[:, 0],
             y=y_pred.detach()[:, 0],
             dy=dy_pred.detach()[:, 0] / 2 / np.pi,
             ddy=ddy_pred.detach()[:, 0] / 4 / np.pi**2,
             dddy=dddy_pred.detach()[:, 0] / 8 / np.pi**3,
         )
+
+    save_csv(
+        RESULTS_DIR / f"mlp_sine_sobolev_train.csv",
+        x=X_train[:, 0],
+        y=Y_train[:, 0],
+        dy=DY_train[:, 0] / 2 / np.pi,
+    )
