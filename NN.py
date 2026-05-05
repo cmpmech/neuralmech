@@ -12,8 +12,9 @@ from torchdiffeq import odeint
 
 torch.backends.cudnn.deterministic = True
 
+# -------------------------------- helper --------------------------------
 
-# TODO: helper
+
 def get_layer_param(param, i):
     return param[i] if isinstance(param, list) else param
 
@@ -646,7 +647,7 @@ class DeepONet(nn.Module):
         self.bias = nn.Parameter(torch.zeros(self.q))
 
     def forward(self, x: torch.Tensor, g: torch.Tensor) -> torch.Tensor:
-        t = self.trunk(x).unsqueeze(1)  # (batch, p)
+        t = self.trunk(x).unsqueeze(1)  # (batch, 1, p)
         b = self.branch(g).view(-1, self.q, t.shape[-1])  # (batch, q, p)
         return (b * t).sum(dim=-1) + self.bias  # (batch, q)
 
