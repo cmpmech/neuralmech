@@ -52,7 +52,7 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 - **Neural Surrogates** (chapter 11)
 - **Neural Solvers** (chapter 12)
 - **Physics-Informed Neural Networks** (chapter 13)
-- **Material Modeling with Neural Networks** (chapter 14)
+- **Constitutive Modeling with Neural Networks** (chapter 14)
 - **Neural Optimization** (chapter 16)
 
 <img src=".assets/images/fwi.png" alt="full waveform inversion" width="300">
