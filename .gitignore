@@ -17,3 +17,4 @@ tmp/*
 # /projects/0_helpers
 /solvers/mlhp_build
 /solvers/kenels_build
+.logs/
