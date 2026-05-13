@@ -9,8 +9,8 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 from torchinfo import summary
 from tqdm import tqdm
 
-from DL import Standardizer, build_ae_cnn_config, init_weights
-from NN import DCN
+from DL import Standardizer, init_weights
+from NN import DCN, UNet
 
 BASE_DIR = Path(__file__).parent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -31,7 +31,6 @@ cost_fun = nn.MSELoss(reduction="mean")
 
 # ---------------------------- model settings ----------------------------
 base, depth = 2, 4
-conv_layers = 1
 channel_dim = 4
 kernel_size = 3
 act = partial(nn.PReLU, init=0.2)
@@ -66,40 +65,42 @@ alphas = 1.0 - betas
 alpha_bars = torch.cumprod(alphas, dim=0)
 
 # -------------------------- instantiate model ---------------------------
-channels, strides = build_ae_cnn_config(depth, conv_layers, channel_dim, base)
-channels[0] = 2  # x_t and broadcast timestep concatenated
+levels = [2] + [channel_dim * base ** (i + 1) for i in range(depth)]  # 2: x_t + t
 
-upsamplings = [
-    nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
-    if s == 2
-    else None
-    for s in strides[::-1]
+downs = [
+    DCN(
+        [levels[i], levels[i + 1], levels[i + 1]],
+        [act(), act()],
+        kernel_size,
+        stride=[1, 2],
+        padding=kernel_size // 2,
+        dim=2,
+        normalizations=[nn.GroupNorm(1, levels[i + 1]) for _ in range(2)],
+    )
+    for i in range(depth)
 ]
 
-dec_channels = channels[::-1].copy()
-dec_channels[-1] = 1  # predict noise (1 channel)
+ups = [
+    DCN(
+        [2 * levels[i + 1], levels[i + 1], levels[i] if i > 0 else 1],
+        [act(), act() if i > 0 else None],
+        kernel_size,
+        stride=1,
+        padding=kernel_size // 2,
+        dim=2,
+        resamplings=[
+            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+            None,
+        ],
+        normalizations=[
+            nn.GroupNorm(1, levels[i + 1]),
+            nn.GroupNorm(1, levels[i]) if i > 0 else None,
+        ],
+    )
+    for i in reversed(range(depth))
+]
 
-Encoder = DCN(
-    channels,
-    [act() for _ in range(len(channels) - 1)],
-    kernel_size,
-    stride=strides,
-    padding=kernel_size // 2,
-    dim=2,
-    normalizations=[nn.GroupNorm(1, c) for c in channels[1:]],
-)
-Decoder = DCN(
-    dec_channels,
-    [act() for _ in range(len(dec_channels) - 2)],
-    kernel_size,
-    stride=1,
-    padding=kernel_size // 2,
-    dim=2,
-    resamplings=upsamplings,
-    normalizations=[nn.GroupNorm(1, c) for c in dec_channels[1:-1]],
-)
-
-model = nn.Sequential(Encoder, Decoder).to(device)
+model = UNet(downs, ups).to(device)
 init_weights(model, act())
 summary(model, (1, 2, domain_size, domain_size), depth=4)
 

@@ -634,6 +634,46 @@ class VAE(AE):
         return y, mean, logvar
 
 
+class UNet(nn.Module):
+    """U-Net: symmetric encoder-decoder with skip connections at each level.
+
+    Each module in `downs` produces a feature map that is stored as a skip
+    connection. The `bottleneck` operates at the deepest resolution. Each
+    module in `ups` receives the previous output concatenated with the
+    matching skip along the channel axis (in reverse order), so each up
+    module must accept (input + skip) channels.
+
+    Args:
+        downs: Encoder modules, ordered shallow-to-deep. Each is expected
+            to downsample its input.
+        ups: Decoder modules, ordered deep-to-shallow. Same length as
+            `downs`. Each is expected to upsample its input.
+        bottleneck: Module applied at the deepest resolution between
+            encoder and decoder. Defaults to identity.
+    """
+
+    def __init__(
+        self,
+        downs: list[nn.Module],
+        ups: list[nn.Module],
+        bottleneck: nn.Module | None = None,
+    ) -> None:
+        super().__init__()
+        self.downs = nn.ModuleList(downs)
+        self.ups = nn.ModuleList(ups)
+        self.bottleneck = bottleneck or nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        skips = []
+        for down in self.downs:
+            x = down(x)
+            skips.append(x)
+        x = self.bottleneck(x)
+        for up, skip in zip(self.ups, reversed(skips)):
+            x = up(torch.cat([x, skip], dim=1))
+        return x
+
+
 # --------------------------- neural operators ---------------------------
 # https://arxiv.org/abs/1910.03193
 class DeepONet(nn.Module):
