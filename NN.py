@@ -529,6 +529,88 @@ class ResNet(nn.Module):
         return self.model(x)
 
 
+# --------------------- input convex networks ----------------------------
+
+
+class ICNNLayer(nn.Module):
+    """Single fully input-convex layer (Amos et al. 2017):
+
+        z_out = W^z z + W^y x + b
+
+    Stack several of these with convex non-decreasing activations
+    (ReLU, ELU, Softplus, LeakyReLU with slope in [0, 1]) and call
+    `clamp_z_()` after each optimizer step to keep W^z non-negative;
+    the resulting network is then convex in x.
+
+    Args:
+        z_in: size of the z-path input. Set to 0 for the first layer
+            (which has no z and reduces to W^y x + b).
+        x_in: size of the original network input x.
+        out:  layer output size.
+    """
+
+    def __init__(self, z_in: int, x_in: int, out: int) -> None:
+        super().__init__()
+        self.Wz = nn.Linear(z_in, out, bias=False) if z_in > 0 else None
+        self.Wy = nn.Linear(x_in, out, bias=True)
+
+    def forward(self, z: torch.Tensor | None, x: torch.Tensor) -> torch.Tensor:
+        h = self.Wy(x)
+        if self.Wz is not None:
+            h = h + self.Wz(z)
+        return h
+
+    @torch.no_grad()
+    def clamp_z_(self) -> None:
+        if self.Wz is not None:
+            self.Wz.weight.clamp_(min=0)
+
+
+class ICNN(nn.Module):
+    """Input convex neural network (Amos et al. 2017).
+
+    Stack of `ICNNLayer`s threading the original input x through every
+    layer. With convex non-decreasing activations (ReLU, ELU, Softplus,
+    LeakyReLU with slope in [0, 1]) and W^z weights kept non-negative via
+    `clamp_z_()` after each optimizer step, the forward map is convex in x.
+
+    Args:
+        layers: List of layer sizes; layers[0] is the input dim, layers[-1]
+            the output dim.
+        activations: List of activation modules to apply after each layer.
+            Length should be len(layers) - 1 or fewer; use None for no
+            activation at a given position. The final layer typically has
+            no activation.
+    """
+
+    def __init__(
+        self,
+        layers: list[int],
+        activations: list[nn.Module | None] | None = None,
+    ) -> None:
+        super().__init__()
+        self.layers = nn.ModuleList([
+            ICNNLayer(z_in=0 if i == 0 else layers[i],
+                      x_in=layers[0],
+                      out=layers[i + 1])
+            for i in range(len(layers) - 1)
+        ])
+        self.activations = activations or []
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        z = None
+        for i, layer in enumerate(self.layers):
+            z = layer(z, x)
+            if i < len(self.activations) and self.activations[i] is not None:
+                z = self.activations[i](z)
+        return z
+
+    @torch.no_grad()
+    def clamp_z_(self) -> None:
+        for layer in self.layers:
+            layer.clamp_z_()
+
+
 # ---------------------- extreme learning machines -----------------------
 class ELM(nn.Module):
     """Extreme learning machine with random fixed feature extractor.

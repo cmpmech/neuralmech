@@ -123,7 +123,7 @@ Behaviour:
 
 - **No docstrings** in driver scripts.
 - Only two comment forms allowed:
-  1. **Section headers** (always): `# ----------------------- training -----------------------` (~70 char total, text centered with spaces).
+  1. **Section headers** (~70 char total, text centered with spaces): `# ----------------------- training -----------------------`. Use them only from the **hyperparameters/settings** step onward — i.e. for settings, data, model instantiation, training, postprocessing. **Never** banner the scaffolding at the top of the file: imports, `BASE_DIR` / paths, device + seeds, and argparse all sit bare without headers. See `elm_example.py`, `mlp_example.py`, `siren_example.py` for the canonical pattern.
   2. **Single inline comment** when the *reason* is non-obvious: `# faster on cpu, because matrices are small`.
 - Never describe what the code does; only why, only when surprising.
 
@@ -140,3 +140,7 @@ init_weights(model, activations[0])    # correct order
 
 - Costs: `:.2e` (e.g., `f"{cost:.2e}"`).
 - Seconds: `:.2f` (e.g., `f"{toc - tic:.2f} s"`).
+
+## Plotting
+
+- **No legends** in driver plots. Never `ax.legend()`, never `label=...` on `ax.plot(...)`. The book renders figures via TikZ with its own legends and axis labels — matplotlib legends become dead pixels in the final PDF and clutter inline previews. Use plain `ax.plot(x, y, 'k')` / `'r--'` / `'bo'` style calls.
