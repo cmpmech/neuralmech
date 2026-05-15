@@ -1,8 +1,23 @@
+import argparse
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import BSpline
 
-P = np.array([[0, 0], [1, 2], [2, 2], [3, 0], [4, -2], [5, -2], [6, 0]], dtype=float)
+from postprocessing import save_csv
+
+BASE_DIR = Path(__file__).parent
+RESULTS_DIR = BASE_DIR / "../../results"
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+args = parser.parse_args()
+
+
+P = np.array(
+    [[0, 0], [1, 2], [2, 2], [3, 0], [4, -2.5], [5.5, -2], [6, 0]], dtype=float
+)
 n, degree = len(P), 2
 
 # uniform knot vector
@@ -40,7 +55,12 @@ axes[1].set_ylim(-1, 1)
 plt.tight_layout()
 plt.show()
 
-
-# # Print TikZ coordinates
-# coords = " ".join(f"({xi:.4f},{yi:.4f})" for xi, yi in zip(x, y))
-# print(f"\\draw[thick] plot coordinates {{{coords}}};")
+# ---------------------------- postprocessing ----------------------------
+if args.book:
+    save_csv(RESULTS_DIR / "bspline.csv", x=x, y=y)
+    save_csv(RESULTS_DIR / "bspline_controlpoints.csv", x=P.T[0], y=P.T[1])
+    save_csv(
+        RESULTS_DIR / "bspline_bases.csv",
+        t=t,
+        **{f"b{i}": basis[:, i] for i in range(n)},
+    )

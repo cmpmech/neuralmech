@@ -1,5 +1,9 @@
+import math
+
 import torch
 from torch import nn
+
+from NN import SIRENsine
 
 
 # ------------------------ weight initialization -------------------------
@@ -40,6 +44,16 @@ def init_weights(model, activation=None):
                 nn.init.xavier_uniform_(
                     m.weight, gain=nn.init.calculate_gain("sigmoid")
                 )
+            elif isinstance(activation, SIRENsine):
+                linears = [m for m in model.modules() if isinstance(m, nn.Linear)]
+                for i, linear in enumerate(linears):
+                    if i == 0:
+                        bound = 1.0 / linear.in_features
+                    else:
+                        bound = math.sqrt(6.0 / linear.in_features) / activation.omega_0
+                    nn.init.uniform_(linear.weight, -bound, bound)
+                    nn.init.uniform_(linear.bias, -bound, bound)
+                return
             else:
                 nn.init.kaiming_uniform_(m.weight, nonlinearity="relu")
             if m.bias is not None:
@@ -145,3 +159,55 @@ def filter_normalize_direction(
         else:
             normed.append(d * (w.norm() / (d.norm() + 1e-10)))
     return normed
+
+
+# ----------------------------- KAN helpers ------------------------------
+def count_kan_params(model):
+    base_params = 0
+    spline_params = 0
+
+    for name, param in model.named_parameters():
+        if "base_weight" in name:
+            base_params += param.numel()
+        elif "spline_weight" in name or "spline_scaler" in name:
+            spline_params += param.numel()
+
+    return base_params, spline_params
+
+
+def get_kan_edge_activations(model, layer_id, resolution=200):
+    layer = model.layers[layer_id]
+    dev = layer.grid.device
+
+    grid = layer.grid  # (in_features, grid_size + 2*spline_order + 1)
+    p = layer.spline_order
+    in_features = layer.in_features
+    out_features = layer.out_features
+
+    x = torch.zeros((out_features, in_features, resolution))
+    activations = torch.zeros((out_features, in_features, resolution))
+
+    for i in range(in_features):
+        x_line = torch.linspace(
+            grid[i, p].item(), grid[i, -p - 1].item(), resolution, device=dev
+        )
+        x_full = torch.zeros(resolution, in_features, device=dev)
+        x_full[:, i] = x_line
+
+        with torch.no_grad():
+            basis = layer.b_splines(
+                x_full
+            )  # (resolution, in_features, grid_size + spline_order)
+
+        basis_i = basis[:, i, :]  # (resolution, grid_size + spline_order)
+
+        base_out = layer.base_activation(x_line)  # (resolution,)
+
+        for j in range(out_features):
+            spline = basis_i @ layer.scaled_spline_weight[j, i, :]
+            y_eval = (spline + layer.base_weight[j, i] * base_out).detach().cpu()
+
+            x[j, i] = x_line.cpu()
+            activations[j, i] = y_eval
+
+    return x, activations

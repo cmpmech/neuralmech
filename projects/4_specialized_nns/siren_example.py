@@ -1,48 +1,78 @@
+import argparse
+import time
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import torch
 from torch import nn
-import numpy as np
-from torch.utils.data import TensorDataset, DataLoader
-from postprocessing import save_csv
-import matplotlib.pyplot as plt
-from DL import Standardizer
-from NN import SIREN
-import time
+from torch.autograd import grad
+from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
+from DL import Standardizer, init_weights
+from NN import MLP, SIRENsine
+from postprocessing import save_csv
+
 BASE_DIR = Path(__file__).parent
+RESULTS_DIR = BASE_DIR / "../../results"
+
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
-device = torch.device('cpu')
+device = torch.device("cpu")
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+parser.add_argument("--animate", action="store_true")
+args = parser.parse_args()
 
 # -------------------------- training settings ---------------------------
-epochs = 1000
-lr = 1e-4
-batch_size = 32
+SIREN = True
+# SIREN = False
 
-cost_fun = nn.MSELoss(reduction='mean')
+epochs = 2000
+lr = 1e-2  # 5e-3
+batch_size = 32
+FREQ = 3
+SAMPLES = 256
+
+SHARPNESS = 4.0
+# SHARPNESS = 8.0
+# SHARPNESS = 16.0
+
+cost_fun = nn.MSELoss(reduction="mean")
 
 # ---------------------------- model settings ----------------------------
 layers = [1, 32, 32, 1]
-omega_0 = 5.0  # omega_0=30 (paper default) is tuned for high-freq signals (images)
+OMEGA_0 = 2.0
+# OMEGA_0 = 10.0
+# OMEGA_0 = 15.0
 
 # ----------------------------- prepare data -----------------------------
-data = np.load(BASE_DIR / '../../data/sine.npz')
-dataset = TensorDataset(torch.from_numpy(data['X']).to(torch.float32),
-                        torch.from_numpy(data['Y']).to(torch.float32))
-train_data, val_data = torch.utils.data.random_split(dataset, [0.5, 0.5])
-train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+X = torch.linspace(-1, 1, SAMPLES).unsqueeze(1)
+Y = torch.tanh(SHARPNESS * torch.sin(2 * torch.pi * FREQ * X))
 
-X_train = train_data.dataset.tensors[0][train_data.indices]
-Y_train = train_data.dataset.tensors[1][train_data.indices]
+dataset = TensorDataset(X, Y)
+train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+X_train = dataset.tensors[0]
+Y_train = dataset.tensors[1]
 standardizex = Standardizer(X_train, dim=0)
 standardizey = Standardizer(Y_train, dim=0)
 
+
 # -------------------- instantiate model & optimizer ---------------------
-model = SIREN(layers, omega_0=omega_0)
+if SIREN == True:
+    activation = SIRENsine(omega_0=OMEGA_0)
+else:
+    activation = nn.ReLU(inplace=True)
+    # activation = nn.GELU(approximate="tanh")
+
+activations = [activation] * (len(layers) - 2) + [None]
+model = MLP(layers, activations=activations)
 model.to(device)
+init_weights(model, activation)
 optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
 # ------------------------------- training -------------------------------
 train_cost = [0.0] * epochs
@@ -60,37 +90,68 @@ for epoch in pbar:
         optimizer.step()
         train_cost[epoch] += cost.item()
     train_cost[epoch] /= len(train_loader)
+    scheduler.step()
     if epoch % 50 == 0:
-        pbar.set_postfix({'train': f'{train_cost[epoch]:.2e}'})
+        pbar.set_postfix({"train": f"{train_cost[epoch]:.2e}"})
 toc = time.time()
-print(f'elapsed time: {toc - tic:.2f} s')
+print(f"elapsed time: {toc - tic:.2f} s")
 
 # ---------------------------- postprocessing ----------------------------
-X_val = train_data.dataset.tensors[0][val_data.indices]
-Y_val = train_data.dataset.tensors[1][val_data.indices]
+f = lambda x: torch.tanh(SHARPNESS * torch.sin(2 * torch.pi * FREQ * x))
 
-model.eval()
-with torch.no_grad():
-    y_val_pred = standardizey.inverse(model(standardizex(X_val)))
-    cost = cost_fun(y_val_pred, Y_val)
-print(f'validation cost: {cost:.2e}')
-
-f = lambda x: torch.sin(2 * torch.pi * x)
-x_test = torch.linspace(-1.3, 1.3, 100).unsqueeze(1)
+x_test = torch.linspace(-1, 1, 2 * SAMPLES).unsqueeze(1)
 y_test = f(x_test)
 
 with torch.no_grad():
     y_pred = standardizey.inverse(model(standardizex(x_test)))
+    y_pred_train = standardizey.inverse(model(standardizex(X_train)))
 
-fig, ax = plt.subplots()
-ax.plot(x_test, y_test, 'k')
-ax.plot(x_test, y_pred.detach().cpu(), 'r--')
-ax.plot(X_train, Y_train, 'bo')
-ax.set_ylim(-2, 2)
-plt.show()
+x_grad = x_test.detach().requires_grad_(True)
+dy_pred = grad(
+    standardizey.inverse(model(standardizex(x_grad))),
+    x_grad,
+    torch.ones_like(x_grad),
+)[0]
 
-# ------------------------- book postprocessing --------------------------
-save_csv(BASE_DIR / '../../results/siren_sine_test.csv',
-         x=x_test[:, 0], y=y_test[:, 0], ypred=y_pred[:, 0])
-save_csv(BASE_DIR / '../../results/siren_sine_train.csv',
-         x=X_train[:, 0], y=Y_train[:, 0])
+dy_test = (
+    (1 - torch.tanh(SHARPNESS * torch.sin(2 * torch.pi * FREQ * x_test)) ** 2)
+    * SHARPNESS
+    * 2
+    * torch.pi
+    * FREQ
+    * torch.cos(2 * torch.pi * FREQ * x_test)
+)
+
+tag = f"siren_{SHARPNESS}_{SIREN}_{OMEGA_0}"
+
+if args.book:
+    save_csv(
+        RESULTS_DIR / f"{tag}_test.csv",
+        x=x_test[:, 0],
+        y=y_test[:, 0],
+        ypred=y_pred[:, 0],
+    )
+    save_csv(
+        RESULTS_DIR / f"{tag}_grad.csv",
+        x=x_grad.detach()[:, 0],
+        dy=dy_test[:, 0],
+        dypred=dy_pred.detach()[:, 0],
+    )
+    save_csv(
+        RESULTS_DIR / f"{tag}_train.csv",
+        x=X_train[:, 0],
+        y=Y_train[:, 0],
+        ypred=y_pred_train[:, 0],
+    )
+else:
+    fig, ax = plt.subplots()
+    ax.plot(x_test, y_test, "k")
+    ax.plot(x_test, y_pred.detach().cpu(), "r--")
+    ax.plot(X_train, Y_train, "bo")
+    ax.set_ylim(-2, 2)
+    plt.show()
+
+    fig, ax = plt.subplots()
+    ax.plot(x_test, dy_test, "k")
+    ax.plot(x_grad.detach(), dy_pred.detach(), "r--")
+    plt.show()

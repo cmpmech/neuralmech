@@ -589,12 +589,14 @@ class ICNN(nn.Module):
         activations: list[nn.Module | None] | None = None,
     ) -> None:
         super().__init__()
-        self.layers = nn.ModuleList([
-            ICNNLayer(z_in=0 if i == 0 else layers[i],
-                      x_in=layers[0],
-                      out=layers[i + 1])
-            for i in range(len(layers) - 1)
-        ])
+        self.layers = nn.ModuleList(
+            [
+                ICNNLayer(
+                    z_in=0 if i == 0 else layers[i], x_in=layers[0], out=layers[i + 1]
+                )
+                for i in range(len(layers) - 1)
+            ]
+        )
         self.activations = activations or []
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -780,41 +782,50 @@ class DeepONet(nn.Module):
 # ---------------------------- siren network -----------------------------
 
 
-class SIREN(nn.Module):
-    """Sinusoidal representation network with periodic activations.
-
-    Each hidden layer computes sin(omega_0 * (Wx + b)). The output layer is
-    linear (no sine), suitable for regression. Weights are initialized to
-    preserve the distribution of activations across depth.
-
-    Reference: https://arxiv.org/abs/2006.09661
-
-    Args:
-        layers: List of integers specifying the size of each layer.
-        omega_0: Frequency multiplier applied before the sine in hidden layers.
-            The first layer scales by omega_0; subsequent layers are initialized
-            so that omega_0 cancels in the variance calculation.
-    """
-
-    def __init__(self, layers: list[int], omega_0: float = 30.0) -> None:
+class SIRENsine(nn.Module):
+    def __init__(self, omega_0: float = 30.0) -> None:
         super().__init__()
-        linears = []
-        for i in range(len(layers) - 1):
-            linear = nn.Linear(layers[i], layers[i + 1])
-            if i == 0:
-                bound = 1.0 / layers[i]
-            else:
-                bound = math.sqrt(6.0 / layers[i]) / omega_0
-            nn.init.uniform_(linear.weight, -bound, bound)
-            nn.init.uniform_(linear.bias, -bound, bound)
-            linears.append(linear)
-        self.linears = nn.ModuleList(linears)
         self.omega_0 = omega_0
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        for linear in self.linears[:-1]:
-            x = torch.sin(self.omega_0 * linear(x))
-        return self.linears[-1](x)
+    def forward(self, x):
+        return torch.sin(self.omega_0 * x)
+
+
+# class SIREN(nn.Module):
+#     """Sinusoidal representation network with periodic activations.
+
+#     Each hidden layer computes sin(omega_0 * (Wx + b)). The output layer is
+#     linear (no sine), suitable for regression. Weights are initialized to
+#     preserve the distribution of activations across depth.
+
+#     Reference: https://arxiv.org/abs/2006.09661
+
+#     Args:
+#         layers: List of integers specifying the size of each layer.
+#         omega_0: Frequency multiplier applied before the sine in hidden layers.
+#             The first layer scales by omega_0; subsequent layers are initialized
+#             so that omega_0 cancels in the variance calculation.
+#     """
+
+#     def __init__(self, layers: list[int], omega_0: float = 30.0) -> None:
+#         super().__init__()
+#         linears = []
+#         for i in range(len(layers) - 1):
+#             linear = nn.Linear(layers[i], layers[i + 1])
+#             if i == 0:
+#                 bound = 1.0 / layers[i]
+#             else:
+#                 bound = math.sqrt(6.0 / layers[i]) / omega_0
+#             nn.init.uniform_(linear.weight, -bound, bound)
+#             nn.init.uniform_(linear.bias, -bound, bound)
+#             linears.append(linear)
+#         self.linears = nn.ModuleList(linears)
+#         self.omega_0 = omega_0
+
+#     def forward(self, x: torch.Tensor) -> torch.Tensor:
+#         for linear in self.linears[:-1]:
+#             x = torch.sin(self.omega_0 * linear(x))
+#         return self.linears[-1](x)
 
 
 # ---------------------- kolmogorov-arnold network -----------------------

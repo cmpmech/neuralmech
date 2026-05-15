@@ -157,6 +157,7 @@ if not args.book:
     ax.plot(x_test.detach(), ddy_pred.detach() / 4 / np.pi**2, "b")
     ax.plot(x_test.detach(), dddy_pred.detach() / 8 / np.pi**3, "g")
     plt.show()
+
 else:
 # --------------------- gradient book postprocessing ---------------------
     if EPOCHS == 400:
