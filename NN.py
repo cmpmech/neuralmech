@@ -4,7 +4,7 @@ from modulefinder import test
 import torch
 import torch.nn.functional as F
 from efficient_kan import KAN
-from neuralop.models import FNO
+# from neuralop.models import FNO
 from torch import nn
 from torch_geometric.nn import GATConv, GCNConv, GINConv, SAGEConv
 from torch_geometric.nn.conv.message_passing import HookDict

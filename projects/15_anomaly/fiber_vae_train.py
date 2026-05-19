@@ -12,7 +12,7 @@ from torchinfo import summary
 from tqdm import tqdm
 
 from DL import Standardizer, build_ae_cnn_config, init_weights
-from NN import AE, DCN, MLP
+from NN import DCN, MLP, VAE
 
 BASE_DIR = Path(__file__).parent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -20,29 +20,57 @@ torch.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 
 # -------------------------- training settings ---------------------------
-epochs = 150
-lr = 4e-3
-weight_decay = 1e-2
-batch_size = 32
+epochs = 50
+lr = 1e-2  # change over ae
+weight_decay = 5e-9    ### ??
+batch_size = 64
+
+# beta = 0. # good reconstruction
+# beta = 0.05  # goodish reconstruction & latent
+beta = .1
+# beta = 0.2 # good latent
 
 # define loss
-cost_fun = nn.MSELoss(reduction="mean")
+recon_loss = nn.MSELoss(reduction="mean")
+
+
+def kl_div(mean_pred, logvar_pred):
+    var_pred = torch.exp(logvar_pred)
+    kl = 0.5 * torch.mean(var_pred + mean_pred**2 - logvar_pred - 1)
+    return kl
+
+
+def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
+    mse = recon_loss(x_pred, x)
+    kl = kl_div(mean_pred, logvar_pred)
+    return mse + beta * kl
+
 
 # ---------------------------- model settings ----------------------------
 base, depth = 2, 5
+latent_dim = 32  # 2 8 32 128 512 # 2 as latent_dim for visualization
 conv_layers = 1
 channel_dim = 1
 kernel_size = 3
 act = partial(nn.PReLU, init=0.2)
 
-bottleneck_layers = 1  # controls compression ratio
-compression = 2 ** (-depth - bottleneck_layers)
-print(f"compression ratio {compression * 100:.2f} %")
+# bottleneck_layers = 1  # controls compression ratio
+# compression = 2 ** (-depth - bottleneck_layers)
+# print(f"compression ratio {compression * 100:.2f} %")
 
 # ----------------------------- prepare data -----------------------------
 domain_size = 256
+data = []
+data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_{domain_size}.npy") ) )
+num_circles = 10
 
-data = torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_{domain_size}.npy"))
+for num_squares in range(num_circles + 1):
+        data.append(
+        torch.from_numpy(
+            np.load(BASE_DIR / f"../../data/fibers_anomaly_{num_circles}_{domain_size}.npy")
+        )
+    )
+data = torch.from_numpy(np.concatenate(data, axis=0))
 data = data.to(torch.float32).unsqueeze(1)
 
 dataset = TensorDataset(data)
@@ -56,16 +84,13 @@ X_train = train_data.dataset.tensors[0][train_data.indices]
 standardizex = Standardizer(X_train, dim=(0, 2, 3))
 
 # -------------------------- instantiate model ---------------------------
+## details on this??
 channels, strides = build_ae_cnn_config(depth, conv_layers, channel_dim, base)
 channels[0] = 1  # true input size (in case channel_dim != 1)
 
-bottleneck_channels = [
-    int(channels[-1] / 2 ** (i + 1)) for i in range(bottleneck_layers)
-]
-bottleneck_strides = [1] * bottleneck_layers
-
-channels += bottleneck_channels
-strides += bottleneck_strides
+## vae
+red_domain_size = domain_size // 2**depth
+layers = [red_domain_size**2 * channels[-1], latent_dim]
 
 Encoder = nn.Sequential()
 Encoder.append(
@@ -79,14 +104,23 @@ Encoder.append(
         normalizations=[nn.GroupNorm(1, channel) for channel in channels[1:]],
     )
 )
+Encoder.append(nn.Flatten())             # flatten output of CNN
+Encoder.append(MLP(layers[:-1] + [layers[-1] * 2], [act()]))     # *2 for mean and SD in AE
 
 upsamplings = [
-    nn.Upsample(scale_factor=2, mode="nearest") if s == 2 else None
+    # nn.Upsample(scale_factor=2, mode="nearest") if s == 2 else None
+    nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
+    if s == 2
+    else None
     for s in strides[::-1]
 ]
 
-Decoder = nn.Sequential()
 
+Decoder = nn.Sequential()
+Decoder.append(MLP(layers[::-1], [act()] * (len(layers) - 1)))      # not times 2
+Decoder.append(nn.Unflatten(1, (channels[-1], red_domain_size, red_domain_size)))  
+
+# what is this??
 Decoder.append(
     DCN(
         channels[::-1],
@@ -100,15 +134,17 @@ Decoder.append(
     )
 )
 
-model = AE(Encoder, Decoder).to(device)
+model = VAE(Encoder, Decoder).to(device)
 init_weights(model, act())
 summary(model, (1, 1, domain_size, domain_size), depth=4)
+
 
 # ------------------------ instantiate optimizer -------------------------
 optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     optimizer, T_max=epochs, eta_min=lr * 1e-2
 )
+scheduler = None
 
 # ------------------------------- training -------------------------------
 print_every = 10
@@ -120,8 +156,8 @@ for epoch in pbar:
     for x in train_loader:
         x = standardizex(x[0]).to(device)  # unwrap & standardize
         optimizer.zero_grad()
-        x_pred = model(x)
-        cost = cost_fun(x_pred, x)
+        x_pred, mean_pred, logvar_pred = model(x)
+        cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta)
         cost.backward()
         optimizer.step()
         train_cost[epoch] += cost.item()
@@ -133,8 +169,8 @@ for epoch in pbar:
     with torch.no_grad():
         for x in val_loader:
             x = standardizex(x[0]).to(device)  # unwrap & standardize
-            x_pred = model(x)
-            cost = cost_fun(x_pred, x)
+            x_pred, mean_pred, logvar_pred = model(x)
+            cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta)
             val_cost[epoch] += cost.item()
         val_cost[epoch] /= len(val_loader)  # avg per batch
 
@@ -146,7 +182,7 @@ for epoch in pbar:
 # ----------------------------- export model -----------------------------
 model.standardizer = standardizex  # just for saving
 torch.save(
-    model, BASE_DIR / f"../../models/fiber_ae_{bottleneck_layers}_{domain_size}.pt2"
+    model, BASE_DIR / f"../../models/fiber_vae_depth{depth}_latent{latent_dim}_beta{beta}_{domain_size}.pt2"
 )
 
 # ---------------------------- postprocessing ----------------------------
@@ -154,26 +190,30 @@ fig, ax = plt.subplots()
 ax.plot(train_cost, "k")
 ax.plot(val_cost, "r")
 ax.set_yscale("log")
-# plt.savefig(BASE_DIR / '../../tmp/history.png')
+plt.savefig(BASE_DIR / '../../tmp/history.png')
 plt.show()
 
-# testing
+
+## compare prediction and input
 model.eval()
+with torch.no_grad():
+    x = next(iter(val_loader))
+    x = standardizex(x[0]).to(device)  # unwrap & standardize
+    x_pred, mean_pred, logvar_pred = model(x)
+    x_orig = standardizex.inverse(x.cpu())[0, 0]
+    x_recon = standardizex.inverse(x_pred.detach().cpu())[0, 0]
 
-# x = next(iter(train_loader))
-x = next(iter(val_loader))
-x = standardizex(x[0]).to(device)  # unwrap & standardize
-x_pred = model(x)
+fig2, ax2 = plt.subplots(1, 2, figsize=(6, 3), dpi=domain_size)
+ax2[0].imshow(x_orig, cmap="binary", vmin=0, vmax=1)
+ax2[0].set_title("original")
+ax2[1].imshow(x_recon, cmap="binary", vmin=0, vmax=1)
+ax2[1].set_title(f"reconstruction (latent {latent_dim})")
+for a in ax2:
+    a.set_aspect("equal")
+    a.axis("off")
+    a.set_rasterized(True)
+fig2.suptitle(f"VAE latent_dim = {latent_dim}")
+fig2.tight_layout(pad=0.1)
+plt.savefig(BASE_DIR / '../../tmp/vae_pred.png')
 
-fig, ax = plt.subplots(1, 2, figsize=(4, 2), dpi=domain_size)
-ax[0].imshow(standardizex.inverse(x.cpu())[0, 0], cmap="binary", vmin=0, vmax=1)
-ax[1].imshow(
-    standardizex.inverse(x_pred.detach().cpu())[0, 0], cmap="binary", vmin=0, vmax=1
-)
-for i in range(2):
-    ax[i].set_aspect("equal")
-    ax[i].axis("off")
-    ax[i].set_rasterized(True)
-fig.tight_layout(pad=0)
-# plt.savefig(BASE_DIR / '../../tmp/prediction.png')
 plt.show()
