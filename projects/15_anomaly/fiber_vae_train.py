@@ -20,14 +20,14 @@ torch.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 
 # -------------------------- training settings ---------------------------
-epochs = 50
+epochs = 77
 lr = 1e-2  # change over ae
-weight_decay = 5e-9    ### ??
+weight_decay = 1e-4    ### ??
 batch_size = 64
 
 # beta = 0. # good reconstruction
-# beta = 0.05  # goodish reconstruction & latent
-beta = .1
+# beta = 0.05 
+beta = 0.2
 # beta = 0.2 # good latent
 
 # define loss
@@ -62,14 +62,15 @@ act = partial(nn.PReLU, init=0.2)
 domain_size = 256
 data = []
 data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_{domain_size}.npy") ) )
-num_circles = 10
 
-for num_squares in range(num_circles + 1):
-        data.append(
-        torch.from_numpy(
-            np.load(BASE_DIR / f"../../data/fibers_anomaly_{num_circles}_{domain_size}.npy")
-        )
-    )
+## Add squares to dataset
+num_circles = 10
+# for num_squares in range(num_circles + 1):
+#         data.append(
+#         torch.from_numpy(
+#             np.load(BASE_DIR / f"../../data/fibers_anomaly_{num_circles}_{domain_size}.npy")
+#         )
+#     )
 data = torch.from_numpy(np.concatenate(data, axis=0))
 data = data.to(torch.float32).unsqueeze(1)
 
@@ -190,7 +191,8 @@ fig, ax = plt.subplots()
 ax.plot(train_cost, "k")
 ax.plot(val_cost, "r")
 ax.set_yscale("log")
-plt.savefig(BASE_DIR / '../../tmp/history.png')
+ax.set_title(f"training history beta={beta}, latent_dim={latent_dim}")
+plt.savefig(BASE_DIR / f"../../tmp/b{beta}_l{latent_dim}_history.png")
 plt.show()
 
 
@@ -214,6 +216,6 @@ for a in ax2:
     a.set_rasterized(True)
 fig2.suptitle(f"VAE latent_dim = {latent_dim}")
 fig2.tight_layout(pad=0.1)
-plt.savefig(BASE_DIR / '../../tmp/vae_pred.png')
+plt.savefig(BASE_DIR / f"../../tmp/b{beta}_l{latent_dim}_vae_pred.png")
 
 plt.show()
