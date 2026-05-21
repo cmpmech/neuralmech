@@ -7,6 +7,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm import tqdm
 
+from DL import Standardizer, init_weights
 from NN import DCN, UNet
 
 BASE_DIR = Path(__file__).parent
@@ -15,16 +16,41 @@ torch.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 
 # ----------------------- hyperparameters ------------------------
-EPOCHS = 20
-LR = 1e-3
-BATCH_SIZE = 32  # 4
-K = 6
+# EPOCHS = 200
+# LR = 1e-3
+# BATCH_SIZE = 8 #32  # 4
+# K = 6
+# LAM = 0.5
+# CG_ITER = 10
+# MASK_RATIO = 0.7  # 0.5
+# BASE_CH = 16
+# DEPTH = 3
+# DOMAIN_SIZE = 128  # 256
+# PRINT_EVERY = 1
+
+# EPOCHS = 1000
+# LR = 5e-3 #2e-3 #2e-3 #5e-3 #1e-3
+# BATCH_SIZE = 9 #8 #32  # 4 # full batch currently
+# K = 10
+# LAM = 0.5
+# CG_ITER = 10
+# MASK_RATIO = 0.7  # 0.5
+# BASE_CH = 32 #16
+# DEPTH = 3
+# DOMAIN_SIZE = 128  # 256
+# PRINT_EVERY = 1
+#
+EPOCHS = 1000 # could be extended
+LR = 2e-3 #2e-3 #2e-3 #5e-3 #1e-3
+BATCH_SIZE = 32 #16 #9 #8 #32  # 4 # full batch currently
+K = 8
 LAM = 0.5
 CG_ITER = 10
-MASK_RATIO = 0.7  # 0.5
-BASE_CH = 16
+MASK_RATIO = 0.5 #0.7  # 0.5
+BASE_CH = 32 #32 helps a little
+DEPTH = 3
 DOMAIN_SIZE = 128  # 256
-PRINT_EVERY = 1
+PRINT_EVERY = 10
 
 cost_fun = nn.MSELoss(reduction="mean")
 
@@ -50,12 +76,13 @@ class FiberMaskDataset(Dataset):
 
 
 dataset = FiberMaskDataset(data, MASK_RATIO)
-train_set, val_set = random_split(dataset, [0.9, 0.1])
+train_set, val_set = random_split(dataset, [0.5, 0.5]) # TODO fix
 train_loader = DataLoader(
     train_set, batch_size=BATCH_SIZE, shuffle=True, drop_last=True
 )
 val_loader = DataLoader(val_set, batch_size=BATCH_SIZE)
 
+# TODO standardization?
 
 # ------------------- forward operator ---------------------------
 def A_op(x, mask):
@@ -91,32 +118,33 @@ def cg_solve(mask, rhs, lam: float, n_iter: int = 10) -> torch.Tensor:
 
 
 # --------------------------- model ------------------------------
-depth = 3
-levels = [1] + [BASE_CH * 2**i for i in range(depth)]  # [1, 16, 32, 64]
+levels = [1] + [BASE_CH * 2**i for i in range(DEPTH)]  # [1, 16, 32, 64]
+# activations = [nn.GELU()]
+act = nn.ReLU(inplace=True)
 
 downs = [
     DCN(
         [levels[i], levels[i + 1], levels[i + 1]],
-        [nn.ReLU(), nn.ReLU()],
+        [act, act],
         3,
         stride=[1, 2],
         padding=1,
         dim=2,
-        normalizations=[nn.BatchNorm2d(levels[i + 1]) for _ in range(2)],
+        normalizations=[nn.BatchNorm2d(levels[i + 1]) for _ in range(2)], # TODO layernorm?
     )
-    for i in range(depth)
+    for i in range(DEPTH)
 ]
 
 ups = [
     DCN(
         [2 * levels[i + 1], levels[i + 1], levels[i] if i > 0 else 1],
-        [nn.ReLU(), nn.ReLU() if i > 0 else None],
+        [act, act if i > 0 else None],
         3,
         stride=1,
         padding=1,
         dim=2,
         resamplings=[
-            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+            nn.Upsample(scale_factor=2, mode="nearest"), # TODO try nearest instead of bilinear (with align_corners)
             None,
         ],
         normalizations=[
@@ -124,11 +152,13 @@ ups = [
             nn.BatchNorm2d(levels[i]) if i > 0 else None,
         ],
     )
-    for i in reversed(range(depth))
+    for i in reversed(range(DEPTH))
 ]
 
 denoiser = nn.Sequential(UNet(downs, ups), nn.Sigmoid())
-
+# denoiser = nn.Sequential(UNet(downs, ups), act) # is the activation even needed?
+# init_weights(denoiser, activations[0])
+# init_weights(denoiser, act) # TODO why is initialization bad?
 
 class MoDL(nn.Module):
     # K unrolled iterations: z = D_w(x), x = CG-solve(A^TA + λI | A^Tb + λz)
@@ -151,6 +181,10 @@ class MoDL(nn.Module):
 
 model = MoDL(denoiser, K=K, lam=LAM, cg_iter=CG_ITER).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer, T_max=EPOCHS, eta_min=LR * 1e-2
+)
+# scheduler = None
 
 # -------------------------- training ----------------------------
 train_cost = [0.0] * EPOCHS
@@ -165,6 +199,8 @@ for epoch in pbar:
         cost = cost_fun(x_pred, x_gt)
         cost.backward()
         optimizer.step()
+        if scheduler is not None:
+            scheduler.step()
         train_cost[epoch] += cost.item()
     train_cost[epoch] /= len(train_loader)
 
@@ -188,6 +224,7 @@ fig, ax = plt.subplots()
 ax.plot(train_cost, "k")
 ax.plot(val_cost, "r")
 ax.set_yscale("log")
+plt.savefig('../../tmp/hist.png')
 plt.show()
 
 model.eval()
@@ -201,4 +238,21 @@ for ax, img in zip(axes, [b, x_pred, x_gt]):
     ax.imshow(img[0, 0].cpu(), cmap="binary", vmin=0, vmax=1)
     ax.axis("off")
 fig.tight_layout(pad=0)
+plt.savefig('../../tmp/recon.png')
+plt.show()
+
+
+
+model.eval()
+b, mask, x_gt = next(iter(train_loader))
+b, mask, x_gt = b.to(device), mask.to(device), x_gt.to(device)
+with torch.no_grad():
+    x_pred = model(b, mask)
+
+fig, axes = plt.subplots(1, 3, figsize=(9, 3), dpi=150)
+for ax, img in zip(axes, [b, x_pred, x_gt]):
+    ax.imshow(img[0, 0].cpu(), cmap="binary", vmin=0, vmax=1)
+    ax.axis("off")
+fig.tight_layout(pad=0)
+plt.savefig('../../tmp/recon_train.png')
 plt.show()
