@@ -19,8 +19,8 @@ parser.add_argument("--animate", action="store_true")
 args = parser.parse_args()
 
 # ----------------------- hyperparameters ------------------------
-MASK_RATIO = 0.7
-DOMAIN_SIZE = 128
+MASK_RATIO = 0.8
+DOMAIN_SIZE = 256  # 128
 N_EXAMPLES = 8  # TODO where is this?
 USE_TV = True  # False  # True  # False: zero-fill (min-norm), True: TV-regularized ADMM
 SIGMA = 0  # Gaussian blur std (pixels) applied to binary data before masking;
@@ -32,7 +32,7 @@ CG_ITER = 20
 
 # ----------------------------- data -----------------------------
 data = torch.from_numpy(
-    np.load(BASE_DIR / f"../../data/fibers_{DOMAIN_SIZE}.npy")
+    np.load(BASE_DIR / f"../../data/graded_fibers_{DOMAIN_SIZE}.npy")
 )  # TODO graded_ ???
 data = data.to(torch.float32)  # (N, H, W)
 if SIGMA > 0:

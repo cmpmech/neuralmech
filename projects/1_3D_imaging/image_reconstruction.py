@@ -130,7 +130,7 @@ downs = [
         stride=[1, 2],
         padding=1,
         dim=2,
-        normalizations=[nn.BatchNorm2d(levels[i + 1]) for _ in range(2)], # TODO layernorm?
+        normalizations=[nn.GroupNorm(1, levels[i + 1]) for _ in range(2)],
     )
     for i in range(DEPTH)
 ]
@@ -148,8 +148,8 @@ ups = [
             None,
         ],
         normalizations=[
-            nn.BatchNorm2d(levels[i + 1]),
-            nn.BatchNorm2d(levels[i]) if i > 0 else None,
+            nn.GroupNorm(1, levels[i + 1]),
+            nn.GroupNorm(1, levels[i]) if i > 0 else None,
         ],
     )
     for i in reversed(range(DEPTH))
@@ -199,10 +199,10 @@ for epoch in pbar:
         cost = cost_fun(x_pred, x_gt)
         cost.backward()
         optimizer.step()
-        if scheduler is not None:
-            scheduler.step()
         train_cost[epoch] += cost.item()
     train_cost[epoch] /= len(train_loader)
+    if scheduler is not None:
+        scheduler.step()
 
     model.eval()
     with torch.no_grad():
