@@ -49,6 +49,7 @@ def generate_squares(N, num_circles, num_squares, half_width=0.1, domain_length=
 
 # ------------------------------- settings -------------------------------
 N = 256
+# N = 128
 
 # ------------------------- generate normal data -------------------------
 samples = 500
