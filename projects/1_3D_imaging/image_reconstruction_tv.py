@@ -8,6 +8,7 @@ from scipy.ndimage import gaussian_filter
 from tqdm import tqdm
 
 BASE_DIR = Path(__file__).parent
+RESULTS_DIR = BASE_DIR / "../../results"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(42)
@@ -19,33 +20,26 @@ parser.add_argument("--animate", action="store_true")
 args = parser.parse_args()
 
 # ----------------------- hyperparameters ------------------------
-MASK_RATIO = 0.6
-DOMAIN_SIZE = 128 #256  # 128
-N_EXAMPLES = 8  # TODO where is this?
-USE_TV = True  # False  # True  # False: zero-fill (min-norm), True: TV-regularized ADMM
-SIGMA = 0  # Gaussian blur std (pixels) applied to binary data before masking;
-# converts hard binary circles into smooth density maps where TV is meaningful
-LAM = 0.05 #0.02  # TV weight
+DOMAIN_SIZE = 128  # 256  # 128
+N_EXAMPLES = 7  # TODO where is this?
+USE_TV = False  # True  # False  # True  # False  # True  # False: zero-fill (min-norm), True: TV-regularized ADMM
+LAM = 0.1  # 0.05  # 0.02  # TV weight
 RHO = 0.1  # ADMM penalty parameter
 ADMM_ITER = 200
 CG_ITER = 20
 
 # ----------------------------- data -----------------------------
 data = torch.from_numpy(
-    np.load(BASE_DIR / f"../../data/graded_fibers_{DOMAIN_SIZE}.npy")
-)  # TODO graded_ ???
-data = data.to(torch.float32)  # (N, H, W)
-if SIGMA > 0:
-    data = torch.from_numpy(gaussian_filter(data.numpy(), sigma=[0, SIGMA, SIGMA])).to(
-        torch.float32
-    )
-    data = data / data.amax(dim=(-2, -1), keepdim=True).clamp(min=1e-8)
+    np.load(BASE_DIR / f"../../data/graded_fibers_test_{DOMAIN_SIZE}.npy")
+)
+masks = torch.from_numpy(
+    np.load(BASE_DIR / f"../../data/graded_fiber_masks_test_{DOMAIN_SIZE}.npy")
+)
+data = data.to(torch.float32)
+masks = masks.to(torch.int)
 
-rng = torch.Generator()
-rng.manual_seed(0)
-idx = torch.randperm(len(data), generator=rng)[:N_EXAMPLES]
-x_gt = data[idx].to(device)  # (N, H, W)
-masks = (torch.rand(x_gt.shape, generator=rng) > MASK_RATIO).float().to(device)
+x_gt = data[:N_EXAMPLES].to(device)  # (N, H, W)
+masks = masks[:N_EXAMPLES].to(device)
 b = x_gt * masks  # masked observations
 
 
@@ -129,25 +123,33 @@ x_rec = torch.stack(
 )
 
 # ----------------------- postprocessing -------------------------
-mse = ((x_rec - x_gt) ** 2).mean(dim=(-2, -1))
-print(f"Mean MSE: {mse.mean():.2e}")
-
-n_show = min(4, N_EXAMPLES)
-fig, axes = plt.subplots(3, n_show, figsize=(3 * n_show, 9), dpi=150)
-for j in range(n_show):
-    for ax, img in zip(axes[:, j], [b[j], x_rec[j], x_gt[j]]):
-        ax.imshow(img.cpu(), cmap="binary", vmin=0, vmax=1)
-        ax.axis("off")
-fig.tight_layout(pad=0)
-
-if args.book or args.animate:
-    RESULTS_DIR = BASE_DIR / "../../results"
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    suffix = "tv" if USE_TV else "noreg"
-    fig.savefig(
-        RESULTS_DIR / f"image_reconstruction_tv_{suffix}.pdf", bbox_inches="tight"
+for i in range(N_EXAMPLES):
+    fig, ax = plt.subplots(figsize=(DOMAIN_SIZE / 100, DOMAIN_SIZE / 100), dpi=100)
+    ax.imshow(x_gt[i].T.cpu(), origin="lower", cmap="binary")
+    ax.imshow(
+        (1 - masks[i]).T.cpu(),
+        origin="lower",
+        cmap="viridis_r",
+        alpha=(1 - masks[i].cpu()).T.float(),
     )
+    ax.axis("off")
+    ax.set_rasterized(True)
+    fig.tight_layout(pad=0)
+    plt.savefig(RESULTS_DIR / f"img_measurement_{i}.png")
     plt.close()
-else:
-    plt.savefig("../../tmp/tv_recon.png")
-    plt.show()
+
+    fig, ax = plt.subplots(figsize=(DOMAIN_SIZE / 100, DOMAIN_SIZE / 100), dpi=100)
+    ax.imshow(x_gt[i].T.cpu(), origin="lower", cmap="binary")
+    ax.axis("off")
+    ax.set_rasterized(True)
+    fig.tight_layout(pad=0)
+    plt.savefig(RESULTS_DIR / f"img_groundtruth_{i}.png")
+    plt.close()
+
+    fig, ax = plt.subplots(figsize=(DOMAIN_SIZE / 100, DOMAIN_SIZE / 100), dpi=100)
+    ax.imshow(x_rec[i].T.cpu(), origin="lower", cmap="binary", vmin=0, vmax=1)
+    ax.axis("off")
+    ax.set_rasterized(True)
+    fig.tight_layout(pad=0)
+    plt.savefig(RESULTS_DIR / f"img_prediction_tv_{i}_{USE_TV}.png")
+    plt.close()
