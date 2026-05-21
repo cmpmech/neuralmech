@@ -155,10 +155,8 @@ ups = [
     for i in reversed(range(DEPTH))
 ]
 
-denoiser = nn.Sequential(UNet(downs, ups), nn.Sigmoid())
-# denoiser = nn.Sequential(UNet(downs, ups), act) # is the activation even needed?
-# init_weights(denoiser, activations[0])
-# init_weights(denoiser, act) # TODO why is initialization bad?
+denoiser = UNet(downs, ups)
+init_weights(denoiser, act)
 
 class MoDL(nn.Module):
     # K unrolled iterations: z = D_w(x), x = CG-solve(A^TA + λI | A^Tb + λz)
