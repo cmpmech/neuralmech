@@ -31,11 +31,11 @@ def generate_circles(N, num_circles, radius=0.1, domain_length=1):
 
 
 # ------------------------------- settings -------------------------------
-N = 256
-# N = 128
+# N = 256
+N = 128
 
 # ------------------------- generate normal data -------------------------
-samples = 64  # 32 #10 #200  # 500
+samples = 128 #256 #128 #8 #256 #64 #64 #64  # 32 #10 #200  # 500
 
 domains = np.zeros((samples, N, N))
 for i in range(samples):

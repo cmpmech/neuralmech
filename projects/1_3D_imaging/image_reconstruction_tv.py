@@ -19,13 +19,13 @@ parser.add_argument("--animate", action="store_true")
 args = parser.parse_args()
 
 # ----------------------- hyperparameters ------------------------
-MASK_RATIO = 0.8
-DOMAIN_SIZE = 256  # 128
+MASK_RATIO = 0.6
+DOMAIN_SIZE = 128 #256  # 128
 N_EXAMPLES = 8  # TODO where is this?
 USE_TV = True  # False  # True  # False: zero-fill (min-norm), True: TV-regularized ADMM
 SIGMA = 0  # Gaussian blur std (pixels) applied to binary data before masking;
 # converts hard binary circles into smooth density maps where TV is meaningful
-LAM = 0.02  # TV weight
+LAM = 0.05 #0.02  # TV weight
 RHO = 0.1  # ADMM penalty parameter
 ADMM_ITER = 200
 CG_ITER = 20
@@ -149,4 +149,5 @@ if args.book or args.animate:
     )
     plt.close()
 else:
+    plt.savefig("../../tmp/tv_recon.png")
     plt.show()
