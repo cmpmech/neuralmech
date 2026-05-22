@@ -9,55 +9,55 @@ import mlhp
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
+DATA_DIR = BASE_DIR / "../../data"
+RESULTS_DIR = BASE_DIR / "../../results"
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--book", action="store_true")
-parser.add_argument("--animate", action="store_true")
 parser.add_argument("--dim", type=int, default=2, choices=[2, 3])
-parser.add_argument("--degree", type=int, default=1)
 parser.add_argument("--ct", type=str, default=None)
 args = parser.parse_args()
 
+# -------------------------------- simulation settings --------------------------------
 D = args.dim
 
-E = 210.0
-nu = 0.3
-force = 1.0
+DEGREE = 1
+ALPHA = 1e-5
 
-# ----------------------------- CT geometry ----------------------------------
-ct_default = BASE_DIR.parent.parent / "data" / f"plate_hole_{D}D.npz"
-ct = np.load(args.ct or ct_default)
-indicator = ct["indicator"]
-Lx = float(ct["Lx"])
-Ly = float(ct["Ly"])
+DTYPE = cp.float64  # cp.float32 for single precision
+np_dtype = np.float32 if DTYPE == cp.float32 else np.float64
+BLOCK = 256
+
+E = 210.0
+NU = 0.3
+FORCE = 1.0
+
+# ------------------------------------ ct geometry ------------------------------------
+ct_file = args.ct if args.ct else f"plate_hole_{D}D.npz"
+ct = np.load(DATA_DIR / ct_file)
+indicator = ct["indicator"]  # uint8
 
 if D == 2:
+    Lx, Ly = float(ct["Lx"]), float(ct["Ly"])
     Nx, Ny = indicator.shape
     ncells = [Nx, Ny]
     lengths = [Lx, Ly]
     elem_lengths = [Lx / Nx, Ly / Ny]
 else:
-    Lz = float(ct["Lz"])
+    Lx, Ly, Lz = float(ct["Lx"]), float(ct["Ly"]), float(ct["Lz"])
     Nx, Ny, Nz = indicator.shape
     ncells = [Nx, Ny, Nz]
     lengths = [Lx, Ly, Lz]
     elem_lengths = [Lx / Nx, Ly / Ny, Lz / Nz]
 
-E_values = (E * indicator).ravel("C")
+nu_field = mlhp.scalarField(D, NU)
 
-E_vec = mlhp.DoubleVector(E_values)
-E_field = mlhp.scalarFieldFromVoxelData(E_vec, nvoxels=ncells, lengths=lengths)
-nu_field = mlhp.scalarField(D, nu)
-
-# ------------------------------- mesh + basis --------------------------------
+# ---------------------------------------- mesh ---------------------------------------
 mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=ncells, lengths=lengths))
-basis = mlhp.makeHpTrunkSpace(mesh, degree=args.degree, nfields=D)
+basis = mlhp.makeHpTrunkSpace(mesh, degree=DEGREE, nfields=D)
 ndof = basis.ndof()
 print(basis)
 
-# Uni-axial tension: each surface constrains its own normal component only.
-# face 0 (x-) → ux=0,  face 2 (y-) → uy=0,  face 4 (z-) → uz=0
-# Tangential directions are free → Poisson contraction allowed on all faces.
+# -------------------------------- boundary conditions --------------------------------
 bc_faces = [0, 2] if D == 2 else [0, 2, 4]
 bc_list = [
     mlhp.integrateDirichletDofs(
@@ -66,12 +66,12 @@ bc_list = [
     for face in bc_faces
 ]
 dirichlet = mlhp.combineDirichletDofs(bc_list)
-constrained = np.array(dirichlet[0])
+constrained_dofs = np.array(dirichlet[0])
 
-# ----------------------------- K_ref (1-element) ----------------------------
+# ------------------------ local preintegrated stiffness matrix -----------------------
 kinematics = mlhp.smallStrainKinematics(D)
 mesh1 = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1] * D, lengths=elem_lengths))
-basis1 = mlhp.makeHpTrunkSpace(mesh1, degree=args.degree, nfields=D)
+basis1 = mlhp.makeHpTrunkSpace(mesh1, degree=DEGREE, nfields=D)
 c_ref = (
     mlhp.planeStressMaterial(mlhp.scalarField(D, 1.0), nu_field)
     if D == 2
@@ -90,71 +90,94 @@ mlhp.integrateOnDomain(
 )
 K_ref = np.array(m_ref.todense())
 
-# ----------------------------- RHS assembly ---------------------------------
-c_full = (
-    mlhp.planeStressMaterial(E_field, nu_field)
+# -------------------------------------- assembly -------------------------------------
+c_rhs = (
+    mlhp.planeStressMaterial(mlhp.scalarField(D, 1.0), nu_field)
     if D == 2
-    else mlhp.isotropicElasticMaterial(E_field, nu_field)
+    else mlhp.isotropicElasticMaterial(mlhp.scalarField(D, 1.0), nu_field)
 )
-i_full = mlhp.staticDomainIntegrand(kinematics, c_full, mlhp.vectorField(D, [0.0] * D))
+i_rhs = mlhp.staticDomainIntegrand(kinematics, c_rhs, mlhp.vectorField(D, [0.0] * D))
 matrix = mlhp.allocateSparseMatrix(basis, dirichlet[0])
 vector = mlhp.allocateRhsVector(matrix)
 
 tic = time.time()
 mlhp.integrateOnDomain(
     basis,
-    i_full,
+    i_rhs,
     [matrix, vector],
     quadrature=mlhp.gridQuadrature(nsubcells=[1] * D),
     dirichletDofs=dirichlet,
 )
-traction = force / Ly if D == 2 else force / (Ly * Lz)
+traction = FORCE / Ly if D == 2 else FORCE / (Ly * Lz)
 neumann = mlhp.normalNeumannIntegrand(mlhp.scalarField(D, traction))
 right_quad = mlhp.quadratureOnMeshFaces(mesh, [1])
 mlhp.integrateOnSurface(basis, neumann, [vector], right_quad, dirichletDofs=dirichlet)
-print(f"RHS assembly: {time.time() - tic:.2f}s")
+print(f"assembly: {time.time() - tic:.2f}s")
 
 interior_mask = np.ones(ndof, dtype=bool)
-interior_mask[constrained] = False
+interior_mask[constrained_dofs] = False
 rhs = np.zeros(ndof)
 rhs[np.where(interior_mask)[0]] = np.array(list(vector))
 del matrix, vector
 
-efts = np.array(basis.locationMaps())  # (n_elem, ndof_e)
+efts = np.array(basis.locationMaps())
 
-# ----------------------------- CUDA setup -----------------------------------
-cuda_source = (BASE_DIR / "elasticity_mf_mlhp.cu").read_text()
-module = cp.RawModule(code=cuda_source)
+# --------------------------------------- cuda ----------------------------------------
+cuda_source = (BASE_DIR / "mlhp_kernels.cu").read_text()
+cuda_options = ("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()
+module = cp.RawModule(code=cuda_source, options=cuda_options)
 kernel_matvec = module.get_function("cuda_matvec")
 kernel_k_diag = module.get_function("cuda_k_diag")
 
-n_elem = len(E_values)
+n_elem = indicator.size
 ndof_e = K_ref.shape[0]
-block = 256
-grid = (n_elem + block - 1) // block
+grid = (n_elem + BLOCK - 1) // BLOCK
 
 tic = time.time()
-K_ref_gpu = cp.array(K_ref.ravel("C"), dtype=cp.float64)
+K_ref_gpu = cp.array(K_ref.ravel("C"), dtype=DTYPE)
 efts_gpu = cp.array(efts.ravel("C"), dtype=cp.int32)
-E_values_gpu = cp.array(E_values, dtype=cp.float64)
-rhs_gpu = cp.array(rhs, dtype=cp.float64)
-constrained_gpu = cp.array(constrained, dtype=cp.int32)
+indicator_gpu = cp.array(indicator.ravel("C"), dtype=cp.uint8)
+rhs_gpu = cp.array(rhs, dtype=DTYPE)
+constrained_gpu = cp.array(constrained_dofs, dtype=cp.int32)
 print(f"GPU upload: {time.time() - tic:.3f}s")
 
-# diagonal preconditioner on GPU
-K_diag_gpu = cp.zeros(ndof, dtype=cp.float64)
+E_scalar = np_dtype(E)
+alpha_scalar = np_dtype(ALPHA)
+
+K_diag_gpu = cp.zeros(ndof, dtype=DTYPE)
 kernel_k_diag(
-    (grid,), (block,), (K_diag_gpu, E_values_gpu, efts_gpu, K_ref_gpu, n_elem, ndof_e)
+    (grid,),
+    (BLOCK,),
+    (
+        K_diag_gpu,
+        indicator_gpu,
+        efts_gpu,
+        K_ref_gpu,
+        E_scalar,
+        alpha_scalar,
+        n_elem,
+        ndof_e,
+    ),
 )
 K_diag_gpu[constrained_gpu] = 1.0
 
 
 def matvec_gpu(u_gpu):
-    Ku_gpu = cp.zeros(ndof, dtype=cp.float64)
+    Ku_gpu = cp.zeros(ndof, dtype=DTYPE)
     kernel_matvec(
         (grid,),
-        (block,),
-        (u_gpu, Ku_gpu, E_values_gpu, efts_gpu, K_ref_gpu, n_elem, ndof_e),
+        (BLOCK,),
+        (
+            u_gpu,
+            Ku_gpu,
+            indicator_gpu,
+            efts_gpu,
+            K_ref_gpu,
+            E_scalar,
+            alpha_scalar,
+            n_elem,
+            ndof_e,
+        ),
     )
     Ku_gpu[constrained_gpu] = u_gpu[constrained_gpu]
     return Ku_gpu
@@ -163,7 +186,7 @@ def matvec_gpu(u_gpu):
 A_op = cp_splinalg.LinearOperator((ndof, ndof), matvec=matvec_gpu)
 P_op = cp_splinalg.LinearOperator((ndof, ndof), matvec=lambda v: v / K_diag_gpu)
 
-# --------------------------------- solve ------------------------------------
+# --------------------------------------- solve ---------------------------------------
 iters = [0]
 
 
@@ -182,22 +205,30 @@ print(f"CG: {iters[0]} iterations, info={info}, {time.time() - tic:.2f}s")
 sol = sol_gpu.get()
 print(f"max displacement: {np.max(np.abs(sol)):.3e}")
 
-# ----------------------------- postprocessing --------------------------------
+# --------------------------------------- export --------------------------------------
 all_dofs = mlhp.DoubleVector(sol.tolist())
 indicator_field = mlhp.scalarFieldFromVoxelData(
-    mlhp.DoubleVector(indicator.ravel("C")), nvoxels=ncells, lengths=lengths
+    mlhp.FloatVector(indicator.ravel("C").astype(np.float32) / 255.0),
+    nvoxels=ncells,
+    lengths=lengths,
 )
 processors = [
     mlhp.solutionProcessor(D, all_dofs, "Displacement"),
     mlhp.functionProcessor(indicator_field, "Indicator"),
 ]
-postmesh = mlhp.gridCellMesh([args.degree + 2] * D)
+postmesh = mlhp.gridCellMesh([DEGREE + 2] * D)
 
+out = str(RESULTS_DIR / f"elastic_mlhp_cuda_{ct_file[:-4]}")
+Path(out).parent.mkdir(parents=True, exist_ok=True)
+output = mlhp.PVtuOutput(filename=out)
+mlhp.basisOutput(basis, postmesh, output, processors)
+print(f"VTU written to {out}.pvtu")
+
+# ----------------------------------- postprocessing ----------------------------------
 if D == 2:
     result = mlhp.DataAccumulator()
     mlhp.basisOutput(basis, postmesh, result, processors)
-    disp = np.array(result.data()[0])
-    ux = disp[0::2]
+    ux = np.array(result.data()[0])[0::2]
 
     tri = result.triangulation()
     ind_viz = np.array(result.data()[1])
@@ -207,31 +238,6 @@ if D == 2:
     cb = ax.tricontourf(tri, ux, cmap="turbo", levels=24)
     fig.colorbar(cb)
     ax.set_aspect("equal")
-    ax.get_yaxis().set_visible(False)
-    ax.get_xaxis().set_visible(False)
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    plt.minorticks_off()
+    ax.axis("off")
     fig.tight_layout(pad=0)
-
-    if args.book:
-        out = BASE_DIR.parent.parent / "results" / "16_elastic_fem_mlhp_cuda_ux.pdf"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(out)
-    elif args.animate:
-        out = (
-            BASE_DIR.parent.parent
-            / "results"
-            / "animations"
-            / "16_elastic_fem_mlhp_cuda_ux.png"
-        )
-        out.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(out)
-    else:
-        plt.show()
-else:
-    out_stem = str(BASE_DIR / "output" / "elastic_mlhp_cuda_3d")
-    Path(out_stem).parent.mkdir(parents=True, exist_ok=True)
-    output = mlhp.PVtuOutput(filename=out_stem)
-    mlhp.basisOutput(basis, postmesh, output, processors)
-    print(f"VTU written to {out_stem}.pvtu")
+    plt.show()

@@ -8,58 +8,54 @@ import numpy as np
 import scipy.sparse.linalg
 
 BASE_DIR = Path(__file__).parent
+DATA_DIR = BASE_DIR / "../../data"
+RESULTS_DIR = BASE_DIR / "../../results"
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--book", action="store_true")
-parser.add_argument("--animate", action="store_true")
 parser.add_argument("--dim", type=int, default=2, choices=[2, 3])
-parser.add_argument("--degree", type=int, default=1)
 parser.add_argument("--ct", type=str, default=None)
 args = parser.parse_args()
 
+# -------------------------------- simulation settings --------------------------------
 D = args.dim
 
-E = 210.0
-nu = 0.3
-force = 1.0
+DEGREE = 1
+ALPHA = 1e-5
 
-# ----------------------------- CT geometry ----------------------------------
-ct_default = BASE_DIR.parent.parent / "data" / f"CT_{D}D.npz"
-ct = np.load(args.ct or ct_default)
-indicator = ct["indicator"]
-Lx = float(ct["Lx"])
-Ly = float(ct["Ly"])
+E = 210.0
+NU = 0.3
+FORCE = 1.0
+
+# ------------------------------------ ct geometry ------------------------------------
+ct_file = args.ct if args.ct else f"plate_hole_{D}D.npz"
+ct = np.load(DATA_DIR / ct_file)
+indicator = ct["indicator"]  # uint8
 
 if D == 2:
+    Lx, Ly = float(ct["Lx"]), float(ct["Ly"])
     Nx, Ny = indicator.shape
     ncells = [Nx, Ny]
     lengths = [Lx, Ly]
     elem_lengths = [Lx / Nx, Ly / Ny]
 else:
-    Lz = float(ct["Lz"])
+    Lx, Ly, Lz = float(ct["Lx"]), float(ct["Ly"]), float(ct["Lz"])
     Nx, Ny, Nz = indicator.shape
     ncells = [Nx, Ny, Nz]
     lengths = [Lx, Ly, Lz]
     elem_lengths = [Lx / Nx, Ly / Ny, Lz / Nz]
 
-# E_values[e] matches basis.locationMaps() element order — same as indicator.ravel("C")
-# for structured mlhp grids (verified: findVoxel in spatial.cpp uses C row-major order)
-E_values = (E * indicator).ravel("C")
+E_values = E * np.maximum(indicator.ravel("C") / 255.0, ALPHA)
+nu_field = mlhp.scalarField(D, NU)
 
-E_vec = mlhp.DoubleVector(E_values)
-E_field = mlhp.scalarFieldFromVoxelData(E_vec, nvoxels=ncells, lengths=lengths)
-nu_field = mlhp.scalarField(D, nu)
-
-# ------------------------------- mesh + basis --------------------------------
+# ---------------------------------------- mesh ---------------------------------------
 mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=ncells, lengths=lengths))
-basis = mlhp.makeHpTrunkSpace(mesh, degree=args.degree, nfields=D)
+basis = mlhp.makeHpTrunkSpace(mesh, degree=DEGREE, nfields=D)
 ndof = basis.ndof()
 print(basis)
 
-# Uni-axial tension: each surface constrains its own normal component only.
-# face 0 (x-) → ux=0,  face 2 (y-) → uy=0,  face 4 (z-) → uz=0
-# Tangential directions are free → Poisson contraction allowed on all faces.
-bc_faces = [0, 2] if D == 2 else [0, 2, 4]
+# -------------------------------- boundary conditions --------------------------------
+# uni-axial tension
+bc_faces = [0, 2] if D == 2 else [0, 2, 4]  # with x, y, (z) constrained
 bc_list = [
     mlhp.integrateDirichletDofs(
         mlhp.scalarField(D, 0.0), basis, [face], ifield=face // 2
@@ -67,87 +63,80 @@ bc_list = [
     for face in bc_faces
 ]
 dirichlet = mlhp.combineDirichletDofs(bc_list)
-constrained = np.array(dirichlet[0])
+constrained_dofs = np.array(dirichlet[0])
 
-# ----------------------------- K_ref (1-element) ----------------------------
-# One element with E=1 gives the reference stiffness matrix. DOF ordering in
-# K_ref is consistent with basis.locationMaps() because both use the same mlhp basis.
+# ------------------------ local preintegrated stiffness matrix -----------------------
 kinematics = mlhp.smallStrainKinematics(D)
-mesh1 = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1] * D, lengths=elem_lengths))
-basis1 = mlhp.makeHpTrunkSpace(mesh1, degree=args.degree, nfields=D)
-c_ref = (
+mesh_local = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1] * D, lengths=elem_lengths))
+basis_local = mlhp.makeHpTrunkSpace(mesh_local, degree=DEGREE, nfields=D)
+C_ref = (
     mlhp.planeStressMaterial(mlhp.scalarField(D, 1.0), nu_field)
     if D == 2
     else mlhp.isotropicElasticMaterial(mlhp.scalarField(D, 1.0), nu_field)
 )
-i_ref = mlhp.staticDomainIntegrand(kinematics, c_ref, mlhp.vectorField(D, [0.0] * D))
-de = mlhp.combineDirichletDofs([])
-m_ref = mlhp.allocateSparseMatrix(basis1, de[0])
-v_ref = mlhp.allocateRhsVector(m_ref)
+int_ref = mlhp.staticDomainIntegrand(kinematics, C_ref, mlhp.vectorField(D, [0.0] * D))
+bc_list = mlhp.combineDirichletDofs([])
+matrix_ref = mlhp.allocateSparseMatrix(basis_local, bc_list[0])
+rhs_ref = mlhp.allocateRhsVector(matrix_ref)
 mlhp.integrateOnDomain(
-    basis1,
-    i_ref,
-    [m_ref, v_ref],
+    basis_local,
+    int_ref,
+    [matrix_ref, rhs_ref],
     quadrature=mlhp.gridQuadrature(nsubcells=[1] * D),
-    dirichletDofs=de,
+    dirichletDofs=bc_list,
 )
-K_ref = np.array(m_ref.todense())  # (ndof_e, ndof_e)
+K_ref = np.array(matrix_ref.todense())
 K_ref_diag = np.diag(K_ref)
 
-# ----------------------------- RHS assembly ---------------------------------
-# Matrix is only used as a scaffold to obtain the interior-DOF RHS vector.
-c_full = (
-    mlhp.planeStressMaterial(E_field, nu_field)
+# -------------------------------------- assembly -------------------------------------
+C_rhs = (
+    mlhp.planeStressMaterial(mlhp.scalarField(D, 1.0), nu_field)
     if D == 2
-    else mlhp.isotropicElasticMaterial(E_field, nu_field)
+    else mlhp.isotropicElasticMaterial(mlhp.scalarField(D, 1.0), nu_field)
 )
-i_full = mlhp.staticDomainIntegrand(kinematics, c_full, mlhp.vectorField(D, [0.0] * D))
+int_rhs = mlhp.staticDomainIntegrand(kinematics, C_rhs, mlhp.vectorField(D, [0.0] * D))
 matrix = mlhp.allocateSparseMatrix(basis, dirichlet[0])
 vector = mlhp.allocateRhsVector(matrix)
 
 tic = time.time()
 mlhp.integrateOnDomain(
     basis,
-    i_full,
+    int_rhs,
     [matrix, vector],
     quadrature=mlhp.gridQuadrature(nsubcells=[1] * D),
     dirichletDofs=dirichlet,
 )
-traction = force / Ly if D == 2 else force / (Ly * Lz)
+traction = FORCE / Ly if D == 2 else FORCE / (Ly * Lz)
 neumann = mlhp.normalNeumannIntegrand(mlhp.scalarField(D, traction))
 right_quad = mlhp.quadratureOnMeshFaces(mesh, [1])
 mlhp.integrateOnSurface(basis, neumann, [vector], right_quad, dirichletDofs=dirichlet)
-print(f"RHS assembly: {time.time() - tic:.2f}s")
+print(f"assembly: {time.time() - tic:.2f}s")
 
-# Inflate interior RHS to full DOF space
 interior_mask = np.ones(ndof, dtype=bool)
-interior_mask[constrained] = False
+interior_mask[constrained_dofs] = False
 rhs = np.zeros(ndof)
 rhs[np.where(interior_mask)[0]] = np.array(list(vector))
-del matrix, vector  # discard — not needed for the matrix-free solve
+del matrix, vector
 
-# ----------------------- matrix-free operator + preconditioner --------------
-efts = np.array(basis.locationMaps())  # (n_elem, ndof_e)
+# --------------------------------------- solve ---------------------------------------
+efts = np.array(basis.locationMaps())
 
 
 def matvec(u):
-    u_local = u[efts]  # (n_elem, ndof_e)
-    Ku_local = E_values[:, None] * (u_local @ K_ref.T)  # (n_elem, ndof_e)
+    Ku_local = E_values[:, None] * (u[efts] @ K_ref.T)
     result = np.zeros(ndof)
     np.add.at(result, efts, Ku_local)
-    result[constrained] = u[constrained]  # identity on Dirichlet DOFs
+    result[constrained_dofs] = u[constrained_dofs]
     return result
 
 
-# Diagonal preconditioner: assemble diag(K) without forming K
 diag = np.zeros(ndof)
 np.add.at(diag, efts, E_values[:, None] * K_ref_diag[None, :])
-diag[constrained] = 1.0
+diag[constrained_dofs] = 1.0
 
 A_op = scipy.sparse.linalg.LinearOperator((ndof, ndof), matvec=matvec)
 P_op = scipy.sparse.linalg.LinearOperator((ndof, ndof), matvec=lambda v: v / diag)
 
-# --------------------------------- solve ------------------------------------
 iters = [0]
 
 
@@ -162,22 +151,30 @@ sol, info = scipy.sparse.linalg.cg(
 print(f"CG: {iters[0]} iterations, info={info}, {time.time() - tic:.2f}s")
 print(f"max displacement: {np.max(np.abs(sol)):.3e}")
 
-# ----------------------------- postprocessing --------------------------------
+# --------------------------------------- export --------------------------------------
 all_dofs = mlhp.DoubleVector(sol.tolist())
 indicator_field = mlhp.scalarFieldFromVoxelData(
-    mlhp.DoubleVector(indicator.ravel("C")), nvoxels=ncells, lengths=lengths
+    mlhp.FloatVector(indicator.ravel("C").astype(np.float32) / 255.0),
+    nvoxels=ncells,
+    lengths=lengths,
 )
 processors = [
     mlhp.solutionProcessor(D, all_dofs, "Displacement"),
     mlhp.functionProcessor(indicator_field, "Indicator"),
 ]
-postmesh = mlhp.gridCellMesh([args.degree + 2] * D)
+postmesh = mlhp.gridCellMesh([DEGREE + 2] * D)
 
+out = str(RESULTS_DIR / f"elastic_mlhp_{ct_file[:-4]}")
+Path(out).parent.mkdir(parents=True, exist_ok=True)
+output = mlhp.PVtuOutput(filename=out)
+mlhp.basisOutput(basis, postmesh, output, processors)
+print(f"VTU written to {out}.pvtu")
+
+# ----------------------------------- postprocessing ----------------------------------
 if D == 2:
     result = mlhp.DataAccumulator()
     mlhp.basisOutput(basis, postmesh, result, processors)
-    disp = np.array(result.data()[0])
-    ux = disp[0::2]  # interleaved [ux0, uy0, ux1, uy1, ...]
+    ux = np.array(result.data()[0])[0::2]
 
     tri = result.triangulation()
     ind_viz = np.array(result.data()[1])
@@ -187,31 +184,6 @@ if D == 2:
     cb = ax.tricontourf(tri, ux, cmap="turbo", levels=24)
     fig.colorbar(cb)
     ax.set_aspect("equal")
-    ax.get_yaxis().set_visible(False)
-    ax.get_xaxis().set_visible(False)
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    plt.minorticks_off()
+    ax.axis("off")
     fig.tight_layout(pad=0)
-
-    if args.book:
-        out = BASE_DIR.parent.parent / "results" / "16_elastic_fem_mlhp_mf_ux.pdf"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(out)
-    elif args.animate:
-        out = (
-            BASE_DIR.parent.parent
-            / "results"
-            / "animations"
-            / "16_elastic_fem_mlhp_mf_ux.png"
-        )
-        out.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(out)
-    else:
-        plt.show()
-else:
-    out_stem = str(BASE_DIR / "output" / "elastic_mlhp_mf_3d")
-    Path(out_stem).parent.mkdir(parents=True, exist_ok=True)
-    output = mlhp.PVtuOutput(filename=out_stem)
-    mlhp.basisOutput(basis, postmesh, output, processors)
-    print(f"VTU written to {out_stem}.pvtu")
+    plt.show()
