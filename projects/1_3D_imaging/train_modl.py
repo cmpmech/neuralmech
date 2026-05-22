@@ -45,11 +45,11 @@ torch.backends.cudnn.deterministic = True
 # DOMAIN_SIZE = 128  # 256
 # PRINT_EVERY = 1
 #
-EPOCHS = 1000 #400 #2000 # WORKS FOR 800
-LR = 2e-3 #2e-3
+EPOCHS = 1000  # 400 #2000 # WORKS FOR 800
+LR = 2e-3  # 2e-3
 BATCH_SIZE = 16
-K = 10 #15
-LAM = 0.2 #0.5
+K = 10  # 15
+LAM = 0.2  # 0.5
 CG_ITER = 10
 MASK_RATIO = 0.6
 BASE_CH = 32
@@ -97,6 +97,7 @@ val_loader = DataLoader(val_set, batch_size=len(val_set))
 
 # TODO standardization?
 
+
 # ------------------- forward operator ---------------------------
 def A_op(x, mask):
     return mask * x
@@ -133,7 +134,7 @@ def cg_solve(mask, rhs, lam: float, n_iter: int = 10) -> torch.Tensor:
 # --------------------------- model ------------------------------
 levels = [1] + [BASE_CH * 2**i for i in range(DEPTH)]  # [1, 16, 32, 64]
 # act = partial(nn.ReLU, inplace=True)
-act = nn.GELU # slightly better
+act = nn.GELU  # slightly better
 # act = nn.LeakyReLU
 
 downs = [
@@ -159,7 +160,9 @@ ups = [
         padding=1,
         dim=2,
         resamplings=[
-            nn.Upsample(scale_factor=2, mode="nearest"), # TODO try nearest instead of bilinear (with align_corners)
+            nn.Upsample(
+                scale_factor=2, mode="nearest"
+            ),  # TODO try nearest instead of bilinear (with align_corners)
             None,
         ],
         normalizations=[
@@ -175,6 +178,7 @@ ups = [
 ]
 
 denoiser = nn.Sequential(UNet(downs, ups), nn.Sigmoid())
+
 
 class MoDL(nn.Module):
     # K unrolled iterations: z = D_w(x), x = CG-solve(A^TA + λI | A^Tb + λz)

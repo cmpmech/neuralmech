@@ -99,3 +99,19 @@ for num_squares in range(num_circles + 1):
             f"../../results/fibers_anomaly.pdf", bbox_inches="tight", pad_inches=0
         )
         plt.show()
+
+# -------------------------- structured fibers ---------------------------
+fibers = 4
+domain = np.zeros((N, N))
+x = np.linspace(0, 1, N)
+y = np.linspace(0, 1, N)
+x, y = np.meshgrid(x, y, indexing="ij")
+dx = 1 / (4 + (fibers - 1) * 3)
+for i in range(fibers):
+    for j in range(fibers):
+        xc, yc = (2 + 3 * i) * dx, (2 + 3 * j) * dx
+        mask = (x - xc) ** 2 + (y - yc) ** 2 < (dx * 0.9) ** 2
+        domain[mask] = 1
+
+# -------------------------------- export --------------------------------
+np.save(f"../../data/fibers_anomaly_structured_{N}.npy", domain)
