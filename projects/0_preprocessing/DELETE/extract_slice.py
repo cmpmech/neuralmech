@@ -5,8 +5,10 @@ import nrrd
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
+EXT_DATA_DIR = BASE_DIR / "../../external_data"
+DATA_DIR = BASE_DIR / "../../data"
 
-data, _ = nrrd.read(BASE_DIR / "B-HAI-1.nrrd")
+data, _ = nrrd.read(EXT_DATA_DIR / "B-HAI-1.nrrd")
 data = np.array(data)
 
 data = data[data.shape[0] // 2, :, :]  # center slice
@@ -20,7 +22,9 @@ data[data > 0.5] = 1
 data = data[256:772, 1:1060]
 
 fig, ax = plt.subplots()
-ax.imshow(data, cmap="Grays")
+ax.imshow(data.T, origin="lower", cmap="binary")
+ax.axis("off")
+fig.tight_layout(pad=0)
 plt.show()
 
-np.save(BASE_DIR / "output/B_Hai_1.npy", data)
+np.save(RES_DIR / "B_Hai_1.npy", data)

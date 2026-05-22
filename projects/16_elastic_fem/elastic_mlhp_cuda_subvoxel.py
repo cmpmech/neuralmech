@@ -20,8 +20,9 @@ args = parser.parse_args()
 # -------------------------------- simulation settings --------------------------------
 D = args.dim
 
-DEGREE = 1
+DEGREE = 3
 ALPHA = 1e-5
+SUB_VOXELS = 8
 
 DTYPE = cp.float64  # cp.float32 for single precision
 np_dtype = np.float32 if DTYPE == cp.float32 else np.float64
@@ -49,10 +50,17 @@ else:
     lengths = [Lx, Ly, Lz]
     elem_lengths = [Lx / Nx, Ly / Ny, Lz / Nz]
 
+assert all(n % SUB_VOXELS == 0 for n in ncells), (
+    f"all grid dimensions must be divisible by SUB_VOXELS={SUB_VOXELS}"
+)
+
+ncells_elem = [n // SUB_VOXELS for n in ncells]
+macro_lengths = [SUB_VOXELS * l for l in elem_lengths]
+
 nu_field = mlhp.scalarField(D, NU)
 
 # ---------------------------------------- mesh ---------------------------------------
-mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=ncells, lengths=lengths))
+mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=ncells_elem, lengths=lengths))
 basis = mlhp.makeHpTrunkSpace(mesh, degree=DEGREE, nfields=D)
 ndof = basis.ndof()
 print(basis)
@@ -68,27 +76,42 @@ bc_list = [
 dirichlet = mlhp.combineDirichletDofs(bc_list)
 constrained_dofs = np.array(dirichlet[0])
 
-# ------------------------ local preintegrated stiffness matrix -----------------------
+# ----------------------- subvoxel preintegrated reference matrices -------------------
 kinematics = mlhp.smallStrainKinematics(D)
-mesh1 = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1] * D, lengths=elem_lengths))
-basis1 = mlhp.makeHpTrunkSpace(mesh1, degree=DEGREE, nfields=D)
-c_ref = (
-    mlhp.planeStressMaterial(mlhp.scalarField(D, 1.0), nu_field)
-    if D == 2
-    else mlhp.isotropicElasticMaterial(mlhp.scalarField(D, 1.0), nu_field)
-)
-i_ref = mlhp.staticDomainIntegrand(kinematics, c_ref, mlhp.vectorField(D, [0.0] * D))
+mesh_ref = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1] * D, lengths=macro_lengths))
+basis_ref = mlhp.makeHpTrunkSpace(mesh_ref, degree=DEGREE, nfields=D)
+ndof_e = basis_ref.ndof()
 de = mlhp.combineDirichletDofs([])
-m_ref = mlhp.allocateSparseMatrix(basis1, de[0])
-v_ref = mlhp.allocateRhsVector(m_ref)
-mlhp.integrateOnDomain(
-    basis1,
-    i_ref,
-    [m_ref, v_ref],
-    quadrature=mlhp.gridQuadrature(nsubcells=[1] * D),
-    dirichletDofs=de,
-)
-K_ref = np.array(m_ref.todense())
+
+n_sub = SUB_VOXELS**D
+K_refs = np.zeros((n_sub, ndof_e, ndof_e))
+
+tic = time.time()
+for s in range(n_sub):
+    ind_s = np.zeros(n_sub, dtype=np.float32)
+    ind_s[s] = 1.0
+    E_field_s = mlhp.scalarFieldFromVoxelData(
+        mlhp.FloatVector(ind_s.tolist()),
+        nvoxels=[SUB_VOXELS] * D,
+        lengths=macro_lengths,
+    )
+    c_s = (
+        mlhp.planeStressMaterial(E_field_s, nu_field)
+        if D == 2
+        else mlhp.isotropicElasticMaterial(E_field_s, nu_field)
+    )
+    i_s = mlhp.staticDomainIntegrand(kinematics, c_s, mlhp.vectorField(D, [0.0] * D))
+    m_s = mlhp.allocateSparseMatrix(basis_ref, de[0])
+    v_s = mlhp.allocateRhsVector(m_s)
+    mlhp.integrateOnDomain(
+        basis_ref,
+        i_s,
+        [m_s, v_s],
+        quadrature=mlhp.gridQuadrature(nsubcells=[SUB_VOXELS] * D),
+        dirichletDofs=de,
+    )
+    K_refs[s] = np.array(m_s.todense())
+print(f"K_refs ({n_sub}): {time.time() - tic:.2f}s")
 
 # -------------------------------------- assembly -------------------------------------
 c_rhs = (
@@ -126,25 +149,31 @@ efts = np.array(basis.locationMaps())
 cuda_source = (BASE_DIR / "mlhp_kernels.cu").read_text()
 cuda_options = ("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()
 module = cp.RawModule(code=cuda_source, options=cuda_options)
-kernel_matvec = module.get_function("cuda_matvec")
-kernel_k_diag = module.get_function("cuda_k_diag")
+kernel_matvec = module.get_function("cuda_matvec_sub")
+kernel_k_diag = module.get_function("cuda_k_diag_sub")
 
-n_elem = indicator.size
-ndof_e = K_ref.shape[0]
+n_elem = int(np.prod(ncells_elem))
 grid = (n_elem + BLOCK - 1) // BLOCK
 
 E_scalar = np_dtype(E)
 alpha_scalar = np_dtype(ALPHA)
+Ny_elem = ncells_elem[1]
+Nz_elem = ncells_elem[2] if D == 3 else 1
+Ny_vox = ncells[1]
+Nz_vox = ncells[2] if D == 3 else 1
+sub_voxels_z = SUB_VOXELS if D == 3 else 1
 
 cp.cuda.Stream.null.synchronize()
 tic = time.time()
-K_ref_gpu = cp.array(K_ref.ravel("C"), dtype=DTYPE)
+K_refs_gpu = cp.array(K_refs.ravel("C"), dtype=DTYPE)
 efts_gpu = cp.array(efts.ravel("C"), dtype=cp.int32)
 indicator_gpu = cp.array(indicator.ravel("C"), dtype=cp.uint8)
 rhs_gpu = cp.array(rhs, dtype=DTYPE)
 constrained_gpu = cp.array(constrained_dofs, dtype=cp.int32)
 cp.cuda.Stream.null.synchronize()
 print(f"GPU upload: {time.time() - tic:.3f}s")
+
+sub_args = (n_sub, SUB_VOXELS, sub_voxels_z, Ny_elem, Nz_elem, Ny_vox, Nz_vox)
 
 K_diag_gpu = cp.zeros(ndof, dtype=DTYPE)
 cp.cuda.Stream.null.synchronize()
@@ -156,11 +185,12 @@ kernel_k_diag(
         K_diag_gpu,
         indicator_gpu,
         efts_gpu,
-        K_ref_gpu,
+        K_refs_gpu,
         E_scalar,
         alpha_scalar,
         n_elem,
         ndof_e,
+        *sub_args,
     ),
 )
 K_diag_gpu[constrained_gpu] = 1.0
@@ -178,11 +208,12 @@ def matvec_gpu(u_gpu):
             Ku_gpu,
             indicator_gpu,
             efts_gpu,
-            K_ref_gpu,
+            K_refs_gpu,
             E_scalar,
             alpha_scalar,
             n_elem,
             ndof_e,
+            *sub_args,
         ),
     )
     Ku_gpu[constrained_gpu] = u_gpu[constrained_gpu]
@@ -224,26 +255,26 @@ processors = [
 ]
 postmesh = mlhp.gridCellMesh([DEGREE + 2] * D)
 
-out = str(RESULTS_DIR / f"elastic_mlhp_cuda_{ct_file[:-4]}")
+out = str(RESULTS_DIR / f"elastic_mlhp_cuda_sub{SUB_VOXELS}_{ct_file[:-4]}")
 Path(out).parent.mkdir(parents=True, exist_ok=True)
 output = mlhp.PVtuOutput(filename=out)
 mlhp.basisOutput(basis, postmesh, output, processors)
 print(f"VTU written to {out}.pvtu")
 
 # ----------------------------------- postprocessing ----------------------------------
-# if D == 2:
-#     result = mlhp.DataAccumulator()
-#     mlhp.basisOutput(basis, postmesh, result, processors)
-#     ux = np.array(result.data()[0])[0::2]
+if D == 2:
+    result = mlhp.DataAccumulator()
+    mlhp.basisOutput(basis, postmesh, result, processors)
+    ux = np.array(result.data()[0])[0::2]
 
-#     tri = result.triangulation()
-#     ind_viz = np.array(result.data()[1])
-#     tri.set_mask(ind_viz[tri.triangles].mean(axis=1) < 0.5)
+    tri = result.triangulation()
+    ind_viz = np.array(result.data()[1])
+    tri.set_mask(ind_viz[tri.triangles].mean(axis=1) < 0.5)
 
-#     fig, ax = plt.subplots()
-#     cb = ax.tricontourf(tri, ux, cmap="turbo", levels=24)
-#     fig.colorbar(cb)
-#     ax.set_aspect("equal")
-#     ax.axis("off")
-#     fig.tight_layout(pad=0)
-#     plt.show()
+    fig, ax = plt.subplots()
+    cb = ax.tricontourf(tri, ux, cmap="turbo", levels=24)
+    fig.colorbar(cb)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    fig.tight_layout(pad=0)
+    plt.show()
