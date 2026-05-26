@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import multiprocessing as mp
 import time
 from pathlib import Path
 
@@ -8,6 +9,46 @@ import cupyx.scipy.sparse.linalg as cp_splinalg
 import mlhp
 import numpy as np
 
+
+def _k_refs_worker(args):
+    s_start, s_end, D, DEGREE, n_sub, S, macro_lengths, NU = args
+    import mlhp
+    import numpy as np
+
+    macro_lengths = list(macro_lengths)
+    kinematics = mlhp.smallStrainKinematics(D)
+    nu_field = mlhp.scalarField(D, NU)
+    mesh_ref = mlhp.makeRefinedGrid(
+        mlhp.makeGrid(ncells=[1] * D, lengths=macro_lengths)
+    )
+    basis_ref = mlhp.makeHpTrunkSpace(mesh_ref, degree=DEGREE, nfields=D)
+    de = mlhp.combineDirichletDofs([])
+    quadrature = mlhp.gridQuadrature(nsubcells=[S] * D)
+    ind_s = np.zeros(n_sub, dtype=np.float32)
+    results = []
+    for s in range(s_start, s_end):
+        ind_s[:] = 0.0
+        ind_s[s] = 1.0
+        E_field_s = mlhp.scalarFieldFromVoxelData(
+            mlhp.FloatVector(ind_s.tolist()), nvoxels=[S] * D, lengths=macro_lengths
+        )
+        c_s = (
+            mlhp.planeStressMaterial(E_field_s, nu_field)
+            if D == 2
+            else mlhp.isotropicElasticMaterial(E_field_s, nu_field)
+        )
+        i_s = mlhp.staticDomainIntegrand(
+            kinematics, c_s, mlhp.vectorField(D, [0.0] * D)
+        )
+        m_s = mlhp.allocateSparseMatrix(basis_ref, de[0])
+        v_s = mlhp.allocateRhsVector(m_s)
+        mlhp.integrateOnDomain(
+            basis_ref, i_s, [m_s, v_s], quadrature=quadrature, dirichletDofs=de
+        )
+        results.append(np.array(m_s.todense()))
+    return s_start, results
+
+
 BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "../../data"
 RESULTS_DIR = BASE_DIR / "../../results"
@@ -15,13 +56,17 @@ RESULTS_DIR = BASE_DIR / "../../results"
 parser = argparse.ArgumentParser()
 parser.add_argument("--dim", type=int, default=2, choices=[2, 3])
 parser.add_argument("--ct", type=str, default=None)
-parser.add_argument("--fine", action="store_true", help="export at voxel resolution (one VTU cell per voxel)")
+parser.add_argument(
+    "--fine",
+    action="store_true",
+    help="export at voxel resolution (one VTU cell per voxel)",
+)
 args = parser.parse_args()
 
 # -------------------------------- simulation settings --------------------------------
 D = args.dim
 
-DEGREE = 1
+DEGREE = 3
 ALPHA = 1e-5
 SUB_VOXELS = 8
 
@@ -105,195 +150,189 @@ if cache_file.exists():
     print(f"K_refs loaded from cache: {cache_file.name}")
 else:
     K_refs = np.zeros((n_sub, ndof_e, ndof_e))
+    n_workers = min(mp.cpu_count(), n_sub)
+    batch_size = max(1, (n_sub + n_workers - 1) // n_workers)
+    batches = [
+        (
+            i,
+            min(i + batch_size, n_sub),
+            D,
+            DEGREE,
+            n_sub,
+            SUB_VOXELS,
+            tuple(macro_lengths),
+            NU,
+        )
+        for i in range(0, n_sub, batch_size)
+    ]
     tic = time.time()
-    for s in range(n_sub):
-        ind_s = np.zeros(n_sub, dtype=np.float32)
-        ind_s[s] = 1.0
-        E_field_s = mlhp.scalarFieldFromVoxelData(
-            mlhp.FloatVector(ind_s.tolist()),
-            nvoxels=[SUB_VOXELS] * D,
-            lengths=macro_lengths,
-        )
-        c_s = (
-            mlhp.planeStressMaterial(E_field_s, nu_field)
-            if D == 2
-            else mlhp.isotropicElasticMaterial(E_field_s, nu_field)
-        )
-        i_s = mlhp.staticDomainIntegrand(
-            kinematics, c_s, mlhp.vectorField(D, [0.0] * D)
-        )
-        m_s = mlhp.allocateSparseMatrix(basis_ref, de[0])
-        v_s = mlhp.allocateRhsVector(m_s)
-        mlhp.integrateOnDomain(
-            basis_ref,
-            i_s,
-            [m_s, v_s],
-            quadrature=mlhp.gridQuadrature(nsubcells=[SUB_VOXELS] * D),
-            dirichletDofs=de,
-        )
-        K_refs[s] = np.array(m_s.todense())
-        if (s + 1) % max(1, n_sub // 10) == 0:
-            print(f"  K_refs {s + 1}/{n_sub} ({time.time() - tic:.1f}s)")
+    completed = 0
+    with mp.Pool(processes=n_workers) as pool:
+        for s_start, batch_K in pool.imap_unordered(_k_refs_worker, batches):
+            for i, K_s in enumerate(batch_K):
+                K_refs[s_start + i] = K_s
+            completed += len(batch_K)
+            print(f"  K_refs {completed}/{n_sub} ({time.time() - tic:.1f}s)")
     np.save(cache_file, K_refs)
     print(f"K_refs ({n_sub}): {time.time() - tic:.2f}s — cached to {cache_file.name}")
 
-# -------------------------------------- assembly -------------------------------------
-c_rhs = (
-    mlhp.planeStressMaterial(mlhp.scalarField(D, 1.0), nu_field)
-    if D == 2
-    else mlhp.isotropicElasticMaterial(mlhp.scalarField(D, 1.0), nu_field)
-)
-i_rhs = mlhp.staticDomainIntegrand(kinematics, c_rhs, mlhp.vectorField(D, [0.0] * D))
-matrix = mlhp.allocateSparseMatrix(basis, dirichlet[0])
-vector = mlhp.allocateRhsVector(matrix)
+# # -------------------------------------- assembly -------------------------------------
+# c_rhs = (
+#     mlhp.planeStressMaterial(mlhp.scalarField(D, 1.0), nu_field)
+#     if D == 2
+#     else mlhp.isotropicElasticMaterial(mlhp.scalarField(D, 1.0), nu_field)
+# )
+# i_rhs = mlhp.staticDomainIntegrand(kinematics, c_rhs, mlhp.vectorField(D, [0.0] * D))
+# matrix = mlhp.allocateSparseMatrix(basis, dirichlet[0])
+# vector = mlhp.allocateRhsVector(matrix)
 
-tic = time.time()
-mlhp.integrateOnDomain(
-    basis,
-    i_rhs,
-    [matrix, vector],
-    quadrature=mlhp.gridQuadrature(nsubcells=[1] * D),
-    dirichletDofs=dirichlet,
-)
-traction = FORCE / Ly if D == 2 else FORCE / (Ly * Lz)
-neumann = mlhp.normalNeumannIntegrand(mlhp.scalarField(D, traction))
-right_quad = mlhp.quadratureOnMeshFaces(mesh, [1])
-mlhp.integrateOnSurface(basis, neumann, [vector], right_quad, dirichletDofs=dirichlet)
-print(f"assembly: {time.time() - tic:.2f}s")
+# tic = time.time()
+# mlhp.integrateOnDomain(
+#     basis,
+#     i_rhs,
+#     [matrix, vector],
+#     quadrature=mlhp.gridQuadrature(nsubcells=[1] * D),
+#     dirichletDofs=dirichlet,
+# )
+# traction = FORCE / Ly if D == 2 else FORCE / (Ly * Lz)
+# neumann = mlhp.normalNeumannIntegrand(mlhp.scalarField(D, traction))
+# right_quad = mlhp.quadratureOnMeshFaces(mesh, [1])
+# mlhp.integrateOnSurface(basis, neumann, [vector], right_quad, dirichletDofs=dirichlet)
+# print(f"assembly: {time.time() - tic:.2f}s")
 
-interior_mask = np.ones(ndof, dtype=bool)
-interior_mask[constrained_dofs] = False
-rhs = np.zeros(ndof)
-rhs[np.where(interior_mask)[0]] = np.array(list(vector))
-del matrix, vector
+# interior_mask = np.ones(ndof, dtype=bool)
+# interior_mask[constrained_dofs] = False
+# rhs = np.zeros(ndof)
+# rhs[np.where(interior_mask)[0]] = np.array(list(vector))
+# del matrix, vector
 
-efts = np.array(basis.locationMaps())
+# efts = np.array(basis.locationMaps())
 
-# --------------------------------------- cuda ----------------------------------------
-# Compile to SASS (not PTX) so first kernel launch has no JIT overhead.
-cc = cp.cuda.Device().compute_capability
-cuda_source = (BASE_DIR / "mlhp_kernels.cu").read_text()
-cuda_options = (f"-arch=sm_{cc}",)
-if DTYPE == cp.float32:
-    cuda_options += ("-DUSE_FLOAT",)
-tic = time.time()
-module = cp.RawModule(code=cuda_source, options=cuda_options, backend="nvcc")
-kernel_assemble_K_e = module.get_function("cuda_assemble_K_e")
-kernel_matvec_elem = module.get_function("cuda_matvec_elem")
-kernel_k_diag_elem = module.get_function("cuda_k_diag_elem")
-print(f"CUDA compile (sm_{cc}): {time.time() - tic:.2f}s")
+# # --------------------------------------- cuda ----------------------------------------
+# # Compile to SASS (not PTX) so first kernel launch has no JIT overhead.
+# cc = cp.cuda.Device().compute_capability
+# cuda_source = (BASE_DIR / "mlhp_kernels.cu").read_text()
+# cuda_options = (f"-arch=sm_{cc}",)
+# if DTYPE == cp.float32:
+#     cuda_options += ("-DUSE_FLOAT",)
+# tic = time.time()
+# module = cp.RawModule(code=cuda_source, options=cuda_options, backend="nvcc")
+# kernel_assemble_K_e = module.get_function("cuda_assemble_K_e")
+# kernel_matvec_elem = module.get_function("cuda_matvec_elem")
+# kernel_k_diag_elem = module.get_function("cuda_k_diag_elem")
+# print(f"CUDA compile (sm_{cc}): {time.time() - tic:.2f}s")
 
-n_elem = int(np.prod(ncells_elem))
-grid = (n_elem + BLOCK - 1) // BLOCK
+# n_elem = int(np.prod(ncells_elem))
+# grid = (n_elem + BLOCK - 1) // BLOCK
 
-E_scalar = np_dtype(E)
-alpha_scalar = np_dtype(ALPHA)
-Ny_elem = ncells_elem[1]
-Nz_elem = ncells_elem[2] if D == 3 else 1
-Ny_vox = ncells[1]
-Nz_vox = ncells[2] if D == 3 else 1
-Sz = SUB_VOXELS if D == 3 else 1
+# E_scalar = np_dtype(E)
+# alpha_scalar = np_dtype(ALPHA)
+# Ny_elem = ncells_elem[1]
+# Nz_elem = ncells_elem[2] if D == 3 else 1
+# Ny_vox = ncells[1]
+# Nz_vox = ncells[2] if D == 3 else 1
+# Sz = SUB_VOXELS if D == 3 else 1
 
-cp.cuda.Stream.null.synchronize()
-tic = time.time()
-K_refs_gpu = cp.array(K_refs.ravel("C"), dtype=DTYPE)
-efts_gpu = cp.array(efts.ravel("C"), dtype=cp.int32)
-indicator_gpu = cp.array(indicator.ravel("C"), dtype=cp.uint8)
-rhs_gpu = cp.array(rhs, dtype=DTYPE)
-constrained_gpu = cp.array(constrained_dofs, dtype=cp.int32)
-cp.cuda.Stream.null.synchronize()
-print(f"GPU upload: {time.time() - tic:.3f}s")
+# cp.cuda.Stream.null.synchronize()
+# tic = time.time()
+# K_refs_gpu = cp.array(K_refs.ravel("C"), dtype=DTYPE)
+# efts_gpu = cp.array(efts.ravel("C"), dtype=cp.int32)
+# indicator_gpu = cp.array(indicator.ravel("C"), dtype=cp.uint8)
+# rhs_gpu = cp.array(rhs, dtype=DTYPE)
+# constrained_gpu = cp.array(constrained_dofs, dtype=cp.int32)
+# cp.cuda.Stream.null.synchronize()
+# print(f"GPU upload: {time.time() - tic:.3f}s")
 
-K_e_gpu = cp.empty(n_elem * ndof_e * ndof_e, dtype=DTYPE)
-cp.cuda.Stream.null.synchronize()
-tic = time.time()
-kernel_assemble_K_e(
-    (grid,),
-    (BLOCK,),
-    (
-        K_e_gpu,
-        indicator_gpu,
-        K_refs_gpu,
-        E_scalar,
-        alpha_scalar,
-        n_elem,
-        ndof_e,
-        n_sub,
-        SUB_VOXELS,
-        Sz,
-        Ny_elem,
-        Nz_elem,
-        Ny_vox,
-        Nz_vox,
-    ),
-)
-cp.cuda.Stream.null.synchronize()
-print(f"K_e assembly: {time.time() - tic:.3f}s")
+# K_e_gpu = cp.empty(n_elem * ndof_e * ndof_e, dtype=DTYPE)
+# cp.cuda.Stream.null.synchronize()
+# tic = time.time()
+# kernel_assemble_K_e(
+#     (grid,),
+#     (BLOCK,),
+#     (
+#         K_e_gpu,
+#         indicator_gpu,
+#         K_refs_gpu,
+#         E_scalar,
+#         alpha_scalar,
+#         n_elem,
+#         ndof_e,
+#         n_sub,
+#         SUB_VOXELS,
+#         Sz,
+#         Ny_elem,
+#         Nz_elem,
+#         Ny_vox,
+#         Nz_vox,
+#     ),
+# )
+# cp.cuda.Stream.null.synchronize()
+# print(f"K_e assembly: {time.time() - tic:.3f}s")
 
-K_diag_gpu = cp.zeros(ndof, dtype=DTYPE)
-cp.cuda.Stream.null.synchronize()
-tic = time.time()
-kernel_k_diag_elem(
-    (grid,),
-    (BLOCK,),
-    (K_diag_gpu, efts_gpu, K_e_gpu, n_elem, ndof_e),
-)
-K_diag_gpu[constrained_gpu] = 1.0
-cp.cuda.Stream.null.synchronize()
-print(f"K_diag: {time.time() - tic:.3f}s")
-
-
-def matvec_gpu(u_gpu):
-    Ku_gpu = cp.zeros(ndof, dtype=DTYPE)
-    kernel_matvec_elem(
-        (grid,),
-        (BLOCK,),
-        (u_gpu, Ku_gpu, efts_gpu, K_e_gpu, n_elem, ndof_e),
-    )
-    Ku_gpu[constrained_gpu] = u_gpu[constrained_gpu]
-    return Ku_gpu
+# K_diag_gpu = cp.zeros(ndof, dtype=DTYPE)
+# cp.cuda.Stream.null.synchronize()
+# tic = time.time()
+# kernel_k_diag_elem(
+#     (grid,),
+#     (BLOCK,),
+#     (K_diag_gpu, efts_gpu, K_e_gpu, n_elem, ndof_e),
+# )
+# K_diag_gpu[constrained_gpu] = 1.0
+# cp.cuda.Stream.null.synchronize()
+# print(f"K_diag: {time.time() - tic:.3f}s")
 
 
-A_op = cp_splinalg.LinearOperator((ndof, ndof), matvec=matvec_gpu)
-P_op = cp_splinalg.LinearOperator((ndof, ndof), matvec=lambda v: v / K_diag_gpu)
+# def matvec_gpu(u_gpu):
+#     Ku_gpu = cp.zeros(ndof, dtype=DTYPE)
+#     kernel_matvec_elem(
+#         (grid,),
+#         (BLOCK,),
+#         (u_gpu, Ku_gpu, efts_gpu, K_e_gpu, n_elem, ndof_e),
+#     )
+#     Ku_gpu[constrained_gpu] = u_gpu[constrained_gpu]
+#     return Ku_gpu
 
-# --------------------------------------- solve ---------------------------------------
-iters = [0]
+
+# A_op = cp_splinalg.LinearOperator((ndof, ndof), matvec=matvec_gpu)
+# P_op = cp_splinalg.LinearOperator((ndof, ndof), matvec=lambda v: v / K_diag_gpu)
+
+# # --------------------------------------- solve ---------------------------------------
+# iters = [0]
 
 
-def callback(x):
-    iters[0] += 1
+# def callback(x):
+#     iters[0] += 1
 
 
-cp.cuda.Stream.null.synchronize()
-tic = time.time()
-sol_gpu, info = cp_splinalg.cg(
-    A_op, rhs_gpu, M=P_op, tol=1e-10, maxiter=20000, callback=callback
-)
-cp.cuda.Stream.null.synchronize()
-print(f"CG: {iters[0]} iterations, info={info}, {time.time() - tic:.2f}s")
+# cp.cuda.Stream.null.synchronize()
+# tic = time.time()
+# sol_gpu, info = cp_splinalg.cg(
+#     A_op, rhs_gpu, M=P_op, tol=1e-10, maxiter=20000, callback=callback
+# )
+# cp.cuda.Stream.null.synchronize()
+# print(f"CG: {iters[0]} iterations, info={info}, {time.time() - tic:.2f}s")
 
-sol = sol_gpu.get()
-print(f"max displacement: {np.max(np.abs(sol)):.3e}")
+# sol = sol_gpu.get()
+# print(f"max displacement: {np.max(np.abs(sol)):.3e}")
 
-# --------------------------------------- export --------------------------------------
-all_dofs = mlhp.DoubleVector(sol.tolist())
-indicator_field = mlhp.scalarFieldFromVoxelData(
-    mlhp.FloatVector(indicator.ravel("C").astype(np.float32) / 255.0),
-    nvoxels=ncells,
-    lengths=lengths,
-)
-processors = [
-    mlhp.solutionProcessor(D, all_dofs, "Displacement"),
-    mlhp.functionProcessor(indicator_field, "Indicator"),
-]
-# --fine: one VTU cell per voxel so material distribution is visible per-voxel
-postmesh_res = SUB_VOXELS if args.fine else DEGREE + 2
-postmesh = mlhp.gridCellMesh([postmesh_res] * D)
+# # --------------------------------------- export --------------------------------------
+# all_dofs = mlhp.DoubleVector(sol.tolist())
+# indicator_field = mlhp.scalarFieldFromVoxelData(
+#     mlhp.FloatVector(indicator.ravel("C").astype(np.float32) / 255.0),
+#     nvoxels=ncells,
+#     lengths=lengths,
+# )
+# processors = [
+#     mlhp.solutionProcessor(D, all_dofs, "Displacement"),
+#     mlhp.functionProcessor(indicator_field, "Indicator"),
+# ]
+# # --fine: one VTU cell per voxel so material distribution is visible per-voxel
+# postmesh_res = SUB_VOXELS if args.fine else DEGREE + 2
+# postmesh = mlhp.gridCellMesh([postmesh_res] * D)
 
-suffix = f"_vox" if args.fine else ""
-out = str(RESULTS_DIR / f"elastic_mlhp_cuda_sub{SUB_VOXELS}{suffix}_{ct_file[:-4]}")
-Path(out).parent.mkdir(parents=True, exist_ok=True)
-output = mlhp.PVtuOutput(filename=out)
-mlhp.basisOutput(basis, postmesh, output, processors)
-print(f"VTU written to {out}.pvtu")
+# suffix = f"_vox" if args.fine else ""
+# out = str(RESULTS_DIR / f"elastic_mlhp_cuda_sub{SUB_VOXELS}{suffix}_{ct_file[:-4]}")
+# Path(out).parent.mkdir(parents=True, exist_ok=True)
+# output = mlhp.PVtuOutput(filename=out)
+# mlhp.basisOutput(basis, postmesh, output, processors)
+# print(f"VTU written to {out}.pvtu")
