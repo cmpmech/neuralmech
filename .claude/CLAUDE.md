@@ -15,7 +15,7 @@ The detailed conventions live in skills under `.claude/skills/`. Invoke them by 
 | `create_project_driver` | New driver script in `projects/`. Full 10-step template, plotting palette, save formats. |
 | `create_unit_test` | Pytest tests for `NN.py`, `DL.py`, `ML.py`, `postprocessing.py` only. Drivers are not unit-tested. |
 | `optimize_code` | Iterative improvement against a metric (wall clock, validation error, accuracy, memory). |
-| `mlhp_voxel_fem` | Writing or editing any mlhp-based FEM driver — mesh/basis, material fields, BCs, assembly, matrix-free matvec (NumPy + CUDA), postprocessing patterns, CT geometry loading. |
+| `mlhp` | Writing or editing any mlhp-based FEM driver — full Python API (meshes/grids, refinement, implicit CSG, hp/B-spline bases, fields, quadrature/FCM, elasticity/Poisson integrands, BCs, sparse + matrix-free assembly, solvers, postprocessing, numbering conventions) plus the `projects/16_elastic_fem/` voxel-FEM recipes (NumPy + CUDA matrix-free, CT geometry loading). |
 
 ## Setup
 

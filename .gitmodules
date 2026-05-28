@@ -1,6 +1,12 @@
 [submodule "solvers/mlhp"]
 	path = solvers/mlhp
-	url = https://gitlab.com/hpfem/code/mlhp
+	url = git@gitlab.com:hpfem/code/mlhp.git
 [submodule "neuralmechbench"]
 	path = neuralmechbench
 	url = git@github.com:Leon-Herrmann/neuralmechbench.git
+[submodule "solvers/2025_voxelbasedmomentfitting"]
+	path = solvers/2025_voxelbasedmomentfitting
+	url = git@gitlab.com:numech/code/publications/2025_voxelbasedmomentfitting.git
+[submodule "solvers/--force"]
+	path = solvers/--force
+	url = git@gitlab.com:hpfem/code/mlhp.git
