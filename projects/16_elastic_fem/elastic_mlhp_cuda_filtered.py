@@ -27,6 +27,9 @@ FILTER_THRESHOLD = 0  # uint8; elements with indicator <= threshold are removed
 DTYPE = cp.float64  # cp.float32 for single precision
 np_dtype = np.float32 if DTYPE == cp.float32 else np.float64
 BLOCK = 1024
+PRECOMPILED = False
+# compiler_options = ()
+compiler_options = ("--use_fast_math", "--gpu-architecture=compute_120")
 
 E = 210.0
 NU = 0.3
@@ -124,8 +127,13 @@ print(f"assembly: {time.time() - tic:.2f}s")
 
 # --------------------------------------- cuda ----------------------------------------
 cuda_source = (BASE_DIR / "mlhp_kernels.cu").read_text()
-cuda_options = ("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()
-module = cp.RawModule(code=cuda_source, options=cuda_options)
+cuda_options = (("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()) + compiler_options
+
+if PRECOMPILED:
+    ptx_stem = "mlhp_kernels_f32" if DTYPE == cp.float32 else "mlhp_kernels_f64"
+    module = cp.RawModule(path=str(BASE_DIR / f"{ptx_stem}.ptx"))
+else:
+    module = cp.RawModule(code=cuda_source, options=cuda_options)
 kernel_matvec = module.get_function("cuda_matvec")
 kernel_k_diag = module.get_function("cuda_k_diag")
 
