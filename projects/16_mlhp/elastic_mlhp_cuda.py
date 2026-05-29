@@ -20,18 +20,17 @@ args = parser.parse_args()
 # -------------------------------- simulation settings --------------------------------
 D = args.dim
 
-DEGREE = 2
+DEGREE = 1
 ALPHA = 1e-4
-SUB_VOXELS = 8
-QUAD_ORDER = DEGREE + 1  # Gauss pts per direction per sub-cell; default (DEGREE+1)
-QUAD_ORDER = 1
 
-DTYPE = cp.float64  # cp.float32 for single precision
+DTYPE = cp.float32  # cp.float32 for single precision
 np_dtype = np.float32 if DTYPE == cp.float32 else np.float64
-BLOCK = 1024
+CG_TOL = 1e-6 if DTYPE == cp.float32 else 1e-10
+BLOCK = 1024  # max 1024
+
 PRECOMPILED = False
-# compiler_options = ()
-compiler_options = ("--use_fast_math", "--gpu-architecture=compute_120")
+compiler_options = ()  # flags don't seem to help
+# compiler_options = ("--use_fast_math", "--gpu-architecture=compute_120")
 
 E = 210.0
 NU = 0.3
@@ -55,17 +54,10 @@ else:
     lengths = [Lx, Ly, Lz]
     elem_lengths = [Lx / Nx, Ly / Ny, Lz / Nz]
 
-assert all(n % SUB_VOXELS == 0 for n in ncells), (
-    f"grid dims {ncells} must all be divisible by SUB_VOXELS={SUB_VOXELS}"
-)
-
-ncells_macro = [n // SUB_VOXELS for n in ncells]
-macro_elem_lengths = [l * SUB_VOXELS for l in elem_lengths]
-
 nu_field = mlhp.scalarField(D, NU)
 
 # ---------------------------------------- mesh ---------------------------------------
-mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=ncells_macro, lengths=lengths))
+mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=ncells, lengths=lengths))
 basis = mlhp.makeHpTrunkSpace(mesh, degree=DEGREE, nfields=D)
 ndof = basis.ndof()
 print(basis)
@@ -82,50 +74,29 @@ dirichlet = mlhp.combineDirichletDofs(bc_list)
 constrained_dofs = np.array(dirichlet[0])
 
 # ------------------------ local preintegrated stiffness matrix -----------------------
-# K_locals[s] = stiffness contribution from sub-voxel s only (E=1, others 0).
-# Indexed in C-order: 2D s = sx*S+sy, 3D s = sx*S^2+sy*S+sz.
 tic = time.time()
 kinematics = mlhp.smallStrainKinematics(D)
-
-mesh_local = mlhp.makeRefinedGrid(
-    mlhp.makeGrid(ncells=[1] * D, lengths=macro_elem_lengths)
+constitutive = (
+    mlhp.planeStressMaterial(mlhp.scalarField(D, 1.0), nu_field)
+    if D == 2
+    else mlhp.isotropicElasticMaterial(mlhp.scalarField(D, 1.0), nu_field)
 )
+integrand = mlhp.staticDomainIntegrand(
+    kinematics, constitutive, mlhp.vectorField(D, [0.0] * D)
+)
+
+mesh_local = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1] * D, lengths=elem_lengths))
 basis_local = mlhp.makeHpTrunkSpace(mesh_local, degree=DEGREE, nfields=D)
-ndof_e = basis_local.ndof()
-n_sub = SUB_VOXELS**D
-
-
-K_locals = np.zeros((n_sub, ndof_e, ndof_e), dtype=np.float64)
-indicator_s = np.zeros(n_sub, dtype=np.float32)
-
-for s in range(n_sub):
-    indicator_s[:] = 0.0
-    indicator_s[s] = 1.0
-    E_s = mlhp.scalarFieldFromVoxelData(
-        mlhp.FloatVector(indicator_s.tolist()),
-        nvoxels=[SUB_VOXELS] * D,
-        lengths=macro_elem_lengths,
-    )
-    constitutive_s = (
-        mlhp.planeStressMaterial(E_s, nu_field)
-        if D == 2
-        else mlhp.isotropicElasticMaterial(E_s, nu_field)
-    )
-    integrand_s = mlhp.staticDomainIntegrand(
-        kinematics, constitutive_s, mlhp.vectorField(D, [0.0] * D)
-    )
-    # integrateOnDomain accumulates; no reset API → allocate fresh each iteration
-    matrix_s = mlhp.allocateSparseMatrix(basis_local)
-    rhs_s = mlhp.allocateRhsVector(matrix_s)
-    mlhp.integrateOnDomain(
-        basis_local,
-        integrand_s,
-        [matrix_s, rhs_s],
-        quadrature=mlhp.gridQuadrature(nsubcells=[SUB_VOXELS] * D),
-        orderDeterminor=mlhp.absoluteQuadratureOrder([QUAD_ORDER] * D),
-    )
-    K_locals[s] = np.array(matrix_s.todense())
-print(f"preintegration ({n_sub} subvoxels): {time.time() - tic:.2f}s")
+matrix_local = mlhp.allocateSparseMatrix(basis_local)
+rhs_local = mlhp.allocateRhsVector(matrix_local)
+mlhp.integrateOnDomain(
+    basis_local,
+    integrand,
+    [matrix_local, rhs_local],
+    quadrature=mlhp.gridQuadrature(nsubcells=[1] * D),
+)
+K_local = np.array(matrix_local.todense())
+print(f"preintegration: {time.time() - tic:.2f}s")
 
 # -------------------------------------- assembly -------------------------------------
 tic = time.time()
@@ -154,19 +125,14 @@ cuda_options = (("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()) + compiler_opti
 
 if PRECOMPILED:
     ptx_stem = "mlhp_kernels_f32" if DTYPE == cp.float32 else "mlhp_kernels_f64"
-    module = cp.RawModule(path=str(BASE_DIR / f"{ptx_stem}.ptx"))
+    module = cp.RawModule(path=str(BASE_DIR / f"{ptx_stem}.cubin"))
 else:
     module = cp.RawModule(code=cuda_source, options=cuda_options)
-kernel_assemble_K_e = module.get_function("cuda_assemble_K_e")
-kernel_matvec = module.get_function("cuda_matvec_elem")
-kernel_k_diag = module.get_function("cuda_k_diag_elem")
+Ku_kernel = module.get_function("Ku_kernel")
+K_diag_kernel = module.get_function("K_diag_kernel")
 
-n_elem = int(np.prod(ncells_macro))
-Ny_elem = ncells_macro[1]
-Nz_elem = ncells_macro[2] if D == 3 else 1
-Ny_vox = ncells[1]
-Nz_vox = ncells[2] if D == 3 else 1
-Sz = SUB_VOXELS if D == 3 else 1
+n_elem = indicator.size
+ndof_e = K_local.shape[0]
 grid = (n_elem + BLOCK - 1) // BLOCK
 
 E_scalar = np_dtype(E)
@@ -174,7 +140,7 @@ alpha_scalar = np_dtype(ALPHA)
 
 cp.cuda.Stream.null.synchronize()
 tic = time.time()
-K_locals_gpu = cp.array(K_locals.ravel("C"), dtype=DTYPE)
+K_local_gpu = cp.array(K_local.ravel("C"), dtype=DTYPE)
 efts_gpu = cp.array(efts.ravel("C"), dtype=cp.int32)
 indicator_gpu = cp.array(indicator.ravel("C"), dtype=cp.uint8)
 rhs_gpu = cp.array(rhs, dtype=DTYPE)
@@ -182,51 +148,44 @@ constrained_gpu = cp.array(constrained_dofs, dtype=cp.int32)
 cp.cuda.Stream.null.synchronize()
 print(f"GPU upload: {time.time() - tic:.3f}s")
 
-K_e_gpu = cp.zeros(n_elem * ndof_e * ndof_e, dtype=DTYPE)
+K_diag_gpu = cp.zeros(ndof, dtype=DTYPE)
 cp.cuda.Stream.null.synchronize()
 tic = time.time()
-kernel_assemble_K_e(
+K_diag_kernel(
     (grid,),
     (BLOCK,),
     (
-        K_e_gpu,
+        K_diag_gpu,
         indicator_gpu,
-        K_locals_gpu,
+        efts_gpu,
+        K_local_gpu,
         E_scalar,
         alpha_scalar,
         n_elem,
         ndof_e,
-        n_sub,
-        SUB_VOXELS,
-        Sz,
-        Ny_elem,
-        Nz_elem,
-        Ny_vox,
-        Nz_vox,
     ),
 )
-cp.cuda.Stream.null.synchronize()
-print(f"K_e assembly: {time.time() - tic:.3f}s")
-
-K_diag_gpu = cp.zeros(ndof, dtype=DTYPE)
-cp.cuda.Stream.null.synchronize()
-tic = time.time()
-kernel_k_diag(
-    (grid,),
-    (BLOCK,),
-    (K_diag_gpu, efts_gpu, K_e_gpu, n_elem, ndof_e),
-)
-K_diag_gpu[constrained_gpu] = 1.0
+K_diag_gpu[constrained_gpu] = 1.0  # boundary conditions
 cp.cuda.Stream.null.synchronize()
 print(f"K_diag: {time.time() - tic:.3f}s")
 
 
 def get_Ku(u_gpu):
     Ku_gpu = cp.zeros(ndof, dtype=DTYPE)
-    kernel_matvec(
+    Ku_kernel(
         (grid,),
         (BLOCK,),
-        (u_gpu, Ku_gpu, efts_gpu, K_e_gpu, n_elem, ndof_e),
+        (
+            u_gpu,
+            Ku_gpu,
+            indicator_gpu,
+            efts_gpu,
+            K_local_gpu,
+            E_scalar,
+            alpha_scalar,
+            n_elem,
+            ndof_e,
+        ),
     )
     Ku_gpu[constrained_gpu] = u_gpu[constrained_gpu]
     return Ku_gpu
@@ -246,7 +205,7 @@ def callback(x):
 cp.cuda.Stream.null.synchronize()
 tic = time.time()
 sol_gpu, info = cp_splinalg.cg(
-    KU_op, rhs_gpu, M=K_diag_op, tol=1e-10, maxiter=20000, callback=callback
+    KU_op, rhs_gpu, M=K_diag_op, rtol=CG_TOL, maxiter=20000, callback=callback
 )
 cp.cuda.Stream.null.synchronize()
 print(f"CG: {iters[0]} iterations, info={info}, {time.time() - tic:.2f}s")
@@ -267,7 +226,7 @@ processors = [
 ]
 postmesh = mlhp.gridCellMesh([DEGREE + 2] * D)
 
-out = str(RESULTS_DIR / f"elastic_mlhp_cuda_subvoxel_{ct_file[:-4]}")
+out = str(RESULTS_DIR / f"elastic_mlhp_cuda_{ct_file[:-4]}")
 Path(out).parent.mkdir(parents=True, exist_ok=True)
 output = mlhp.PVtuOutput(filename=out)
 mlhp.basisOutput(basis, postmesh, output, processors)

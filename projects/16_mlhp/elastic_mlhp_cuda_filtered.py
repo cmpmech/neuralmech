@@ -21,15 +21,17 @@ args = parser.parse_args()
 D = args.dim
 
 DEGREE = 1
-ALPHA = 1e-5
+ALPHA = 1e-4  # does not matter (filtered out)
 FILTER_THRESHOLD = 0  # uint8; elements with indicator <= threshold are removed
 
-DTYPE = cp.float64  # cp.float32 for single precision
+DTYPE = cp.float32  # cp.float32 for single precision
 np_dtype = np.float32 if DTYPE == cp.float32 else np.float64
+CG_TOL = 1e-6 if DTYPE == cp.float32 else 1e-10
+
 BLOCK = 1024
 PRECOMPILED = False
-# compiler_options = ()
-compiler_options = ("--use_fast_math", "--gpu-architecture=compute_120")
+compiler_options = ()  # flags don't seem to help
+# compiler_options = ("--use_fast_math", "--gpu-architecture=compute_120")
 
 E = 210.0
 NU = 0.3
@@ -56,7 +58,9 @@ else:
 keep_mask = indicator.ravel("C") > FILTER_THRESHOLD
 n_elem = int(keep_mask.sum())
 indicator_filtered = indicator.ravel("C")[keep_mask]  # only kept elements, C-order
-print(f"elements: {indicator.size} total, {n_elem} kept ({100*n_elem/indicator.size:.1f}%)")
+print(
+    f"elements: {indicator.size} total, {n_elem} kept ({100 * n_elem / indicator.size:.1f}%)"
+)
 
 nu_field = mlhp.scalarField(D, NU)
 
@@ -131,11 +135,11 @@ cuda_options = (("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()) + compiler_opti
 
 if PRECOMPILED:
     ptx_stem = "mlhp_kernels_f32" if DTYPE == cp.float32 else "mlhp_kernels_f64"
-    module = cp.RawModule(path=str(BASE_DIR / f"{ptx_stem}.ptx"))
+    module = cp.RawModule(path=str(BASE_DIR / f"{ptx_stem}.cubin"))
 else:
     module = cp.RawModule(code=cuda_source, options=cuda_options)
-kernel_matvec = module.get_function("cuda_matvec")
-kernel_k_diag = module.get_function("cuda_k_diag")
+Ku_kernel = module.get_function("Ku_kernel")
+K_diag_kernel = module.get_function("K_diag_kernel")
 
 ndof_e = K_local.shape[0]
 grid = (n_elem + BLOCK - 1) // BLOCK
@@ -156,7 +160,7 @@ print(f"GPU upload: {time.time() - tic:.3f}s")
 K_diag_gpu = cp.zeros(ndof, dtype=DTYPE)
 cp.cuda.Stream.null.synchronize()
 tic = time.time()
-kernel_k_diag(
+K_diag_kernel(
     (grid,),
     (BLOCK,),
     (
@@ -177,7 +181,7 @@ print(f"K_diag: {time.time() - tic:.3f}s")
 
 def get_Ku(u_gpu):
     Ku_gpu = cp.zeros(ndof, dtype=DTYPE)
-    kernel_matvec(
+    Ku_kernel(
         (grid,),
         (BLOCK,),
         (
@@ -210,7 +214,7 @@ def callback(x):
 cp.cuda.Stream.null.synchronize()
 tic = time.time()
 sol_gpu, info = cp_splinalg.cg(
-    KU_op, rhs_gpu, M=K_diag_op, tol=1e-10, maxiter=20000, callback=callback
+    KU_op, rhs_gpu, M=K_diag_op, rtol=CG_TOL, maxiter=20000, callback=callback
 )
 cp.cuda.Stream.null.synchronize()
 print(f"CG: {iters[0]} iterations, info={info}, {time.time() - tic:.2f}s")

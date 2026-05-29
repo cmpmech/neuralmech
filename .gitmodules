@@ -1,6 +1,3 @@
-[submodule "solvers/mlhp"]
-	path = solvers/mlhp
-	url = git@gitlab.com:hpfem/code/mlhp.git
 [submodule "neuralmechbench"]
 	path = neuralmechbench
 	url = git@github.com:Leon-Herrmann/neuralmechbench.git

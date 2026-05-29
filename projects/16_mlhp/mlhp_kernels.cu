@@ -1,81 +1,75 @@
-// Matrix-free K*U kernels for structured voxel FEM built on mlhp.
-//
-// Differences from elasticity_mf.cu:
-//   - EFT passed as an explicit device array (supports any polynomial degree)
-//   - K_ref passed as a device pointer (not constant memory), any ndof_e
-//   - No hardcoded Q1 geometry: both 2D and 3D handled identically
-//
 // Compile with -DUSE_FLOAT for single precision; default is double.
-
 #ifdef USE_FLOAT
 typedef float real_t;
 #else
 typedef double real_t;
 #endif
 
-extern "C" {
-
 #define MAX_NDOF_E 256 // p=3 in 3D: 4^3*3=192
 
-// One thread per element.
-// u         [ndof]              input DOF vector
-// Ku        [ndof]              output, must be zeroed before launch
-// indicator [n_elem]            uint8 voxel density (0=void, 255=solid)
-// efts      [n_elem * ndof_e]   element freedom tables (row-major)
-// K_ref     [ndof_e * ndof_e]   reference element stiffness with E=1
-// (row-major)
-__global__ void cuda_matvec(const real_t *__restrict__ u, real_t *Ku,
-                            const unsigned char *__restrict__ indicator,
-                            const int *__restrict__ efts,
-                            const real_t *__restrict__ K_ref, const real_t E,
-                            const real_t alpha, const int n_elem,
-                            const int ndof_e) {
+// uint8 to float/double conversion (of voxel data)
+__device__ __forceinline__ real_t elem_stiffness(unsigned char ind, real_t E,
+                                                 real_t alpha) {
+  real_t rho = (real_t)ind / (real_t)255;
+  return E * (rho > alpha ? rho : alpha);
+}
+
+extern "C" {
+
+// one thread per element
+__global__ void Ku_kernel(const real_t *__restrict__ u, real_t *Ku,
+                          const unsigned char *__restrict__ indicator,
+                          const int *__restrict__ efts,
+                          const real_t *__restrict__ K_ref, const real_t E,
+                          const real_t alpha, const int n_elem,
+                          const int ndof_e) {
   int e = blockIdx.x * blockDim.x + threadIdx.x;
   if (e >= n_elem)
     return;
 
   const int *my_eft = efts + e * ndof_e;
 
-  real_t ue[MAX_NDOF_E];
+  real_t ue[MAX_NDOF_E]; // needs to be known at compile-time
   for (int i = 0; i < ndof_e; i++)
     ue[i] = u[my_eft[i]];
 
-  real_t kue[MAX_NDOF_E] = {};
+  real_t kue[MAX_NDOF_E] = {}; // zero init
   for (int i = 0; i < ndof_e; i++)
     for (int j = 0; j < ndof_e; j++)
       kue[i] += K_ref[i * ndof_e + j] * ue[j];
 
-  real_t rho = (real_t)indicator[e] / (real_t)255;
-  real_t ei = E * (rho > alpha ? rho : alpha);
+  real_t Ei = elem_stiffness(indicator[e], E, alpha);
   for (int i = 0; i < ndof_e; i++)
-    atomicAdd(&Ku[my_eft[i]], ei * kue[i]);
+    atomicAdd(&Ku[my_eft[i]], Ei * kue[i]);
 }
 
-// Accumulate diagonal of K without forming the full matrix.
-// K_diag [ndof]  must be zeroed before launch.
-__global__ void cuda_k_diag(real_t *K_diag,
-                            const unsigned char *__restrict__ indicator,
-                            const int *__restrict__ efts,
-                            const real_t *__restrict__ K_ref, const real_t E,
-                            const real_t alpha, const int n_elem,
-                            const int ndof_e) {
+// accumulate diagonal of K without forming the full matrix.
+__global__ void K_diag_kernel(real_t *K_diag,
+                              const unsigned char *__restrict__ indicator,
+                              const int *__restrict__ efts,
+                              const real_t *__restrict__ K_ref, const real_t E,
+                              const real_t alpha, const int n_elem,
+                              const int ndof_e) {
   int e = blockIdx.x * blockDim.x + threadIdx.x;
   if (e >= n_elem)
     return;
 
   const int *my_eft = efts + e * ndof_e;
-  real_t rho = (real_t)indicator[e] / (real_t)255;
-  real_t ei = E * (rho > alpha ? rho : alpha);
+  real_t Ei = elem_stiffness(indicator[e], E, alpha);
   for (int i = 0; i < ndof_e; i++)
-    atomicAdd(&K_diag[my_eft[i]], ei * K_ref[i * ndof_e + i]);
+    atomicAdd(&K_diag[my_eft[i]], Ei * K_ref[i * ndof_e + i]);
 }
 
-// --------------- subvoxel kernels (pre-assembled K_e per element) -----------------
+// ------------------------------------------------------------------------------------
 //
-// Each macro-element covers S^D voxels.  K_refs[n_sub, ndof_e, ndof_e] holds one
-// reference matrix per subvoxel (geometry-only, E=1).  cuda_assemble_K_e builds
-// K_e[e] = sum_s  E * max(rho_s, alpha) * K_refs[s]  once before the CG loop.
-// cuda_matvec_elem and cuda_k_diag_elem then operate on the pre-assembled K_e.
+// --------------- subvoxel kernels (pre-assembled K_e per element)
+// -----------------
+//
+// Each macro-element covers S^D voxels.  K_refs[n_sub, ndof_e, ndof_e] holds
+// one reference matrix per subvoxel (geometry-only, E=1).  cuda_assemble_K_e
+// builds K_e[e] = sum_s  E * max(rho_s, alpha) * K_refs[s]  once before the CG
+// loop. cuda_matvec_elem and cuda_k_diag_elem then operate on the pre-assembled
+// K_e.
 //
 // Subvoxel index s encodes position in C-order: s = sx*(S*Sz) + sy*Sz + sz
 //   2D: Sz=1  →  s = sx*S + sy
@@ -88,16 +82,12 @@ __global__ void cuda_k_diag(real_t *K_diag,
 // Scalar-accumulator pattern: precompute ei[s], then outer loop over the
 // ndof_e^2 output entries with a register accumulator — K_e[e] is written
 // exactly once, eliminating the read-modify-write traffic of an outer-s loop.
-__global__ void cuda_assemble_K_e(
-    real_t *K_e,
-    const unsigned char *__restrict__ indicator,
-    const real_t *__restrict__ K_refs,
-    const real_t E, const real_t alpha,
-    const int n_elem, const int ndof_e,
-    const int n_sub, const int S, const int Sz,
-    const int Ny_elem, const int Nz_elem,
-    const int Ny_vox, const int Nz_vox)
-{
+__global__ void
+cuda_assemble_K_e(real_t *K_e, const unsigned char *__restrict__ indicator,
+                  const real_t *__restrict__ K_refs, const real_t E,
+                  const real_t alpha, const int n_elem, const int ndof_e,
+                  const int n_sub, const int S, const int Sz, const int Ny_elem,
+                  const int Nz_elem, const int Ny_vox, const int Nz_vox) {
   int e = blockIdx.x * blockDim.x + threadIdx.x;
   if (e >= n_elem)
     return;
@@ -135,12 +125,10 @@ __global__ void cuda_assemble_K_e(
 
 // Matrix-vector product using pre-assembled K_e.  One thread per element.
 // Ku must be zeroed before launch.
-__global__ void cuda_matvec_elem(
-    const real_t *__restrict__ u, real_t *Ku,
-    const int *__restrict__ efts,
-    const real_t *__restrict__ K_e,
-    const int n_elem, const int ndof_e)
-{
+__global__ void cuda_matvec_elem(const real_t *__restrict__ u, real_t *Ku,
+                                 const int *__restrict__ efts,
+                                 const real_t *__restrict__ K_e,
+                                 const int n_elem, const int ndof_e) {
   int e = blockIdx.x * blockDim.x + threadIdx.x;
   if (e >= n_elem)
     return;
@@ -161,14 +149,11 @@ __global__ void cuda_matvec_elem(
     atomicAdd(&Ku[my_eft[i]], kue[i]);
 }
 
-// Accumulate diagonal of pre-assembled K_e into K_diag.  One thread per element.
-// K_diag must be zeroed before launch.
-__global__ void cuda_k_diag_elem(
-    real_t *K_diag,
-    const int *__restrict__ efts,
-    const real_t *__restrict__ K_e,
-    const int n_elem, const int ndof_e)
-{
+// Accumulate diagonal of pre-assembled K_e into K_diag.  One thread per
+// element. K_diag must be zeroed before launch.
+__global__ void cuda_k_diag_elem(real_t *K_diag, const int *__restrict__ efts,
+                                 const real_t *__restrict__ K_e,
+                                 const int n_elem, const int ndof_e) {
   int e = blockIdx.x * blockDim.x + threadIdx.x;
   if (e >= n_elem)
     return;
