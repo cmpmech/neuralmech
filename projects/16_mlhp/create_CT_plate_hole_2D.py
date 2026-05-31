@@ -7,8 +7,8 @@ BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "../../data"
 
 # ------------------------------------ ct settings ------------------------------------
-Nx = 160
-Ny = 80
+Nx = 320
+Ny = 160
 Lx = 2.0
 Ly = 1.0
 

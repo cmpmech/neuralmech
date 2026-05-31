@@ -120,12 +120,14 @@ efts = np.array(basis.locationMaps())
 print(f"assembly: {time.time() - tic:.2f}s")
 
 # --------------------------------------- cuda ----------------------------------------
-cuda_source = (BASE_DIR / "mlhp_kernels.cu").read_text()
+cuda_source = (BASE_DIR / "../../solvers/kernels/mlhp_kernels.cu").read_text()
 cuda_options = (("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()) + compiler_options
 
 if PRECOMPILED:
     ptx_stem = "mlhp_kernels_f32" if DTYPE == cp.float32 else "mlhp_kernels_f64"
-    module = cp.RawModule(path=str(BASE_DIR / f"{ptx_stem}.cubin"))
+    module = cp.RawModule(
+        path=str(BASE_DIR / f"../../solvers/kernels_build/{ptx_stem}.cubin")
+    )
 else:
     module = cp.RawModule(code=cuda_source, options=cuda_options)
 Ku_kernel = module.get_function("Ku_kernel")
