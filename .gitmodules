@@ -4,6 +4,6 @@
 [submodule "solvers/2025_voxelbasedmomentfitting"]
 	path = solvers/2025_voxelbasedmomentfitting
 	url = git@gitlab.com:numech/code/publications/2025_voxelbasedmomentfitting.git
-[submodule "solvers/--force"]
-	path = solvers/--force
+[submodule "solvers/mlhp_source/mlhp"]
+	path = solvers/mlhp_source/mlhp
 	url = git@gitlab.com:hpfem/code/mlhp.git
