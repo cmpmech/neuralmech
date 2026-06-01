@@ -19,3 +19,4 @@ tmp/*
 /solvers/kenels_build
 .logs/
 neuralmech.egg-info/
+__pycache__/
