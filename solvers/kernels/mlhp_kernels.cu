@@ -150,4 +150,91 @@ __global__ void K_diag_subvoxel_kernel(real_t *K_diag,
   for (int i = 0; i < ndof_e; i++)
     atomicAdd(&K_diag[my_eft[i]], my_K[i * ndof_e + i]);
 }
+
+// ------------------ multiresolution topology optimization (MTOP)
+
+// one thread per element
+// like assemble_K_e_kernel but reads a real-valued, already SIMP-penalized
+// stiffness E_voxels[vox] per subvoxel instead of the uint8 indicator.
+__global__ void assemble_K_e_density_kernel(
+    real_t *K_e, const real_t *__restrict__ E_voxels,
+    const real_t *__restrict__ K_refs, const int n_elem, const int ndof_e,
+    const int n_sub, const int S, const int Sz, const int Ny_elem,
+    const int Nz_elem, const int Ny_vox, const int Nz_vox) {
+  int e = blockIdx.x * blockDim.x + threadIdx.x;
+  if (e >= n_elem)
+    return;
+
+  // element indices
+  int ix_e = e / (Ny_elem * Nz_elem);
+  int iy_e = (e / Nz_elem) % Ny_elem;
+  int iz_e = e % Nz_elem;
+
+  // pass 1: per-subvoxel material scaling
+  real_t Ei[MAX_N_SUB];
+  for (int s = 0; s < n_sub; s++) {
+    int sx = s / (S * Sz);
+    int sy = (s / Sz) % S;
+    int sz = s % Sz;
+    int ix_v = ix_e * S + sx;
+    int iy_v = iy_e * S + sy;
+    int iz_v = iz_e * Sz + sz;
+    int vox = ix_v * (Ny_vox * Nz_vox) + iy_v * Nz_vox + iz_v;
+    Ei[s] = E_voxels[vox];
+  }
+
+  // pass 2: accumulate into K_e
+  real_t *my_K_e = K_e + e * ndof_e * ndof_e;
+  for (int k = 0; k < ndof_e * ndof_e; k++) {
+    real_t acc = (real_t)0;
+    for (int s = 0; s < n_sub; s++)
+      acc += Ei[s] * K_refs[s * ndof_e * ndof_e + k];
+    my_K_e[k] = acc;
+  }
+}
+
+// one thread per element
+// per-subvoxel compliance sensitivity factor ce = u_e^T K_refs[s] u_e = dc/dE.
+// scatters to a global voxel-ordered array (element x subvoxel -> voxel is a
+// bijection, so no atomics are needed).
+__global__ void compliance_sensitivity_kernel(
+    const real_t *__restrict__ u, real_t *ce_voxels,
+    const int *__restrict__ efts, const real_t *__restrict__ K_refs,
+    const int n_elem, const int ndof_e, const int n_sub, const int S,
+    const int Sz, const int Ny_elem, const int Nz_elem, const int Ny_vox,
+    const int Nz_vox) {
+  int e = blockIdx.x * blockDim.x + threadIdx.x;
+  if (e >= n_elem)
+    return;
+
+  // element indices
+  int ix_e = e / (Ny_elem * Nz_elem);
+  int iy_e = (e / Nz_elem) % Ny_elem;
+  int iz_e = e % Nz_elem;
+
+  const int *my_eft = efts + e * ndof_e;
+  real_t ue[MAX_NDOF_E];
+  for (int i = 0; i < ndof_e; i++)
+    ue[i] = u[my_eft[i]];
+
+  for (int s = 0; s < n_sub; s++) {
+    const real_t *Ks = K_refs + s * ndof_e * ndof_e;
+    real_t acc = (real_t)0; // u_e^T Ks u_e
+    for (int i = 0; i < ndof_e; i++) {
+      real_t kui = (real_t)0;
+      for (int j = 0; j < ndof_e; j++)
+        kui += Ks[i * ndof_e + j] * ue[j];
+      acc += ue[i] * kui;
+    }
+    // local subvoxel indices -> global voxel index (C-order)
+    int sx = s / (S * Sz);
+    int sy = (s / Sz) % S;
+    int sz = s % Sz;
+    int ix_v = ix_e * S + sx;
+    int iy_v = iy_e * S + sy;
+    int iz_v = iz_e * Sz + sz;
+    int vox = ix_v * (Ny_vox * Nz_vox) + iy_v * Nz_vox + iz_v;
+    ce_voxels[vox] = acc;
+  }
+}
 }
