@@ -23,7 +23,7 @@ D = args.dim
 
 DEGREE = 2
 ALPHA = 1e-4
-SUB_VOXELS = 4
+SUB_VOXELS = 8  # 4
 QUAD_ORDER = DEGREE + 1  # Gauss pts per direction per sub-cell; default (DEGREE+1)
 QUAD_ORDER = 1
 

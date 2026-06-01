@@ -3,10 +3,120 @@
 #include "integrand.hpp"
 
 #include "mlhp/core/basisevaluation.hpp"
+#include "mlhp/core/partitioning.hpp"
 #include "mlhp/core/dense.hpp"
+#include "mlhp/core/ndarray.hpp"
+#include "mlhp/core/arrayfunctions.hpp"
+#include "mlhp/core/utilities.hpp"
+#include "mlhp/core/memory.hpp"
 
 namespace mlhp::helpers
 {
+
+template<size_t D>
+std::vector<double> integratePartitionMatrices( const AbsBasis<D>& basis,
+                                                 const DomainIntegrand<D>& integrand,
+                                                 const AbsQuadrature<D>& quadrature,
+                                                 const QuadratureOrderDeterminor<D>& orderDeterminor,
+                                                 CellIndex icell )
+{
+    // Locate the (single) matrix target in the integrand and its dense storage kind.
+    auto matrixTarget = integrand.types.size( );
+    auto symmetric = true;
+
+    for( size_t t = 0; t < integrand.types.size( ); ++t )
+    {
+        if( integrand.types[t] == AssemblyType::SymmetricMatrix ) { matrixTarget = t; symmetric = true; break; }
+        if( integrand.types[t] == AssemblyType::UnsymmetricMatrix ) { matrixTarget = t; symmetric = false; break; }
+    }
+
+    MLHP_CHECK( matrixTarget < integrand.types.size( ), "Integrand has no matrix target." );
+
+    // Per-thread style scratch (single element, so no parallel section needed).
+    auto rst = CoordinateGrid<D> { };
+    auto xyz = CoordinateList<D> { };
+    auto weights = std::vector<double> { };
+    auto locationMap = LocationMap { };
+    auto shapes = BasisFunctionEvaluation<D> { };
+    auto localTargets = AlignedDoubleVectors( integrand.types.size( ) );
+    auto quadratureCache = quadrature.initialize( );
+    auto basisCache = basis.createEvaluationCache( );
+    auto integrandCache = integrand.createCache( basis );
+
+    auto diffOrder = std::max( static_cast<size_t>( integrand.maxdiff ) + 1, size_t { 1 } ) - 1;
+
+    auto maxdegrees = basis.prepareEvaluation( icell, diffOrder, shapes, basisCache );
+    auto& mapping = basis.mapping( basisCache );
+    auto npartitions = quadrature.partition( mapping, quadratureCache );
+    auto accuracy = orderDeterminor( icell, maxdegrees );
+
+    basis.locationMap( icell, locationMap );
+    integrand.prepare( integrandCache, mapping, locationMap );
+
+    auto ndof = locationMap.size( );
+    auto paddedSize = memory::paddedLength<double>( ndof );
+    auto result = std::vector<double>( npartitions * ndof * ndof, 0.0 );
+
+    // Same as assembly.cpp's initializeLocalAssemblyTargets, but reset once per partition.
+    auto resetTargets = [&]( )
+    {
+        for( size_t t = 0; t < integrand.types.size( ); ++t )
+        {
+            auto type = static_cast<size_t>( integrand.types[t] );
+
+            if( type == 0 ) localTargets[t].resize( 1 );
+            if( type == 1 ) localTargets[t].resize( memory::paddedLength<double>( ndof ) );
+            if( type == 2 ) localTargets[t].resize( linalg::denseMatrixStorageSize<linalg::UnsymmetricDenseMatrix>( ndof ) );
+            if( type == 3 ) localTargets[t].resize( linalg::denseMatrixStorageSize<linalg::SymmetricDenseMatrix>( ndof ) );
+
+            std::fill( localTargets[t].begin( ), localTargets[t].end( ), 0.0 );
+        }
+    };
+
+    for( size_t ipartition = 0; ipartition < npartitions; ++ipartition )
+    {
+        resetTargets( );
+
+        utilities::resize0( rst, xyz, weights );
+
+        auto isGrid = quadrature.distribute( ipartition, accuracy, rst, xyz, weights, quadratureCache );
+
+        if( isGrid )
+        {
+            basis.prepareGridEvaluation( rst, basisCache );
+
+            nd::executeWithIndex( array::elementSizes( rst ), [&]( auto ijk, auto index )
+            {
+                basis.evaluateGridPoint( ijk, shapes, basisCache );
+                integrand.evaluate( integrandCache, shapes, localTargets, weights[index] );
+            } );
+        }
+        else
+        {
+            for( size_t index = 0; index < rst[0].size( ); ++index )
+            {
+                basis.evaluateSinglePoint( array::extract( rst, array::makeSizes<D>( index ) ), shapes, basisCache );
+                integrand.evaluate( integrandCache, shapes, localTargets, weights[index] );
+            }
+        }
+
+        // Snapshot this partition's dense element matrix into a full row-major block.
+        auto* out = result.data( ) + ipartition * ndof * ndof;
+        auto* data = localTargets[matrixTarget].data( );
+
+        for( size_t i = 0; i < ndof; ++i )
+        {
+            for( size_t j = 0; j < ndof; ++j )
+            {
+                out[i * ndof + j] = symmetric
+                    ? linalg::indexDenseMatrix<linalg::SymmetricDenseMatrix>( data, i, j, paddedSize )
+                    : linalg::indexDenseMatrix<linalg::UnsymmetricDenseMatrix>( data, i, j, paddedSize );
+            }
+        }
+    }
+
+    return result;
+}
 
 template<size_t D>
 DomainIntegrand<D> makeHelmholtzIntegrand( const spatial::ScalarFunction<D>& wavenumber,
@@ -142,7 +252,11 @@ DomainIntegrand<D> makeHelmholtzIntegrand( const spatial::ScalarFunction<D>& wav
         const spatial::ScalarFunction<D>& wavenumber,                                \
         const spatial::ScalarFunction<D>& damping,                                   \
         const spatial::ScalarFunction<D>& sourceReal,                                \
-        const spatial::ScalarFunction<D>& sourceImag );
+        const spatial::ScalarFunction<D>& sourceImag );                              \
+    template std::vector<double> integratePartitionMatrices(                         \
+        const AbsBasis<D>& basis, const DomainIntegrand<D>& integrand,               \
+        const AbsQuadrature<D>& quadrature,                                          \
+        const QuadratureOrderDeterminor<D>& orderDeterminor, CellIndex icell );
 
 MLHP_INSTANTIATE_DIM( 1 )
 MLHP_INSTANTIATE_DIM( 2 )

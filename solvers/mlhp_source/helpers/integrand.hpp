@@ -8,10 +8,25 @@
 #define MLHP_HELPERS_INTEGRAND_HPP
 
 #include "mlhp/core/integrands.hpp"
+#include "mlhp/core/basis.hpp"
+#include "mlhp/core/quadrature.hpp"
 #include "mlhp/core/spatial.hpp"
 
 namespace mlhp::helpers
 {
+
+//! Integrate `integrand` over a single element `icell`, returning each quadrature PARTITION's
+//! element matrix separately instead of summing them into one.  Mirrors integrateOnDomain's
+//! element loop (mlhp/src/core/assembly.cpp) but resets the local target per partition and
+//! snapshots its matrix target.  With gridQuadrature(nsubcells=...) one partition is one
+//! sub-cell, so this yields every sub-voxel's element stiffness in a single integration pass.
+//! Returns a flat row-major buffer of size npartitions * ndof * ndof (ndof = element dofs).
+template<size_t D>
+std::vector<double> integratePartitionMatrices( const AbsBasis<D>& basis,
+                                                 const DomainIntegrand<D>& integrand,
+                                                 const AbsQuadrature<D>& quadrature,
+                                                 const QuadratureOrderDeterminor<D>& orderDeterminor,
+                                                 CellIndex icell = 0 );
 
 //! Time-harmonic (frequency-domain) Helmholtz equation
 //!

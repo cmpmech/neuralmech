@@ -33,20 +33,20 @@ indicator = np.maximum(ct["indicator"].astype(np.float32) / 255.0, ALPHA)
 if D == 2:
     Lx, Ly = float(ct["Lx"]), float(ct["Ly"])
     Nx, Ny = indicator.shape
-    ncells = [Nx, Ny]
-    lengths = [Lx, Ly]
+    nelems = [Nx, Ny]
+    domain_lengths = [Lx, Ly]
 else:
     Lx, Ly, Lz = float(ct["Lx"]), float(ct["Ly"]), float(ct["Lz"])
     Nx, Ny, Nz = indicator.shape
-    ncells = [Nx, Ny, Nz]
-    lengths = [Lx, Ly, Lz]
+    nelems = [Nx, Ny, Nz]
+    domain_lengths = [Lx, Ly, Lz]
 
 E_vec = mlhp.FloatVector((E * indicator).ravel("C"))  # TODO use uint8
-E_field = mlhp.scalarFieldFromVoxelData(E_vec, nvoxels=ncells, lengths=lengths)
+E_field = mlhp.scalarFieldFromVoxelData(E_vec, nvoxels=nelems, lengths=domain_lengths)
 nu_field = mlhp.scalarField(D, NU)
 
 # ---------------------------------------- mesh ---------------------------------------
-mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=ncells, lengths=lengths))
+mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=nelems, lengths=domain_lengths))
 basis = mlhp.makeHpTrunkSpace(mesh, degree=DEGREE, nfields=D)
 print(basis)
 
@@ -101,7 +101,7 @@ print(f"max displacement: {max(abs(v) for v in all_dofs):.3e}")
 
 # --------------------------------------- export --------------------------------------
 indicator_field = mlhp.scalarFieldFromVoxelData(
-    mlhp.FloatVector(indicator.ravel("C")), nvoxels=ncells, lengths=lengths
+    mlhp.FloatVector(indicator.ravel("C")), nvoxels=nelems, lengths=domain_lengths
 )
 processors = [
     mlhp.solutionProcessor(D, all_dofs, "Displacement"),

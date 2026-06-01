@@ -3,7 +3,6 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import mlhp
-import mlhphelpers
 import numpy as np
 import scipy.sparse as sp
 
@@ -49,7 +48,9 @@ print(basis)
 
 # both real and imaginary fields vanish on all four sides
 bc_list = [
-    mlhp.integrateDirichletDofs(mlhp.scalarField(D, 0.0), basis, [0, 1, 2, 3], ifield=ifield)
+    mlhp.integrateDirichletDofs(
+        mlhp.scalarField(D, 0.0), basis, [0, 1, 2, 3], ifield=ifield
+    )
     for ifield in (0, 1)
 ]
 dirichlet = mlhp.combineDirichletDofs(bc_list)
@@ -57,7 +58,7 @@ dirichlet = mlhp.combineDirichletDofs(bc_list)
 # --------------------------------------- assembly ------------------------------------
 wavenumber = mlhp.scalarField(D, WAVENUMBER)
 damping = mlhp.scalarField(D, DAMPING)
-integrand = mlhphelpers.helmholtzIntegrand(wavenumber, damping, source_re, source_im)
+integrand = mlhp.helmholtzIntegrand(wavenumber, damping, source_re, source_im)
 
 matrix = mlhp.allocateSparseMatrix(basis, dirichlet[0])
 vector = mlhp.allocateRhsVector(matrix)
@@ -67,7 +68,11 @@ mlhp.integrateOnDomain(basis, integrand, [matrix, vector], dirichletDofs=dirichl
 # ---------------------------------------- solve --------------------------------------
 # the eta-coupling makes the system non-symmetric and indefinite, so solve directly
 operator = sp.csr_matrix(
-    (np.asarray(matrix.data_array), np.asarray(matrix.indices_array), np.asarray(matrix.indptr_array)),
+    (
+        np.asarray(matrix.data_array),
+        np.asarray(matrix.indices_array),
+        np.asarray(matrix.indptr_array),
+    ),
     shape=tuple(matrix.shape),
 )
 interior_dofs = spsolve(operator, np.asarray(vector))

@@ -8,6 +8,7 @@
 
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
+#include "pybind11/numpy.h"
 
 #include "src/python/pymlhpcore.hpp"
 
@@ -38,6 +39,33 @@ void bindDimension( pybind11::module& m )
         pybind11::arg( "source" ), pybind11::arg( "sourceImag" ) = zero,
         "Damped Helmholtz integrand: laplacian(u) + (k^2 + i eta) u = -f. Returns an "
         "unsymmetric two-field (real, imaginary) system." );
+
+    m.def( "integratePartitionMatrices", []( const AbsBasis<D>& basis,
+                                             const DomainIntegrand<D>& integrand,
+                                             const AbsQuadrature<D>& quadrature,
+                                             const bindings::QuadratureOrderDeterminorWrapper<D>& order,
+                                             CellIndex icell )
+        {
+            auto flat = integratePartitionMatrices<D>( basis, integrand, quadrature, order.get( ), icell );
+
+            auto locationMap = LocationMap { };
+            basis.locationMap( icell, locationMap );
+
+            auto ndof = static_cast<pybind11::ssize_t>( locationMap.size( ) );
+            auto npart = ( ndof > 0 ) ? static_cast<pybind11::ssize_t>( flat.size( ) ) / ( ndof * ndof ) : 0;
+
+            auto shape = { npart, ndof, ndof };
+            auto strides = { static_cast<pybind11::ssize_t>( sizeof( double ) ) * ndof * ndof,
+                             static_cast<pybind11::ssize_t>( sizeof( double ) ) * ndof,
+                             static_cast<pybind11::ssize_t>( sizeof( double ) ) };
+
+            return pybind11::array_t<double>( std::move( shape ), std::move( strides ), flat.data( ) );
+        },
+        pybind11::arg( "basis" ), pybind11::arg( "integrand" ), pybind11::arg( "quadrature" ),
+        pybind11::arg( "order" ), pybind11::arg( "icell" ) = 0,
+        "Per-partition element matrices for one element, shape [npartitions, ndof, ndof]. "
+        "With gridQuadrature(nsubcells=...) each partition is one sub-cell, so this returns "
+        "every sub-voxel's element stiffness in a single integration pass." );
 }
 
 void bindJ2Plasticity( pybind11::module& m )
@@ -88,14 +116,15 @@ void bindJ2Plasticity( pybind11::module& m )
         "Evaluate stored history at points; returns flat (npoints * 13) list." );
 }
 
-} // namespace mlhp::helpers
-
-PYBIND11_MODULE( pymlhphelpers, m )
+// Register all helper extensions into a module.  Called from the combined module
+// entry (python/main.cpp), which also calls mlhp's own bind* functions, so the whole
+// API ends up in a single `pymlhpcore` module.
+void bindHelpers( pybind11::module& m )
 {
-    m.doc( ) = "NeuralMech custom integrands extending mlhp.";
-
-    mlhp::helpers::bindDimension<1>( m );
-    mlhp::helpers::bindDimension<2>( m );
-    mlhp::helpers::bindDimension<3>( m );
-    mlhp::helpers::bindJ2Plasticity( m );
+    bindDimension<1>( m );
+    bindDimension<2>( m );
+    bindDimension<3>( m );
+    bindJ2Plasticity( m );
 }
+
+} // namespace mlhp::helpers

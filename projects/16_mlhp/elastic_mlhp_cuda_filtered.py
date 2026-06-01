@@ -45,28 +45,30 @@ indicator = ct["indicator"]  # uint8
 if D == 2:
     Lx, Ly = float(ct["Lx"]), float(ct["Ly"])
     Nx, Ny = indicator.shape
-    ncells = [Nx, Ny]
-    lengths = [Lx, Ly]
+    nelems = [Nx, Ny]
+    domain_lengths = [Lx, Ly]
     elem_lengths = [Lx / Nx, Ly / Ny]
 else:
     Lx, Ly, Lz = float(ct["Lx"]), float(ct["Ly"]), float(ct["Lz"])
     Nx, Ny, Nz = indicator.shape
-    ncells = [Nx, Ny, Nz]
-    lengths = [Lx, Ly, Lz]
+    nelems = [Nx, Ny, Nz]
+    domain_lengths = [Lx, Ly, Lz]
     elem_lengths = [Lx / Nx, Ly / Ny, Lz / Nz]
 
 keep_mask = indicator.ravel("C") > FILTER_THRESHOLD
-n_elem = int(keep_mask.sum())
+N_elems = int(keep_mask.sum())
 indicator_filtered = indicator.ravel("C")[keep_mask]  # only kept elements, C-order
 print(
-    f"elements: {indicator.size} total, {n_elem} kept ({100 * n_elem / indicator.size:.1f}%)"
+    f"elements: {indicator.size} total, {N_elems} kept ({100 * N_elems / indicator.size:.1f}%)"
 )
 
 nu_field = mlhp.scalarField(D, NU)
 
 # ---------------------------------------- mesh ---------------------------------------
 mesh = mlhp.makeRefinedGrid(
-    mlhp.makeFilteredGrid(mlhp.makeGrid(ncells=ncells, lengths=lengths), mask=keep_mask)
+    mlhp.makeFilteredGrid(
+        mlhp.makeGrid(ncells=nelems, lengths=domain_lengths), mask=keep_mask
+    )
 )
 basis = mlhp.makeHpTrunkSpace(mesh, degree=DEGREE, nfields=D)
 ndof = basis.ndof()
@@ -143,8 +145,9 @@ else:
 Ku_kernel = module.get_function("Ku_kernel")
 K_diag_kernel = module.get_function("K_diag_kernel")
 
+# for indexing in kernel
 ndof_e = K_local.shape[0]
-grid = (n_elem + BLOCK - 1) // BLOCK
+grid = (N_elems + BLOCK - 1) // BLOCK
 
 E_scalar = np_dtype(E)
 alpha_scalar = np_dtype(ALPHA)
@@ -159,6 +162,7 @@ constrained_gpu = cp.array(constrained_dofs, dtype=cp.int32)
 cp.cuda.Stream.null.synchronize()
 print(f"GPU upload: {time.time() - tic:.3f}s")
 
+# ------------------------------------ cuda kernels -----------------------------------
 K_diag_gpu = cp.zeros(ndof, dtype=DTYPE)
 cp.cuda.Stream.null.synchronize()
 tic = time.time()
@@ -172,7 +176,7 @@ K_diag_kernel(
         K_local_gpu,
         E_scalar,
         alpha_scalar,
-        n_elem,
+        N_elems,
         ndof_e,
     ),
 )
@@ -194,7 +198,7 @@ def get_Ku(u_gpu):
             K_local_gpu,
             E_scalar,
             alpha_scalar,
-            n_elem,
+            N_elems,
             ndof_e,
         ),
     )
@@ -228,8 +232,8 @@ print(f"max displacement: {np.max(np.abs(sol)):.3e}")
 all_dofs = mlhp.DoubleVector(sol.tolist())
 indicator_field = mlhp.scalarFieldFromVoxelData(
     mlhp.FloatVector(indicator.ravel("C").astype(np.float32) / 255.0),
-    nvoxels=ncells,
-    lengths=lengths,
+    nvoxels=nelems,
+    lengths=domain_lengths,
 )
 processors = [
     mlhp.solutionProcessor(D, all_dofs, "Displacement"),
