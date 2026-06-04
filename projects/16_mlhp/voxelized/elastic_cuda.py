@@ -9,8 +9,8 @@ import mlhp
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
-RESULTS_DIR = BASE_DIR / "../../results"
+DATA_DIR = BASE_DIR / "../../../data"
+RESULTS_DIR = BASE_DIR / "../../../results/3D"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dim", type=int, default=2, choices=[2, 3])
@@ -21,14 +21,15 @@ args = parser.parse_args()
 D = args.dim
 
 DEGREE = 1
-ALPHA = 1e-4  # does not matter (filtered out)
-FILTER_THRESHOLD = 0  # uint8; elements with indicator <= threshold are removed
+ALPHA = 1e-4  # does not matter when FILTERED (filtered out)
+FILTERED = True  # remove elements with indicator <= FILTER_THRESHOLD from the mesh
+FILTER_THRESHOLD = 0  # uint8; only used when FILTERED
 
 DTYPE = cp.float32  # cp.float32 for single precision
 np_dtype = np.float32 if DTYPE == cp.float32 else np.float64
 CG_TOL = 1e-6 if DTYPE == cp.float32 else 1e-10
+BLOCK = 1024  # max 1024
 
-BLOCK = 1024
 PRECOMPILED = False
 compiler_options = ()  # flags don't seem to help
 # compiler_options = ("--use_fast_math", "--gpu-architecture=compute_120")
@@ -55,21 +56,25 @@ else:
     domain_lengths = [Lx, Ly, Lz]
     elem_lengths = [Lx / Nx, Ly / Ny, Lz / Nz]
 
-keep_mask = indicator.ravel("C") > FILTER_THRESHOLD
-N_elems = int(keep_mask.sum())
-indicator_filtered = indicator.ravel("C")[keep_mask]  # only kept elements, C-order
-print(
-    f"elements: {indicator.size} total, {N_elems} kept ({100 * N_elems / indicator.size:.1f}%)"
-)
+if FILTERED:
+    keep_mask = indicator.ravel("C") > FILTER_THRESHOLD
+    N_elems = int(keep_mask.sum())
+    indicator_data = indicator.ravel("C")[keep_mask]  # only kept elements, C-order
+    print(
+        f"elements: {indicator.size} total, {N_elems} kept "
+        f"({100 * N_elems / indicator.size:.1f}%)"
+    )
+else:
+    N_elems = indicator.size
+    indicator_data = indicator.ravel("C")
 
 nu_field = mlhp.scalarField(D, NU)
 
 # ---------------------------------------- mesh ---------------------------------------
-mesh = mlhp.makeRefinedGrid(
-    mlhp.makeFilteredGrid(
-        mlhp.makeGrid(ncells=nelems, lengths=domain_lengths), mask=keep_mask
-    )
-)
+base_grid = mlhp.makeGrid(ncells=nelems, lengths=domain_lengths)
+if FILTERED:
+    base_grid = mlhp.makeFilteredGrid(base_grid, mask=keep_mask)
+mesh = mlhp.makeRefinedGrid(base_grid)
 basis = mlhp.makeHpTrunkSpace(mesh, degree=DEGREE, nfields=D)
 ndof = basis.ndof()
 print(basis)
@@ -132,13 +137,13 @@ efts = np.array(basis.locationMaps())
 print(f"assembly: {time.time() - tic:.2f}s")
 
 # --------------------------------------- cuda ----------------------------------------
-cuda_source = (BASE_DIR / "../../solvers/kernels/mlhp_kernels.cu").read_text()
+cuda_source = (BASE_DIR / "../../../solvers/kernels/mlhp_kernels.cu").read_text()
 cuda_options = (("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()) + compiler_options
 
 if PRECOMPILED:
     ptx_stem = "mlhp_kernels_f32" if DTYPE == cp.float32 else "mlhp_kernels_f64"
     module = cp.RawModule(
-        path=str(BASE_DIR / f"../../solvers/kernels_build/{ptx_stem}.cubin")
+        path=str(BASE_DIR / f"../../../solvers/kernels_build/{ptx_stem}.cubin")
     )
 else:
     module = cp.RawModule(code=cuda_source, options=cuda_options)
@@ -156,11 +161,12 @@ cp.cuda.Stream.null.synchronize()
 tic = time.time()
 K_local_gpu = cp.array(K_local.ravel("C"), dtype=DTYPE)
 efts_gpu = cp.array(efts.ravel("C"), dtype=cp.int32)
-indicator_gpu = cp.array(indicator_filtered, dtype=cp.uint8)
+indicator_gpu = cp.array(indicator_data, dtype=cp.uint8)
 rhs_gpu = cp.array(rhs, dtype=DTYPE)
 constrained_gpu = cp.array(constrained_dofs, dtype=cp.int32)
 cp.cuda.Stream.null.synchronize()
 print(f"GPU upload: {time.time() - tic:.3f}s")
+
 
 # ------------------------------------ cuda kernels -----------------------------------
 K_diag_gpu = cp.zeros(ndof, dtype=DTYPE)
@@ -180,7 +186,7 @@ K_diag_kernel(
         ndof_e,
     ),
 )
-K_diag_gpu[constrained_gpu] = 1.0
+K_diag_gpu[constrained_gpu] = 1.0  # boundary conditions
 cp.cuda.Stream.null.synchronize()
 print(f"K_diag: {time.time() - tic:.3f}s")
 
@@ -241,7 +247,8 @@ processors = [
 ]
 postmesh = mlhp.gridCellMesh([DEGREE + 2] * D)
 
-out = str(RESULTS_DIR / f"elastic_mlhp_cuda_filtered_{ct_file[:-4]}")
+suffix = "_filtered" if FILTERED else ""
+out = str(RESULTS_DIR / f"elastic_mlhp_cuda{suffix}_{ct_file[:-4]}")
 Path(out).parent.mkdir(parents=True, exist_ok=True)
 output = mlhp.PVtuOutput(filename=out)
 mlhp.basisOutput(basis, postmesh, output, processors)

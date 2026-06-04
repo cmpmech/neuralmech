@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
+DATA_DIR = BASE_DIR / "../../../data"
 
 # ------------------------------------ ct settings ------------------------------------
 # Nx = 96
@@ -14,9 +14,21 @@ DATA_DIR = BASE_DIR / "../../data"
 # Ly = 1.0
 # Lz = 0.5
 
-Nx = 160
-Ny = 160
-Nz = 160
+# Nx = 64
+# Ny = 64
+# Nz = 64
+
+# Nx = 160
+# Ny = 160
+# Nz = 160
+
+# Nx = 256
+# Ny = 256
+# Nz = 256
+Nx = 512
+Ny = 512
+Nz = 512
+
 
 Lx = 1.0
 Ly = 1.0

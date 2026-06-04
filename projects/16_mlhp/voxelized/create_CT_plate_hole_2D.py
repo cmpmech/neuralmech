@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
+DATA_DIR = BASE_DIR / "../../../data"
 
 # ------------------------------------ ct settings ------------------------------------
 Nx = 320

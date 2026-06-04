@@ -9,8 +9,8 @@ import mlhp
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
-RESULTS_DIR = BASE_DIR / "../../results"
+DATA_DIR = BASE_DIR / "../../../data"
+RESULTS_DIR = BASE_DIR / "../../../results/3D"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dim", type=int, default=2, choices=[2, 3])
@@ -128,7 +128,7 @@ efts = np.array(basis.locationMaps())
 print(f"assembly: {time.time() - tic:.2f}s")
 
 # --------------------------------------- cuda ----------------------------------------
-cuda_source = (BASE_DIR / "../../solvers/kernels/mlhp_kernels.cu").read_text()
+cuda_source = (BASE_DIR / "../../../solvers/kernels/mlhp_kernels.cu").read_text()
 cuda_options = (("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()) + compiler_options
 module = cp.RawModule(code=cuda_source, options=cuda_options)
 assemble_K_e_kernel = module.get_function("assemble_K_e_kernel")

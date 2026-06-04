@@ -28,6 +28,41 @@ std::vector<double> integratePartitionMatrices( const AbsBasis<D>& basis,
                                                  const QuadratureOrderDeterminor<D>& orderDeterminor,
                                                  CellIndex icell = 0 );
 
+//! Preintegrated voxel moment-fitting weight matrix M (the element-independent part of
+//! voxelMomentFittingQuadrature, helpers/quadrature.hpp). For a uniform Cartesian mesh the
+//! only element-varying quantity in the moment computation is the per-sub-voxel material
+//! value, so the map from voxel values to the n_mf = 2*polynomialDegree+1 fixed moment-fitting
+//! Gauss weights is a single matrix reused for every element:
+//!
+//!     weights_e[p] = detJ * sum_v M[p, v] * E_voxel_e[v]
+//!
+//! M[p, v] = voxelDetJ * prod_d ( sum_{ip in voxel v_d} voxelWeight_d[ip] * L_{p_d}(voxelRst_d[ip]) )
+//! with voxelDetJ = prod_d 1/nvoxels[d] and L the Lagrange cardinal polynomials nodal at the
+//! n_mf Gauss points. Built from the ground-truth per-voxel summation (the scaling branch of
+//! distribute), NOT the buggy tensor-product fast path. detJ and E are supplied in Python.
+//!
+//! Returns a flat row-major buffer of size n_mf^D * nvox (nvox = product(nvoxels)); the p index
+//! runs row-major over {n_mf}^D and the v index row-major over nvoxels, matching the integration
+//! point ordering of momentFittingPointMatrices below.
+template<size_t D>
+std::vector<double> voxelMomentFittingMatrix( std::array<size_t, D> nvoxels,
+                                              size_t polynomialDegree );
+
+//! Per-Gauss-point unit-material element stiffness B(x_p)^T C0 B(x_p) at the n_mf = 2*degree+1
+//! fixed moment-fitting Gauss points of element `icell` (tensor product, row-major). Each point's
+//! matrix is integrated with weight exactly 1 (no quadrature weight, no detJ) so that, combined
+//! with voxelMomentFittingMatrix, the element stiffness is
+//!
+//!     K_e = sum_p weights_e[p] * Bmat[p]      (weights_e from M @ E_voxel, scaled by detJ)
+//!
+//! Mirrors integratePartitionMatrices but builds the fixed Gauss grid directly and forces unit
+//! weight. Returns a flat row-major buffer of size n_mf^D * ndof * ndof (ndof = element dofs).
+template<size_t D>
+std::vector<double> momentFittingPointMatrices( const AbsBasis<D>& basis,
+                                                 const DomainIntegrand<D>& integrand,
+                                                 size_t polynomialDegree,
+                                                 CellIndex icell = 0 );
+
 //! Time-harmonic (frequency-domain) Helmholtz equation
 //!
 //!     laplacian(u) + k^2 u = -f      in Omega

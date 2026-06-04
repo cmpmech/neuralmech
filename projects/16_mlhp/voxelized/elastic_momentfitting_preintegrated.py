@@ -9,8 +9,8 @@ import mlhp
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
-RESULTS_DIR = BASE_DIR / "../../results"
+DATA_DIR = BASE_DIR / "../../../data"
+RESULTS_DIR = BASE_DIR / "../../../results/3D"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dim", type=int, default=2, choices=[2, 3])
@@ -20,17 +20,15 @@ args = parser.parse_args()
 # -------------------------------- simulation settings --------------------------------
 D = args.dim
 
-DEGREE = 1
+# Bmat stores one ndof_e x ndof_e stiffness at each of the n_mf^D = (2*DEGREE+1)^D
+# moment-fitting points, so memory grows steeply with DEGREE in 3D; lower it for 3D runs.
+DEGREE = 3
 ALPHA = 1e-4
+SUB_VOXELS = 32  # 128  # 32  # 40
 
-DTYPE = cp.float32  # cp.float32 for single precision
-np_dtype = np.float32 if DTYPE == cp.float32 else np.float64
-CG_TOL = 1e-6 if DTYPE == cp.float32 else 1e-10
-BLOCK = 1024  # max 1024
-
-PRECOMPILED = False
-compiler_options = ()  # flags don't seem to help
-# compiler_options = ("--use_fast_math", "--gpu-architecture=compute_120")
+DTYPE = cp.float64
+CG_TOL = 1e-10
+BLOCK = 1024
 
 E = 210.0
 NU = 0.3
@@ -44,16 +42,23 @@ indicator = ct["indicator"]  # uint8
 if D == 2:
     Lx, Ly = float(ct["Lx"]), float(ct["Ly"])
     Nx, Ny = indicator.shape
-    nelems = [Nx, Ny]
+    nvoxels = [Nx, Ny]
     domain_lengths = [Lx, Ly]
-    elem_lengths = [Lx / Nx, Ly / Ny]
 else:
     Lx, Ly, Lz = float(ct["Lx"]), float(ct["Ly"]), float(ct["Lz"])
     Nx, Ny, Nz = indicator.shape
-    nelems = [Nx, Ny, Nz]
+    nvoxels = [Nx, Ny, Nz]
     domain_lengths = [Lx, Ly, Lz]
-    elem_lengths = [Lx / Nx, Ly / Ny, Lz / Nz]
 
+assert all(n % SUB_VOXELS == 0 for n in nvoxels), (
+    f"grid dims {nvoxels} must all be divisible by SUB_VOXELS={SUB_VOXELS}"
+)
+
+nelems = [n // SUB_VOXELS for n in nvoxels]
+N_elems = int(np.prod(nelems))
+
+# per-sub-voxel Young's modulus (material E=1 in the integrand; weighting lives in E_elem)
+E_float = np.maximum(indicator.astype(np.float64) / 255.0, ALPHA)
 nu_field = mlhp.scalarField(D, NU)
 
 # ---------------------------------------- mesh ---------------------------------------
@@ -73,38 +78,65 @@ bc_list = [
 dirichlet = mlhp.combineDirichletDofs(bc_list)
 constrained_dofs = np.array(dirichlet[0])
 
-# ------------------------ local preintegrated stiffness matrix -----------------------
-tic = time.time()
+# ------------------------------------ preintegration ----------------------------------
+# Element-independent for a uniform Cartesian mesh: the moment matrix M maps per-sub-voxel
+# material values to moment-fitting weights, Bmat holds the unit-material per-Gauss-point
+# stiffness. Both computed once on a single reference element of physical size elem_lengths.
 kinematics = mlhp.smallStrainKinematics(D)
-constitutive = (
+material = (
     mlhp.planeStressMaterial(mlhp.scalarField(D, 1.0), nu_field)
     if D == 2
     else mlhp.isotropicElasticMaterial(mlhp.scalarField(D, 1.0), nu_field)
 )
+
+elem_lengths = [domain_lengths[d] / nelems[d] for d in range(D)]
+detJ = float(np.prod([length / 2.0 for length in elem_lengths]))
+
+mesh_ref = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1] * D, lengths=elem_lengths))
+basis_ref = mlhp.makeHpTrunkSpace(mesh_ref, degree=DEGREE, nfields=D)
 integrand = mlhp.staticDomainIntegrand(
-    kinematics, constitutive, mlhp.vectorField(D, [0.0] * D)
+    kinematics, material, mlhp.vectorField(D, [0.0] * D)
 )
 
-mesh_local = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1] * D, lengths=elem_lengths))
-basis_local = mlhp.makeHpTrunkSpace(mesh_local, degree=DEGREE, nfields=D)
-matrix_local = mlhp.allocateSparseMatrix(basis_local)
-rhs_local = mlhp.allocateRhsVector(matrix_local)
-mlhp.integrateOnDomain(
-    basis_local,
-    integrand,
-    [matrix_local, rhs_local],
-    quadrature=mlhp.gridQuadrature(nsubcells=[1] * D),
-)
-K_local = np.array(matrix_local.todense())
+tic = time.time()
+M = np.array(mlhp.voxelMomentFittingMatrix([SUB_VOXELS] * D, DEGREE))
+Bmat = np.array(mlhp.momentFittingPointMatrices(basis_ref, integrand, DEGREE))
+ndof_e = basis_ref.ndof()
 print(f"preintegration: {time.time() - tic:.2f}s")
 
-# -------------------------------------- assembly -------------------------------------
-tic = time.time()
-# allocateSparseMatrix is only needed to size the condensed vector; it is never filled
-matrix = mlhp.allocateSparseMatrix(basis, dirichlet[0])
-vector = mlhp.allocateRhsVector(matrix)
-del matrix
+n_mf = (2 * DEGREE + 1) ** D
+assert M.shape == (n_mf, SUB_VOXELS**D), M.shape
+assert Bmat.shape == (n_mf, ndof_e, ndof_e), Bmat.shape
 
+# per-element sub-voxel material values, row-major over sub-voxels (x slowest)
+if D == 2:
+    E_elem = (
+        (E * E_float)
+        .reshape(nelems[0], SUB_VOXELS, nelems[1], SUB_VOXELS)
+        .transpose(0, 2, 1, 3)
+        .reshape(N_elems, SUB_VOXELS**D)
+    )
+else:
+    E_elem = (
+        (E * E_float)
+        .reshape(nelems[0], SUB_VOXELS, nelems[1], SUB_VOXELS, nelems[2], SUB_VOXELS)
+        .transpose(0, 2, 4, 1, 3, 5)
+        .reshape(N_elems, SUB_VOXELS**D)
+    )
+
+# -------------------------------------- assembly -------------------------------------
+# per-element stiffness matrices, never assembled into a global sparse matrix
+tic = time.time()
+weights_elem = detJ * (
+    E_elem @ M.T
+)  # [N_elems, n_mf] moment-fitting weights per element
+K_e = np.einsum("ep,pij->eij", weights_elem, Bmat)  # [N_elems, ndof_e, ndof_e]
+efts = np.array(basis.locationMaps())
+
+# load vector: Neumann traction on the right face, expanded to the full dof space
+matrix_tmp = mlhp.allocateSparseMatrix(basis, dirichlet[0])
+vector = mlhp.allocateRhsVector(matrix_tmp)
+del matrix_tmp
 traction = FORCE / Ly if D == 2 else FORCE / (Ly * Lz)
 neumann = mlhp.normalNeumannIntegrand(mlhp.scalarField(D, traction))
 right_quad = mlhp.quadratureOnMeshFaces(mesh, [1])
@@ -115,83 +147,35 @@ interior_mask[constrained_dofs] = False
 rhs = np.zeros(ndof)
 rhs[np.where(interior_mask)[0]] = vector.array
 del vector
-
-efts = np.array(basis.locationMaps())
 print(f"assembly: {time.time() - tic:.2f}s")
 
 # --------------------------------------- cuda ----------------------------------------
-cuda_source = (BASE_DIR / "../../solvers/kernels/mlhp_kernels.cu").read_text()
-cuda_options = (("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()) + compiler_options
+cuda_source = (BASE_DIR / "../../../solvers/kernels/mlhp_kernels.cu").read_text()
+cuda_options = ("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()
+module = cp.RawModule(code=cuda_source, options=cuda_options)
+Ku_kernel = module.get_function("Ku_subvoxel_kernel")
+K_diag_kernel = module.get_function("K_diag_subvoxel_kernel")
 
-if PRECOMPILED:
-    ptx_stem = "mlhp_kernels_f32" if DTYPE == cp.float32 else "mlhp_kernels_f64"
-    module = cp.RawModule(
-        path=str(BASE_DIR / f"../../solvers/kernels_build/{ptx_stem}.cubin")
-    )
-else:
-    module = cp.RawModule(code=cuda_source, options=cuda_options)
-Ku_kernel = module.get_function("Ku_kernel")
-K_diag_kernel = module.get_function("K_diag_kernel")
-
-# for indexing in kernel
-N_elems = indicator.size
-ndof_e = K_local.shape[0]
 grid = (N_elems + BLOCK - 1) // BLOCK
-
-E_scalar = np_dtype(E)
-alpha_scalar = np_dtype(ALPHA)
 
 cp.cuda.Stream.null.synchronize()
 tic = time.time()
-K_local_gpu = cp.array(K_local.ravel("C"), dtype=DTYPE)
+K_e_gpu = cp.array(K_e.ravel("C"), dtype=DTYPE)
 efts_gpu = cp.array(efts.ravel("C"), dtype=cp.int32)
-indicator_gpu = cp.array(indicator.ravel("C"), dtype=cp.uint8)
 rhs_gpu = cp.array(rhs, dtype=DTYPE)
 constrained_gpu = cp.array(constrained_dofs, dtype=cp.int32)
 cp.cuda.Stream.null.synchronize()
 print(f"GPU upload: {time.time() - tic:.3f}s")
 
-
 # ------------------------------------ cuda kernels -----------------------------------
 K_diag_gpu = cp.zeros(ndof, dtype=DTYPE)
-cp.cuda.Stream.null.synchronize()
-tic = time.time()
-K_diag_kernel(
-    (grid,),
-    (BLOCK,),
-    (
-        K_diag_gpu,
-        indicator_gpu,
-        efts_gpu,
-        K_local_gpu,
-        E_scalar,
-        alpha_scalar,
-        N_elems,
-        ndof_e,
-    ),
-)
-K_diag_gpu[constrained_gpu] = 1.0  # boundary conditions
-cp.cuda.Stream.null.synchronize()
-print(f"K_diag: {time.time() - tic:.3f}s")
+K_diag_kernel((grid,), (BLOCK,), (K_diag_gpu, efts_gpu, K_e_gpu, N_elems, ndof_e))
+K_diag_gpu[constrained_gpu] = 1.0  # identity rows on constrained dofs
 
 
 def get_Ku(u_gpu):
     Ku_gpu = cp.zeros(ndof, dtype=DTYPE)
-    Ku_kernel(
-        (grid,),
-        (BLOCK,),
-        (
-            u_gpu,
-            Ku_gpu,
-            indicator_gpu,
-            efts_gpu,
-            K_local_gpu,
-            E_scalar,
-            alpha_scalar,
-            N_elems,
-            ndof_e,
-        ),
-    )
+    Ku_kernel((grid,), (BLOCK,), (u_gpu, Ku_gpu, efts_gpu, K_e_gpu, N_elems, ndof_e))
     Ku_gpu[constrained_gpu] = u_gpu[constrained_gpu]
     return Ku_gpu
 
@@ -222,7 +206,7 @@ print(f"max displacement: {np.max(np.abs(sol)):.3e}")
 all_dofs = mlhp.DoubleVector(sol.tolist())
 indicator_field = mlhp.scalarFieldFromVoxelData(
     mlhp.FloatVector(indicator.ravel("C").astype(np.float32) / 255.0),
-    nvoxels=nelems,
+    nvoxels=nvoxels,
     lengths=domain_lengths,
 )
 processors = [
@@ -231,7 +215,7 @@ processors = [
 ]
 postmesh = mlhp.gridCellMesh([DEGREE + 2] * D)
 
-out = str(RESULTS_DIR / f"elastic_mlhp_cuda_{ct_file[:-4]}")
+out = str(RESULTS_DIR / f"elastic_mlhp_momentfitting_preintegrated_{ct_file[:-4]}")
 Path(out).parent.mkdir(parents=True, exist_ok=True)
 output = mlhp.PVtuOutput(filename=out)
 mlhp.basisOutput(basis, postmesh, output, processors)
