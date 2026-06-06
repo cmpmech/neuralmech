@@ -14,9 +14,9 @@ BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "../../data/abc"
 STL_DIR = DATA_DIR / "geometry/stl"
 VOXEL_DIR = DATA_DIR / "geometry/voxel"
-LOADCASE_DIR = DATA_DIR / "loadcases"
-FIELD_DIR = DATA_DIR / "elasticity"
-RESULTS_DIR = BASE_DIR / "../../results/abc/elasticity"
+FIXTURE_DEF_DIR = DATA_DIR / "fixture_definition"
+SOLUTION_DIR = DATA_DIR / "elasticity/solution"
+RESULTS_SOLUTION_DIR = BASE_DIR / "../../results/abc/elasticity/solution"
 
 D = 3
 VARS = ["x", "y", "z"]
@@ -125,7 +125,7 @@ def von_mises(stress):  # stress: (N, 9) row-major 3x3 Cauchy tensor
 # -------------------------------------- solve ----------------------------------------
 for sid in STL_IDS:
     name = f"{sid:09}_abc"
-    spec = json.loads((LOADCASE_DIR / f"{name}.json").read_text())
+    spec = json.loads((FIXTURE_DEF_DIR / f"{name}.json").read_text())
     case = spec["loadcases"][LOADCASE]
 
     surface = mlhp.readStl(str(STL_DIR / spec["stl"]))
@@ -225,8 +225,8 @@ for sid in STL_IDS:
         ]
         intersected, celldata = mlhp.intersectWithMesh(surface, grid, tree=kdtree)
         surfmesh = mlhp.localSimplexCellMesh(intersected, celldata)
-        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-        output = mlhp.PVtuOutput(filename=str(RESULTS_DIR / f"{name}_{LOADCASE}"))
+        RESULTS_SOLUTION_DIR.mkdir(parents=True, exist_ok=True)
+        output = mlhp.PVtuOutput(filename=str(RESULTS_SOLUTION_DIR / f"{name}_{LOADCASE}"))
         mlhp.basisOutput(basis, surfmesh, output, processors)
 
 # ----------------------------------- voxelized fields --------------------------------
@@ -259,8 +259,8 @@ for sid in STL_IDS:
         print(f"\tvoxelized {mask.sum()}/{mask.size} solid voxels", flush=True)
 
     if EXPORT_VOXEL:
-        FIELD_DIR.mkdir(parents=True, exist_ok=True)
-        out = FIELD_DIR / f"{name}_{LOADCASE}.npz"
+        SOLUTION_DIR.mkdir(parents=True, exist_ok=True)
+        out = SOLUTION_DIR / f"{name}_{LOADCASE}.npz"
         np.savez(
             out,
             indicator=indicator,
@@ -276,8 +276,8 @@ for sid in STL_IDS:
         print(f"\t-> {out}", flush=True)
 
     if EXPORT_VOXEL_VTU:
-        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-        out = RESULTS_DIR / f"{name}_{LOADCASE}_voxel"
+        RESULTS_SOLUTION_DIR.mkdir(parents=True, exist_ok=True)
+        out = RESULTS_SOLUTION_DIR / f"{name}_{LOADCASE}_voxel"
         # pyevtk needs contiguous per-component arrays; cell data matches voxel centers
         cell_data = {
             "indicator": np.ascontiguousarray(indicator),

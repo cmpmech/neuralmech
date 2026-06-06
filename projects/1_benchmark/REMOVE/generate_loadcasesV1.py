@@ -7,7 +7,7 @@ import numpy as np
 BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "../../data/abc"
 STL_DIR = DATA_DIR / "geometry/stl"
-LOADCASE_DIR = DATA_DIR / "loadcases"
+FIXTURE_DEF_DIR = DATA_DIR / "fixture_definition"
 
 # --------------------------------- load-case settings --------------------------------
 STL_IDS = [1, 3, 4]  # starts at 1
@@ -168,7 +168,7 @@ def build_loadcases(long_, mid, short, flat_face, hole, sphere):
 
 
 # ------------------------------------- generation ------------------------------------
-LOADCASE_DIR.mkdir(parents=True, exist_ok=True)
+FIXTURE_DEF_DIR.mkdir(parents=True, exist_ok=True)
 skip = set()
 if SKIP_DISCONNECTED and FAILURE_LOG.exists():
     skip = set(FAILURE_LOG.read_text().split())
@@ -208,7 +208,7 @@ for STL_IDX in STL_IDS:
         "material": {"E": E, "nu": NU, "model": "isotropic"},
         "loadcases": cases,
     }
-    path = LOADCASE_DIR / f"{name}.json"
+    path = FIXTURE_DEF_DIR / f"{name}.json"
     with path.open("w") as f:
         json.dump(out, f, indent=2)
 
