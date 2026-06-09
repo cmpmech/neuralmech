@@ -11,7 +11,6 @@ from pyevtk.hl import imageToVTK
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data/abc").resolve()
-VOXEL_DIR = DATA_DIR / "geometry/voxel"
 FIXTURE_DIR = DATA_DIR / "elasticity/fixture"
 SOLUTION_DIR = DATA_DIR / "elasticity/solution_voxel"
 RESULTS_DIR = (BASE_DIR / "../../results/abc/elasticity/solution_voxel").resolve()
@@ -37,7 +36,8 @@ CG_TOL = 1e-6 if DTYPE == cp.float32 else 1e-10
 MAXITER = 20000
 BLOCK = 1024
 
-EXPORT_VOXEL = True  # sample solution onto the nodal grid -> .npz
+EXPORT_VTU = True  # full-mesh .pvtu (displacement + indicator) for ParaView
+EXPORT_VOXEL = True  # sample solution onto the voxel grid -> .npz
 EXPORT_VOXEL_VTU = True  # write the voxelized solution as .vti
 
 name = f"{args.geometry:09}_abc"
@@ -47,26 +47,32 @@ name = f"{args.geometry:09}_abc"
 OFFSET = np.array([[(l >> 2) & 1, (l >> 1) & 1, l & 1] for l in range(8)])
 
 
+# ----------------------------------- helpers -----------------------------------------
+def sample_field(field, points, chunk=200000):
+    out = np.empty((len(points), field.odim))
+    for i in range(0, len(points), chunk):
+        p = points[i : i + chunk]
+        out[i : i + chunk] = np.array(field(p[:, 0], p[:, 1], p[:, 2])).reshape(
+            -1, field.odim
+        )
+    return out
+
+
 # ----------------------------------- geometry & fixture ------------------------------
-# Geometry (indicator) lives in geometry/voxel/<name>.npz; the fixture carries only the
-# BC fields, on the (N+1) NODAL grid, plus the shared grid frame (origin, Lx/Ly/Lz).
 spec = json.loads((FIXTURE_DIR / f"{name}_{args.case}.json").read_text())
 E = spec["material"]["E"]
 NU = spec["material"]["nu"]
 
-geo = np.load(VOXEL_DIR / f"{name}.npz")
-indicator = geo["indicator"]  # uint8, (Nx, Ny, Nz)
-
 fix = np.load(FIXTURE_DIR / "boundary_voxel" / f"{name}_{args.case}.npz")
-dirichlet_mask = fix["dirichlet_mask"].astype(bool)  # (Nx+1, Ny+1, Nz+1, 3) nodal
-dirichlet_value = fix["dirichlet_value"]  # (Nx+1, Ny+1, Nz+1, 3)
-neumann = fix["neumann"]  # (Nx+1, Ny+1, Nz+1, 3) traction vector, nodal
+indicator = fix["indicator"]  # uint8, (Nx, Ny, Nz)
+dirichlet_mask = fix["dirichlet_mask"].astype(bool)  # (Nx, Ny, Nz, 3) on the outer hull
+dirichlet_value = fix["dirichlet_value"]  # (Nx, Ny, Nz, 3)
+neumann = fix["neumann"]  # (Nx, Ny, Nz, 3) traction vector on the outer hull
 origin = np.asarray(fix["origin"])
+spacing = float(fix["spacing"])
 lengths = [float(fix["Lx"]), float(fix["Ly"]), float(fix["Lz"])]
 
 ncells = indicator.shape
-nnodes = tuple(n + 1 for n in ncells)
-spacing = lengths[0] / ncells[0]  # cubic voxels; spacing is derived, not stored
 solid = indicator > FILTER_THRESHOLD  # kept elements
 keep_mask = solid.ravel("C")
 n_elem = int(keep_mask.sum())
@@ -88,26 +94,27 @@ print(ncells)
 # ----------------------------- voxel -> dof mapping ----------------------------------
 # Each kept element row in locationMaps is component-blocked: reshape (n_elem, D, 8),
 # entry [e, c, l] is the dof of node l, component c. Scatter it to a vertex grid so the
-# nodal BC fields can be translated into nodal constraints and forces.
+# hull boundary voxels can be translated into nodal constraints and forces.
 efts = np.array(basis.locationMaps()).reshape(n_elem, D, 8)
 kept = np.array(np.unravel_index(np.flatnonzero(keep_mask), ncells, order="C")).T
 corner = kept[:, None, :] + OFFSET[None, :, :]  # (n_elem, 8, 3) grid-vertex index
 
-vertex_dof = np.full((*nnodes, D), -1, dtype=np.int64)
+vertex_dof = np.full((*[n + 1 for n in ncells], D), -1, dtype=np.int64)
 for c in range(D):
     vertex_dof[corner[..., 0], corner[..., 1], corner[..., 2], c] = efts[:, c, :]
 
 # ----------------------------- dirichlet constraints ---------------------------------
-# The mask is already nodal: each flagged surface node maps straight to its dof. Solid
-# corners always have vertex_dof >= 0, but keep the guard for non-solid stray flags.
+# A hull voxel's corner that is shared with a solid element (vertex_dof >= 0) is a
+# surface node; constrain it in every masked component.
 cdofs = []
 cvals = []
 for c in range(D):
-    node = np.argwhere(dirichlet_mask[..., c])  # (k, 3) node indices
-    if not len(node):
+    vox = np.argwhere(dirichlet_mask[..., c])
+    if not len(vox):
         continue
-    dof = vertex_dof[node[:, 0], node[:, 1], node[:, 2], c]
-    val = dirichlet_value[node[:, 0], node[:, 1], node[:, 2], c]
+    cv = (vox[:, None, :] + OFFSET[None, :, :]).reshape(-1, 3)
+    dof = vertex_dof[cv[:, 0], cv[:, 1], cv[:, 2], c]
+    val = np.repeat(dirichlet_value[..., c][dirichlet_mask[..., c]], 8)
     good = dof >= 0
     cdofs.append(dof[good])
     cvals.append(val[good])
@@ -119,30 +126,23 @@ constrained_dofs, first = np.unique(cdofs[order], return_index=True)
 constrained_values = cvals[order][first]
 
 # ----------------------------- neumann nodal forces ----------------------------------
-# Traction is stamped on surface nodes. Rebuild the loaded faces: a solid element face
-# is exposed (boundary) iff its neighbor voxel is void; if all 4 of its corners carry a
-# traction flag the face is loaded. A constant traction on a degree-1 square face gives
-# t * area / 4 at each of the 4 face nodes.
+# Distribute each hull voxel's traction over the solid face(s) it covers: a constant
+# traction on a degree-1 square face gives t * area / 4 at each of the 4 face nodes.
 rhs = np.zeros(ndof)
 face_area = spacing * spacing
-neu_node = np.any(neumann != 0.0, axis=-1)  # (Nx+1, Ny+1, Nz+1) nodal flag
+neu_vox = np.argwhere(np.any(neumann != 0.0, axis=-1))
 for axis in range(D):
-    for side in (0, 1):  # 0 = low face (offset 0), 1 = high face (offset 1)
-        face_nodes = [l for l in range(8) if OFFSET[l, axis] == side]
-        nb = kept.copy()
-        nb[:, axis] += 1 if side == 1 else -1
+    for side in (-1, 1):
+        nodes = [l for l in range(8) if OFFSET[l, axis] == (side > 0)]
+        nb = neu_vox.copy()
+        nb[:, axis] += side
         inb = (nb[:, axis] >= 0) & (nb[:, axis] < ncells[axis])
-        neighbor_solid = np.zeros(len(kept), dtype=bool)
-        neighbor_solid[inb] = solid[nb[inb, 0], nb[inb, 1], nb[inb, 2]]
-        sel = kept[~neighbor_solid]  # solid voxels whose (axis, side) face is exposed
-        fn = sel[:, None, :] + OFFSET[None, face_nodes, :]  # (m, 4, 3) face-node index
-        loaded = neu_node[fn[..., 0], fn[..., 1], fn[..., 2]].all(axis=1)
-        sel, fn = sel[loaded], fn[loaded]
-        if not len(sel):
-            continue
-        traction = neumann[fn[..., 0], fn[..., 1], fn[..., 2], :].mean(axis=1)  # (m, 3)
-        for j in range(len(face_nodes)):
-            cv = fn[:, j, :]
+        touch = np.zeros(len(neu_vox), dtype=bool)
+        touch[inb] = solid[nb[inb, 0], nb[inb, 1], nb[inb, 2]]
+        sel = neu_vox[touch]  # hull voxels whose (axis, side) face abuts solid
+        traction = neumann[sel[:, 0], sel[:, 1], sel[:, 2], :]
+        for l in nodes:
+            cv = sel + OFFSET[l]
             dof = vertex_dof[cv[:, 0], cv[:, 1], cv[:, 2], :]
             for c in range(D):
                 np.add.at(rhs, dof[:, c], traction[:, c] * face_area / 4.0)
@@ -264,39 +264,71 @@ print(
     flush=True,
 )
 
-# ----------------------------------- nodal solution ----------------------------------
-# Displacement lives at the voxel CORNERS (the nodal grid): scatter the dof vector with
-# vertex_dof directly -- no cell averaging. Stress is omitted (recoverable downstream
-# from the nodal field via the trilinear shape-function gradient).
+# ----------------------------------- surface vtu -------------------------------------
+if EXPORT_VTU:
+    indicator_field = mlhp.scalarFieldFromVoxelData(
+        mlhp.FloatVector(indicator.ravel("C").astype(np.float32) / 255.0),
+        nvoxels=list(ncells),
+        lengths=lengths,
+        origin=origin.tolist(),
+        outside=0.0,
+    )
+    processors = [
+        mlhp.solutionProcessor(D, mlhp.DoubleVector(sol.tolist()), "Displacement"),
+        mlhp.functionProcessor(indicator_field, "Indicator"),
+    ]
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    output = mlhp.PVtuOutput(filename=str(RESULTS_DIR / f"{name}_{args.case}"))
+    mlhp.basisOutput(basis, mlhp.gridCellMesh([DEGREE + 1] * D), output, processors)
+    print(f"\t-> {RESULTS_DIR / f'{name}_{args.case}'}.pvtu", flush=True)
+
+# ----------------------------------- voxel solution ----------------------------------
 if EXPORT_VOXEL or EXPORT_VOXEL_VTU:
-    displacement = np.zeros((*nnodes, D))
-    valid = vertex_dof[..., 0] >= 0  # solid nodes
-    displacement[valid] = sol[vertex_dof[valid]]
+    displacement = np.zeros((*ncells, D))
+    displacement[kept[:, 0], kept[:, 1], kept[:, 2], :] = sol[efts].mean(axis=2)
+
+    axes = [origin[d] + spacing * (np.arange(ncells[d]) + 0.5) for d in range(D)]
+    points = np.column_stack([g.ravel() for g in np.meshgrid(*axes, indexing="ij")])
+    mask = solid.ravel()
+    mat = mlhp.isotropicElasticMaterial(mlhp.scalarField(D, E), mlhp.scalarField(D, NU))
+    mech = mlhp.mechanicalEvaluator(
+        basis, mlhp.DoubleVector(sol.tolist()), kinematics, mat
+    )
+    stress = sample_field(mech.stress, points[mask])  # (n, 9), row-major 3x3
+
+    stress_full = np.zeros((points.shape[0], 6))
+    # store the 6 unique components of the symmetric tensor: xx, yy, zz, xy, yz, xz
+    stress_full[mask] = stress[:, [0, 4, 8, 1, 5, 2]]
+    stress_voigt = stress_full.reshape(*ncells, 6)
 
 if EXPORT_VOXEL:
-    # indicator omitted (geometry, in geometry/voxel/<name>.npz); spacing omitted
-    # (derivable as Lx/Ncells). Metadata matches elastic_stl_solveV2.
+    # displacement and stress to separate files (same layout as elastic_stl_solve);
+    # indicator omitted (geometry, in geometry/voxel/<name>.npz)
     disp_dir = SOLUTION_DIR / "displacement"
+    stress_dir = SOLUTION_DIR / "stress"
     disp_dir.mkdir(parents=True, exist_ok=True)
-    meta = dict(origin=origin, Lx=lengths[0], Ly=lengths[1], Lz=lengths[2])
+    stress_dir.mkdir(parents=True, exist_ok=True)
+    meta = dict(origin=origin, spacing=spacing, Lx=lengths[0], Ly=lengths[1], Lz=lengths[2])
     disp_out = disp_dir / f"{name}_{args.case}.npz"
+    stress_out = stress_dir / f"{name}_{args.case}.npz"
     np.savez_compressed(disp_out, displacement=displacement.astype(np.float32), **meta)
+    np.savez_compressed(stress_out, stress=stress_voigt.astype(np.float32), **meta)  # xx,yy,zz,xy,yz,xz
     print(f"\t-> {disp_out}", flush=True)
+    print(f"\t-> {stress_out}", flush=True)
 
 if EXPORT_VOXEL_VTU:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     out = RESULTS_DIR / f"{name}_{args.case}_voxel"
+    cell_data = {
+        "indicator": np.ascontiguousarray(indicator),
+        "displacement": tuple(
+            np.ascontiguousarray(displacement[..., i]) for i in range(D)
+        ),
+    }
     imageToVTK(
         str(out),
-        origin=tuple(
-            float(o) for o in origin
-        ),  # plain floats: np.float64 str() breaks the .vti
+        origin=tuple(float(o) for o in origin),  # plain floats: np.float64 str() breaks the .vti
         spacing=(float(spacing),) * D,
-        cellData={"indicator": np.ascontiguousarray(indicator)},
-        pointData={
-            "displacement": tuple(
-                np.ascontiguousarray(displacement[..., i]) for i in range(D)
-            )
-        },
+        cellData=cell_data,
     )
     print(f"\t-> {out}.vti", flush=True)
