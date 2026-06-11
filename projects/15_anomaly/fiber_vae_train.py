@@ -20,24 +20,31 @@ torch.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 
 # -------------------------- training settings ---------------------------
-epochs = 77
-lr = 1e-2  # change over ae
+epochs = 66
+lr = 2e-2  # change over ae
 weight_decay = 1e-4    ### ??
 batch_size = 64
 
 # beta = 0. # good reconstruction
-# beta = 0.05 
 beta = 0.2
+# beta = 0.13
 # beta = 0.2 # good latent
 
 # define loss
 recon_loss = nn.MSELoss(reduction="mean")
 
 
+# prevent posterior collapsing for any latent dimension by enforcing a minimum KL divergence
+free_bits = 5.0  # nats per latent dimension
 def kl_div(mean_pred, logvar_pred):
     var_pred = torch.exp(logvar_pred)
-    kl = 0.5 * torch.mean(var_pred + mean_pred**2 - logvar_pred - 1)
-    return kl
+    kl_per_dim = 0.5 * (var_pred + mean_pred**2 - logvar_pred - 1)  # shape: (B, latent_dim)
+    kl_per_dim = torch.clamp(kl_per_dim, min=free_bits / latent_dim)
+    return kl_per_dim.mean()
+# def kl_div(mean_pred, logvar_pred):
+#     var_pred = torch.exp(logvar_pred)
+#     kl = 0.5 * torch.mean(var_pred + mean_pred**2 - logvar_pred - 1)
+#     return kl
 
 
 def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
@@ -48,11 +55,13 @@ def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
 
 # ---------------------------- model settings ----------------------------
 base, depth = 2, 5
-latent_dim = 32  # 2 8 32 128 512 # 2 as latent_dim for visualization
+latent_dim = 64  # 2 8 32 128 512 # 2 as latent_dim for visualization
 conv_layers = 1
 channel_dim = 1
 kernel_size = 3
 act = partial(nn.PReLU, init=0.2)
+
+encoder_lr_factor = 0.1  # smaller lr for encoder to prevent posterior collapse
 
 # bottleneck_layers = 1  # controls compression ratio
 # compression = 2 ** (-depth - bottleneck_layers)
@@ -141,14 +150,19 @@ summary(model, (1, 1, domain_size, domain_size), depth=4)
 
 
 # ------------------------ instantiate optimizer -------------------------
-optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+
+optimizer = torch.optim.AdamW([
+    {"params": model.encode.parameters(), "lr": lr * encoder_lr_factor},
+    {"params": model.decode.parameters(), "lr": lr},
+], weight_decay=weight_decay)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     optimizer, T_max=epochs, eta_min=lr * 1e-2
 )
-scheduler = None
+# optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+# scheduler = None
 
 # ------------------------------- training -------------------------------
-print_every = 10
+print_every = 5
 train_cost = [0] * epochs
 val_cost = [0] * epochs
 pbar = tqdm(range(epochs), desc="Training: ", ncols=90)
@@ -197,25 +211,47 @@ plt.show()
 
 
 ## compare prediction and input
+sample_ind = 0
 model.eval()
 with torch.no_grad():
     x = next(iter(val_loader))
     x = standardizex(x[0]).to(device)  # unwrap & standardize
     x_pred, mean_pred, logvar_pred = model(x)
-    x_orig = standardizex.inverse(x.cpu())[0, 0]
-    x_recon = standardizex.inverse(x_pred.detach().cpu())[0, 0]
+    x_orig = standardizex.inverse(x.cpu())[sample_ind, 0]
+    x_recon = standardizex.inverse(x_pred.detach().cpu())[sample_ind, 0]
 
-fig2, ax2 = plt.subplots(1, 2, figsize=(6, 3), dpi=domain_size)
-ax2[0].imshow(x_orig, cmap="binary", vmin=0, vmax=1)
-ax2[0].set_title("original")
-ax2[1].imshow(x_recon, cmap="binary", vmin=0, vmax=1)
-ax2[1].set_title(f"reconstruction (latent {latent_dim})")
-for a in ax2:
+fig2, ax2 = plt.subplots(2, 2, figsize=(6, 6), dpi=domain_size)
+ax2[0, 0].imshow(x_orig, cmap="binary", vmin=0, vmax=1)
+ax2[0, 0].set_title("original")
+ax2[0, 1].imshow(x_recon, cmap="binary", vmin=0, vmax=1)
+ax2[0, 1].set_title(f"reconstruction (latent {latent_dim})")
+
+# repeat for training data
+with torch.no_grad():
+    x = next(iter(train_loader))
+    x = standardizex(x[0]).to(device)  # unwrap & standardize
+    x_pred, mean_pred, logvar_pred = model(x)
+    x_orig = standardizex.inverse(x.cpu())[sample_ind, 0]
+    x_recon = standardizex.inverse(x_pred.detach().cpu())[sample_ind, 0]
+
+ax2[1, 0].imshow(x_orig, cmap="binary", vmin=0, vmax=1)
+ax2[1, 0].set_title("original (train)")
+ax2[1, 1].imshow(x_recon, cmap="binary", vmin=0, vmax=1)
+ax2[1, 1].set_title(f"reconstruction (latent {latent_dim})")
+
+for a in ax2.flatten():
     a.set_aspect("equal")
     a.axis("off")
     a.set_rasterized(True)
-fig2.suptitle(f"VAE latent_dim = {latent_dim}")
-fig2.tight_layout(pad=0.1)
+
+fig2.tight_layout(pad=1)
 plt.savefig(BASE_DIR / f"../../tmp/b{beta}_l{latent_dim}_vae_pred.png")
 
 plt.show()
+# print("Mean:\n", mean_pred[sample_ind])
+# print("LogVar:\n", logvar_pred[sample_ind])
+
+plt.plot( mean_pred[sample_ind].cpu(), 'o', label="mean")
+plt.plot( logvar_pred[sample_ind].cpu(), 'o', label="logvar")
+plt.legend()
+plt.title(f"VAE latent_dim = {latent_dim}")
