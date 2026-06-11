@@ -30,7 +30,7 @@ args = parser.parse_args()
 # ----------------------------------- solver settings ---------------------------------
 DEGREE = 1  # 1
 NELEMENTS = 30  # 50  # 30
-REFINEMENT = 2
+REFINEMENT = 1  # 2
 ALPHA_FCM = 1e-5  # 1e-4
 RTOL = 1e-8
 MAXITER = 5000
