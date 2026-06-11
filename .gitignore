@@ -18,3 +18,4 @@ tmp/*
 /solvers/mlhp_build
 /solvers/kenels_build
 .logs/
+__pycache__/*
