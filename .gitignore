@@ -19,3 +19,5 @@ tmp/*
 /solvers/kenels_build
 .logs/
 __pycache__/*
+*.pyc
+projects/15_anomaly/experiments/*
