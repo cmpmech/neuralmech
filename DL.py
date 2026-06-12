@@ -2,6 +2,7 @@ import math
 
 import torch
 from torch import nn
+from torch.autograd import grad
 
 from NN import SIRENsine
 
@@ -211,3 +212,17 @@ def get_kan_edge_activations(model, layer_id, resolution=200):
             activations[j, i] = y_eval
 
     return x, activations
+
+
+# ------------------------------ differentiation helpers ------------------------------
+def differentiate(y, x, n=1, graph=True):
+    """Compute the nth order derivative of y = f(x) with respect to x."""
+
+    if n == 0:
+        return y
+    else:
+        graph = graph or n > 1
+        dy_dx = grad(y, x, torch.ones_like(x), create_graph=graph, retain_graph=graph)[
+            0
+        ]
+        return differentiate(dy_dx, x, n - 1)

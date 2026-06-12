@@ -23,7 +23,7 @@ args = parser.parse_args()
 STL_IDX = args.geometry  # starts at 1
 STL_NAME = f"{STL_IDX:09}_abc"
 
-N = 256  # 128  # 16  # 256
+N = 128  # 256  # 128  # 16  # 256
 PADDING = 0  # 1  # empty-voxel margin per side so the solid never touches a face
 MULTIPLE = 16  # round each side length up to a multiple of this (needs to be consistent with N)
 

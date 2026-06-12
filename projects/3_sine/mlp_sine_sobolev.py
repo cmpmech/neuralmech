@@ -10,7 +10,7 @@ from torch.autograd import grad
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from DL import Standardizer, init_weights
+from DL import Standardizer, differentiate, init_weights
 from NN import MLP
 from postprocessing import save_csv
 
@@ -84,9 +84,7 @@ for epoch in pbar:
         x.requires_grad = True  # to enable differentiation
         y, dy = standardizey(y), standardizey(dy)
         y_pred = model(standardizex(x))
-        dy_pred = grad(
-            y_pred, x, torch.ones_like(x), retain_graph=True, create_graph=True
-        )[0]
+        dy_pred = differentiate(y_pred, x)
         cost = cost_fun(y_pred, dy_pred, y, dy)
         cost.backward()
         optimizer.step()
@@ -99,7 +97,7 @@ for epoch in pbar:
         x.requires_grad = True  # to enable differentiation
         y_pred = model(standardizex(x))
         y, dy = standardizey(y), standardizey(dy)
-        dy_pred = grad(y_pred, x, torch.ones_like(x))[0]
+        dy_pred = differentiate(y_pred, x, graph=False)
         cost = cost_fun(y_pred, dy_pred, y, dy)
         val_cost[epoch] += cost.item()
     val_cost[epoch] /= len(val_loader)  # avg per batch

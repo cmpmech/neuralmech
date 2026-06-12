@@ -65,7 +65,7 @@ material = mlhp.isotropicElasticMaterial(
 integrand = mlhp.staticDomainIntegrand(
     kinematics, material, mlhp.vectorField(D, [0.0] * D)
 )
-quadrature = mlhp.momentFittingQuadrature(domain, depth=DEGREE, epsilon=ALPHA_FCM)
+quadrature = mlhp.momentFittingQuadrature(domain, depth=DEGREE + 2, epsilon=ALPHA_FCM)
 
 matrix = mlhp.allocateSparseMatrix(basis)
 vector = mlhp.allocateRhsVector(matrix)
