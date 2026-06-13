@@ -15,6 +15,7 @@ The detailed conventions live in skills under `.claude/skills/`. Invoke them by 
 | `create_project_driver` | New driver script in `projects/`. Full 10-step template, plotting palette, save formats. |
 | `create_unit_test` | Pytest tests for `NN.py`, `DL.py`, `ML.py`, `postprocessing.py` only. Drivers are not unit-tested. |
 | `optimize_code` | Iterative improvement against a metric (wall clock, validation error, accuracy, memory). |
+| `pvpython` | Writing or editing pvpython/ParaView render scripts in `projects/0_pvpython/` — render pipeline, point-cloud sphere glyphs (avoiding impostor speckles), the shared `.cmap/` colormaps + Spectral pitfall, supersampled AA, transparent backgrounds, legacy-VTK point export. |
 | `mlhp` | Writing or editing any mlhp-based FEM driver — full Python API (meshes/grids, refinement, implicit CSG, hp/B-spline bases, fields, quadrature/FCM, elasticity/Poisson integrands, BCs, sparse + matrix-free assembly, solvers, postprocessing, numbering conventions) plus the `projects/16_elastic_fem/` voxel-FEM recipes (NumPy + CUDA matrix-free, CT geometry loading). |
 
 ## Setup

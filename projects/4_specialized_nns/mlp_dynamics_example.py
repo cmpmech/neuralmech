@@ -162,10 +162,12 @@ save_csv(
     e=energy,
     ek=energy_kin,
     ep=energy_pot,
+    utrue=u_fun(torch.from_numpy(t)),
+    dudttrue=dudt_fun(torch.from_numpy(t)),
 )
 
 save_csv(
-    RESULTS_DIR / f"mlp_dynamics.csv",
+    RESULTS_DIR / f"mlp_dynamics_train.csv",
     t=t_train,
     u=u_train,
     p=p_train,

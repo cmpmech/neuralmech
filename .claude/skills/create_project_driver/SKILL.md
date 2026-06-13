@@ -237,6 +237,25 @@ Pull from `NN.py`:
 | `"cividis"` | loss landscape contours |
 | `"hot_r"` (log-scaled) | error maps |
 
+## Custom colormaps (shared with ParaView)
+
+Colormaps that aren't matplotlib built-ins live in `code/.cmap/` as ParaView-JSON
+files (`*.cmap`, an `RGBPoints` list + `ColorSpace` + `Name`). They are the single
+source shared between matplotlib drivers and pvpython renders (see the `pvpython`
+skill for the ParaView side). Load one into a matplotlib colormap with the helper
+in `postprocessing.py`:
+
+```python
+from postprocessing import load_cmap
+
+cmap = load_cmap(BASE_DIR / "../../.cmap/rainbow_desaturated.cmap")
+ax.scatter(x, y, c=values, cmap=cmap)
+```
+
+`load_cmap` rescales the `RGBPoints` positions to `[0, 1]` and returns a
+`LinearSegmentedColormap`. matplotlib interpolates in RGB, so `ColorSpace: RGB`
+maps reproduce exactly; `Lab` maps (e.g. Spectral) are a close approximation.
+
 ## File format rule
 
 - Line/contour plots → `.pdf`.

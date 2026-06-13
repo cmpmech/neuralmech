@@ -24,8 +24,8 @@ args = parser.parse_args()
 torch.manual_seed(1)
 
 # --------------------------------- training settings ---------------------------------
-LR = 2e-3
-EPOCHS = 2000  # 20
+LR = 1e-3
+EPOCHS = 500  # 2000  # 20
 REGULARIZATION = 0
 BATCH_SIZE = 10
 
@@ -34,11 +34,18 @@ SAMPLES_VAL, TMAX_VAL = 100, 18
 
 
 # define loss
-def cost_fun(H_pred, u, p, dpdt, m):
-    dudt = p / m
-    cost = torch.mean(
-        (differentiate(H_pred, p) - dudt) ** 2 + (differentiate(H_pred, u) + dpdt) ** 2
-    )
+def acceleration(L_pred, u, dudt):
+    dLdu = differentiate(L_pred, u)
+    Hessian = differentiate(dLdu, dudt)
+    ddL_dudt2 = differentiate(L_pred, dudt, 2)
+
+    ddudtt = 1.0 / ddL_dudt2 * (dLdu - Hessian * dudt)
+    return ddudtt
+
+
+def cost_fun(L_pred, u, dudt, ddudtt):
+    ddudtt_pred = acceleration(L_pred, u, dudt)
+    cost = torch.mean((ddudtt_pred - ddudtt) ** 2)
     return cost
 
 
@@ -61,9 +68,9 @@ ddudtt_fun = lambda t: -(omega**2) * A * torch.sin(omega * t + phi)
 def create_dataset(tmax, samples):
     t = torch.linspace(0, tmax, samples, dtype=torch.float32)
     u = u_fun(t).unsqueeze(1)
-    p = m * dudt_fun(t).unsqueeze(1)
-    dpdt = m * ddudtt_fun(t).unsqueeze(1)
-    dataset = TensorDataset(u, p, dpdt)
+    dudt = dudt_fun(t).unsqueeze(1)
+    ddudtt = ddudtt_fun(t).unsqueeze(1)
+    dataset = TensorDataset(u, dudt, ddudtt)
     return dataset
 
 
@@ -85,21 +92,21 @@ print_every = 10
 pbar = tqdm(range(EPOCHS))
 for epoch in pbar:
     model.train()
-    for u, p, dpdt in train_loader:
+    for u, dudt, ddudtt in train_loader:
         optimizer.zero_grad()
-        u.requires_grad, p.requires_grad = True, True  # to enable differentiation
-        H_pred = model(torch.hstack((u, p)))
-        cost = cost_fun(H_pred, u, p, dpdt, m)
+        u.requires_grad, dudt.requires_grad = True, True  # to enable differentiation
+        L_pred = model(torch.hstack((u, dudt)))
+        cost = cost_fun(L_pred, u, dudt, ddudtt)
         cost.backward()
         optimizer.step()
         train_cost[epoch] += cost.item()
-        train_cost[epoch] /= len(train_loader)  # avg per batch
+    train_cost[epoch] /= len(train_loader)  # avg per batch
 
     model.eval()
-    for u, p, dpdt in val_loader:
-        u.requires_grad, p.requires_grad = True, True  # to enable differentiation
-        H_pred = model(torch.hstack((u, p)))
-        cost = cost_fun(H_pred, u, p, dpdt, m)
+    for u, dudt, ddudtt in val_loader:
+        u.requires_grad, dudt.requires_grad = True, True  # to enable differentiation
+        L_pred = model(torch.hstack((u, dudt)))
+        cost = cost_fun(L_pred, u, dudt, ddudtt)
         val_cost[epoch] += cost.item()
     val_cost[epoch] /= len(val_loader)  # avg per batch
 
@@ -126,56 +133,55 @@ N = len(t)
 
 def system(t, y):
     ui = torch.tensor([y[0]], requires_grad=True, dtype=torch.float32)
-    pi = torch.tensor([y[1]], requires_grad=True, dtype=torch.float32)
-    H = model(torch.hstack((ui, pi)))
-    dHdu = differentiate(H, ui, graph=True).item()
-    dHdp = differentiate(H, pi, graph=False).item()
-    return [dHdp, -dHdu]
+    dudti = torch.tensor([y[1]], requires_grad=True, dtype=torch.float32)
+    L = model(torch.hstack((ui, dudti)))
+    ddudtti = acceleration(L, ui, dudti).item()
+    return [dudti.item(), ddudtti]  # du/dt = dudt, d(dudt)/dt = ddudtt
 
 
 sol = solve_ivp(
     system,
     (0, TMAX_VAL),
-    [0, m * du0dt],  # initial conditions
+    [0, du0dt],  # initial conditions
     t_eval=t,
     method="Radau",
 )
-u, p = sol.y
-
+u, dudt = sol.y
 
 t_train = np.linspace(0, TMAX_TRAIN, SAMPLES_TRAIN)
 u_train = train_data.tensors[0][:, 0].numpy()
-p_train = train_data.tensors[1][:, 0].numpy()
+dudt_train = train_data.tensors[1][:, 0].numpy()
 
-energy_kin = 0.5 / m * p**2
+energy_kin = 0.5 * m * dudt**2
 energy_pot = 0.5 * k * u**2
 energy = energy_kin + energy_pot
+L = energy_pot - energy_kin
 
-
-H = model(
-    torch.from_numpy(np.hstack((np.expand_dims(u, 1), np.expand_dims(p, 1)))).to(
+L_pred = model(
+    torch.from_numpy(np.hstack((np.expand_dims(u, 1), np.expand_dims(dudt, 1)))).to(
         torch.float32
     )
 ).detach()[:, 0]
 
 fig, ax = plt.subplots(1, 3)
 ax[0].plot(t, u, "k")
-ax[0].plot(t, p, "r")
+ax[0].plot(t, dudt, "r")
 ax[0].plot(t_train, u_train, "ko")
-ax[0].plot(t_train, p_train, "ro")
-ax[1].plot(u, p, "k")
+ax[0].plot(t_train, dudt_train, "ro")
+ax[1].plot(u, dudt, "k")
 ax[2].plot(t, energy, "k")
 ax[2].plot(t, energy_kin, "r")
 ax[2].plot(t, energy_pot, "b")
-ax[2].plot(t, H, "k--")
+ax[2].plot(t, L_pred, "k--")
 plt.show()
 
 save_csv(
-    RESULTS_DIR / f"hnn_{EPOCHS}.csv",
+    RESULTS_DIR / f"lnn_{EPOCHS}.csv",
     t=t,
     u=u,
-    p=p,
-    H=H.numpy(),
+    dudt=dudt,
+    L=L,
+    Lpred=L_pred.numpy(),
     e=energy,
     ek=energy_kin,
     ep=energy_pot,
@@ -184,8 +190,8 @@ save_csv(
 )
 
 save_csv(
-    RESULTS_DIR / f"hnn_train.csv",
+    RESULTS_DIR / f"lnn_train.csv",
     t=t_train,
     u=u_train,
-    p=p_train,
+    dudt=dudt_train,
 )
