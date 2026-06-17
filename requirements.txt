@@ -93,6 +93,7 @@ namex==0.1.0
 narwhals==2.15.0
 nest-asyncio==1.6.0
 networkx==3.5
+nlopt==2.10.0
 numba==0.62.1
 numcodecs==0.16.5
 numpy==2.3.4

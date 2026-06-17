@@ -116,18 +116,17 @@ pbar.close()
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
-seed_mesh, lr_mesh = np.meshgrid(seed_axis, lr_axis)
-
-
 lr, seed = np.meshgrid(lr_axis, seed_axis, indexing="ij")
 
+# val_grid = lr**2 * seed**2 + 10
+# val_grid = np.random.rand(len(lr_axis), len(seed_axis)) + 10
 
 # ---------------------------- postprocessing ----------------------------
 # seeds are categorical, so use a discrete heatmap rather than a contour
-fig, ax = plt.subplots(figsize=(2, 1), dpi=200)
+fig, ax = plt.subplots(figsize=(4, 2), dpi=200)
 ax.pcolormesh(np.log10(lr), seed, np.log10(val_grid), cmap="cividis")
 best_lr_idx = np.argmin(val_grid, axis=0)  # lowest-cost lr per seed
-ax.scatter(np.log10(lr_axis[best_lr_idx]), seed_axis, s=10, c="white")
+ax.scatter(np.log10(lr_axis[best_lr_idx]), seed_axis, s=1, c="white")
 ax.axis("off")
 ax.set_rasterized(True)  # avoid contourline artifacts
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
