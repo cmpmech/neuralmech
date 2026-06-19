@@ -17,8 +17,9 @@ import mmapy
 import numpy as np
 import scipy.ndimage
 import scipy.sparse
-import scipy.sparse.linalg
 from tqdm import tqdm
+
+from solvers.optimization import ComplexStructuredFEM
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
@@ -52,7 +53,7 @@ TARGET_HI = [
 ]
 
 # discretization
-NX, NY = 432, 216  # 144, 72  # 432, 216
+NX, NY = 144, 72  # 432, 216  # 144, 72  # 432, 216
 SUB_VOXELS = 4
 DEGREE = 2
 QUAD_ORDER = DEGREE + 1
@@ -85,8 +86,6 @@ assert NX % SUB_VOXELS == 0 and NY % SUB_VOXELS == 0, (
     f"design grid {[NX, NY]} must be divisible by SUB_VOXELS={SUB_VOXELS}"
 )
 nelx_e, nely_e = NX // SUB_VOXELS, NY // SUB_VOXELS
-N_elems = nelx_e * nely_e
-n_sub = SUB_VOXELS**2
 elem_lengths = [LENGTHS[0] / nelx_e, LENGTHS[1] / nely_e]
 
 mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[nelx_e, nely_e], lengths=LENGTHS))
@@ -98,7 +97,6 @@ efts = np.array(basis.locationMaps())
 # stiffness K_e = int(grad N . grad N) and mass M_e = int(N N), scaled independently
 mesh_local = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1, 1], lengths=elem_lengths))
 basis_local = mlhp.makeHpTensorSpace(mesh_local, degree=DEGREE, nfields=1)
-ndof_e = basis_local.ndof()
 
 quadrature = mlhp.gridQuadrature(nsubcells=[SUB_VOXELS, SUB_VOXELS])
 order = mlhp.absoluteQuadratureOrder([QUAD_ORDER, 2])
@@ -154,50 +152,15 @@ Q = scipy.sparse.csr_matrix(
 Q = Q / float(Q.sum())  # normalise so the objective is the mean square pressure
 
 # --------------------------- FEM assembly & solver helpers ---------------------------
-# every element contributes ndof_e^2 entries to the same (iK, jK) locs each iteration;
-# K_e and M_e share this sparsity, so one index pass serves both
-iK = np.repeat(efts, ndof_e, axis=1).ravel()
-jK = np.tile(efts, (1, ndof_e)).ravel()
+# homogeneous Neumann everywhere, so every dof is free; the system is assembled natively
+# as an N x N complex matrix (not a 2N x 2N real block) and its LU is reused for the
+# adjoint since S is complex-symmetric (S^H = conj(S))
+free = np.arange(ndof)
+fem = ComplexStructuredFEM(efts, free, ndof, K_locals, M_locals, (NX, NY), SUB_VOXELS)
 
-
-def grid_to_elements(field):  # (NX, NY) -> (N_elems, n_sub)
-    return (
-        field.reshape(nelx_e, SUB_VOXELS, nely_e, SUB_VOXELS)
-        .transpose(0, 2, 1, 3)
-        .reshape(N_elems, n_sub)
-    )
-
-
-def elements_to_grid(field):  # (N_elems, n_sub) -> (NX, NY)
-    return (
-        field.reshape(nelx_e, nely_e, SUB_VOXELS, SUB_VOXELS)
-        .transpose(0, 2, 1, 3)
-        .reshape(NX, NY)
-    )
-
-
-order_csc = np.lexsort((iK, jK))  # column-major order expected by CSC
-first = np.empty(iK.size, dtype=bool)
-first[0] = True
-ri, rj = iK[order_csc], jK[order_csc]
-first[1:] = (ri[1:] != ri[:-1]) | (rj[1:] != rj[:-1])
-seg = np.flatnonzero(first)  # duplicate (row, col) group boundaries
-csc_indices = ri[first].astype(np.int32)
-csc_indptr = np.concatenate(
-    [[0], np.cumsum(np.bincount(rj[first], minlength=ndof))]
-).astype(np.int32)
-
-
-def assemble_scaled(local_mats, coeff_grid):  # per-element-scaled global matrix
-    c_e = grid_to_elements(coeff_grid)
-    mat_e = np.einsum("es,sij->eij", c_e, local_mats, optimize=True)
-    data = np.add.reduceat(mat_e.ravel()[order_csc], seg)
-    return scipy.sparse.csc_matrix((data, csc_indices, csc_indptr), shape=(ndof, ndof))
-
-
-# complex-symmetric system matrix S = rho^-1 K - (i omega eta_d + omega^2) kappa^-1 M;
-# solved natively as an N x N complex system (not a 2N x 2N real block) and reused for the
-# adjoint since S^H = conj(S). dS/dzeta is constant (linear interpolation), preintegrated
+# complex system S = rho^-1 K - (i omega eta_d + omega^2) kappa^-1 M with rho^-1 and
+# kappa^-1 linearly interpolated in the design. dS/dzeta is constant, so it is
+# preintegrated once and contracted per voxel for the adjoint sensitivity
 MASS_COEFF = 1j * OMEGA * DAMP + OMEGA**2
 dS_local = (RHO_RATIO - 1.0) * K_locals - MASS_COEFF * (KAPPA_RATIO - 1.0) * M_locals
 
@@ -205,7 +168,7 @@ dS_local = (RHO_RATIO - 1.0) * K_locals - MASS_COEFF * (KAPPA_RATIO - 1.0) * M_l
 def build_system(zeta):  # complex Helmholtz system matrix
     rho_inv = 1.0 + zeta * (RHO_RATIO - 1.0)  # rho-tilde^-1 (stiffness coefficient)
     kappa_inv = 1.0 + zeta * (KAPPA_RATIO - 1.0)  # kappa-tilde^-1 (mass coefficient)
-    return (assemble_scaled(K_locals, rho_inv) - MASS_COEFF * assemble_scaled(M_locals, kappa_inv)).tocsc()
+    return fem.system(rho_inv, -MASS_COEFF * kappa_inv)
 
 
 # --------------------------- density filter & Heaviside projection -------------------
@@ -253,7 +216,7 @@ def physical(x_tilde, beta, eta):  # projected density, pinned to air outside th
 
 
 def objective(zeta):  # mean square pressure in the target box + state solution
-    lu = scipy.sparse.linalg.splu(build_system(zeta))
+    lu = fem.factorize(build_system(zeta))
     p = lu.solve(force)
     return float((p.conj() @ (Q @ p)).real), p, lu
 
@@ -263,8 +226,7 @@ def sensitivity(zeta, x_tilde, beta, eta):  # phi and dphi/dx of one projected d
     # adjoint S^H lam = -Q p; S is complex-symmetric so S^H = conj(S) and lu is reused
     lam = np.conj(lu.solve(-(Q @ np.conj(p))))
     # dphi/dzeta = 2 Re( lam^H dS/dzeta p ) per sub-voxel (Eq. 15)
-    ce = np.einsum("ei,sij,ej->es", np.conj(lam)[efts], dS_local, p[efts], optimize=True)
-    dzeta = elements_to_grid(2.0 * ce.real)
+    dzeta = 2.0 * fem.bilinear(dS_local, np.conj(lam), p).real
     return phi, filter_adjoint(dzeta * dprojection(x_tilde, beta, eta) * band)
 
 

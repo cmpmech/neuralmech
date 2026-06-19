@@ -1,32 +1,34 @@
-from solvers.dynamic_mdof import MDOF
 import matplotlib.pyplot as plt
 import numpy as np
 
-# -------------------------- problem definition --------------------------
+from solvers.dynamic_mdof import MDOF
+
+# -------------------------------------- settings -------------------------------------
+# discretization
 T = 20
-dt = 0.05
+DT = 0.05
 
-m = np.array([1, 1, 1])
-k = [2, 2, 2]
-# k = lambda t : [2, 2, np.exp(-1e-1 * t) * 2]
-d = [0.1, 0.1, 0.1]
-connections = [[None, 0], [0, 1], [1, 2]]
-
+# physics
+M = np.array([1, 1, 1])
+K = [2, 2, 2]
+# K = lambda t : [2, 2, np.exp(-1e-1 * t) * 2]
+D = [0.1, 0.1, 0.1]
+CONNECTIONS = [[None, 0], [0, 1], [1, 2]]
 # force
-amp, freq = 1., 2.
-f = lambda t : [0 * t, amp * np.sin(freq * 2 * np.pi * t), 0 * t]
+AMP, FREQ = 1.0, 2.0
+f = lambda t: [0 * t, AMP * np.sin(FREQ * 2 * np.pi * t), 0 * t]
 
 # initial conditions
-u0 = [0., 0., 0.]
-du0 = [0., 0., 0.]
+u0 = [0.0, 0.0, 0.0]
+du0 = [0.0, 0.0, 0.0]
 
-# -------------------------------- solve ---------------------------------
-solver = MDOF(m, k, d, f, connections)
-t, U = solver.solve(u0, du0, T, dt=dt)
+# --------------------------------------- solve ---------------------------------------
+solver = MDOF(M, K, D, f, CONNECTIONS)
+t, u = solver.solve(u0, du0, T, dt=DT)
 
-# ---------------------------- postprocessing ----------------------------
+# ----------------------------------- postprocessing ----------------------------------
 fig, ax = plt.subplots()
-ax.plot(t, U[:,0], 'k')
-ax.plot(t, U[:,1], 'r')
-ax.plot(t, U[:,2], 'b')
+ax.plot(t, u[:, 0], "k")
+ax.plot(t, u[:, 1], "r")
+ax.plot(t, u[:, 2], "b")
 plt.show()

@@ -8,7 +8,7 @@ import numpy as np
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -16,12 +16,12 @@ args = parser.parse_args()
 
 np.random.seed(0)
 
-# --------------------------- hyperparameters ----------------------------
-NUM_SAMPLES = 2000
+# -------------------------------------- settings -------------------------------------
+DRAWS = 2000
 X_INIT = 0
 PROPOSAL_STD = 1.0
 
-# -------------------------------- target --------------------------------
+# --------------------------------------- target --------------------------------------
 MU = 2
 SIGMA = 2
 target = lambda x: (
@@ -29,13 +29,13 @@ target = lambda x: (
 )
 unnormalized_target = lambda x: np.exp(-0.5 * ((x - MU) / SIGMA) ** 2)
 
-# --------------------------------- MCMC ---------------------------------
+# ---------------------------------------- MCMC ---------------------------------------
 samples = []
 x_cur = X_INIT
 count_prop = 0
 
 tic = time.time()
-for i in range(NUM_SAMPLES):
+for _ in range(DRAWS):
     x_prop = x_cur + np.random.normal(0, PROPOSAL_STD)
     p_cur = unnormalized_target(x_cur)
     p_prop = unnormalized_target(x_prop)
@@ -46,14 +46,13 @@ for i in range(NUM_SAMPLES):
 toc = time.time()
 
 print(f"accepted proposals: {count_prop}")
-print(f"acceptance ratio: {count_prop / NUM_SAMPLES:.4f}")
+print(f"acceptance ratio: {count_prop / DRAWS:.4f}")
 print(f"elapsed time {toc - tic:.4f} s")
 
 samples = np.array(samples)
 x = np.linspace(-6, 10, 200)
 
 if not args.book:
-# ---------------------------- postprocessing ----------------------------
     cutoff = 2000
     fig, ax = plt.subplots()
     ax.plot(samples, "k")
@@ -65,8 +64,8 @@ if not args.book:
     ax.plot(x, target(x), "r--")
     ax.set_ylim(0, 0.3)
     plt.show()
+# -------------------------------- book postprocessing --------------------------------
 else:
-# ------------------------- book postprocessing --------------------------
     for cutoff in [100, 400, 2000]:
         save_csv(
             RESULTS_DIR / f"mcmc_samples_{cutoff}.csv",

@@ -9,12 +9,12 @@ from rasterio.features import rasterize
 from rasterio.transform import from_bounds
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
+DATA_DIR = (BASE_DIR / "../../data").resolve()
 
-# ---------------------------- load map data -----------------------------
+# ----------------------------------- load map data -----------------------------------
 gdf = gpd.read_file(DATA_DIR / "ne_50m_admin_0_countries.shp")
 
-# ---------------------------- extract ghana -----------------------------
+# ----------------------------------- extract ghana -----------------------------------
 ghana = gdf[gdf["ISO_A3"] == "GHA"]
 print(ghana[["ADMIN", "ISO_A3", "CONTINENT"]])
 ghana = ghana.dissolve()
@@ -24,33 +24,31 @@ fig = ghana.plot(facecolor="black")
 fig.set_axis_off()
 plt.show()
 
-# --------------------------- rasterize ghana ----------------------------
-dx = dy = 5000  # m
-minx, miny, maxx, maxy = ghana.total_bounds
+# ---------------------------------- rasterize ghana ----------------------------------
+# dx = dy = 5000  # m
+# minx, miny, maxx, maxy = ghana.total_bounds
 
-width = int((maxx - minx) / dx)
-height = int((maxy - miny) / dy)
+# width = int((maxx - minx) / dx)
+# height = int((maxy - miny) / dy)
 
-transform = from_bounds(minx, miny, maxx, maxy, width, height)
+# transform = from_bounds(minx, miny, maxx, maxy, width, height)
 
-grid = rasterize(
-    [(geom, 1) for geom in ghana.geometry],
-    out_shape=(height, width),
-    transform=transform,
-    fill=0,
-    dtype=np.uint8,
-)
+# grid = rasterize(
+#     [(geom, 1) for geom in ghana.geometry],
+#     out_shape=(height, width),
+#     transform=transform,
+#     fill=0,
+#     dtype=np.uint8,
+# )
 
-print(grid.shape)
-fig, ax = plt.subplots()
-ax.imshow(grid, cmap="Greys")
-ax.set_axis_off()
-plt.show()
+# fig, ax = plt.subplots()
+# ax.imshow(grid, cmap="Greys")
+# ax.set_axis_off()
+# plt.show()
 
-# -------------------------- triangulate ghana ---------------------------
+# --------------------------------- triangulate ghana ---------------------------------
 geom = ghana.geometry.iloc[0]
 coords = np.array(geom.exterior.coords[:-1])
-print(coords.shape)
 coords[:, 0] -= np.min(coords[:, 0])
 coords[:, 1] -= np.min(coords[:, 1])
 coords /= np.max(np.abs(coords))
@@ -61,8 +59,8 @@ tri_input = {"vertices": coords, "segments": segments}
 # p: use segments, q25: minimum angle 25 deg, a: max area
 tri_output = tr.triangulate(tri_input, "pq25a0.0004")  # fine mesh
 
-# ---------------------------- postprocessing ----------------------------
-fig, ax = plt.subplots(figsize=(10, 10), dpi=100)
+# ----------------------------------- postprocessing ----------------------------------
+fig, ax = plt.subplots()
 ax.triplot(
     tri_output["vertices"][:, 0],
     tri_output["vertices"][:, 1],
@@ -72,9 +70,10 @@ ax.triplot(
 )
 ax.plot(tri_output["vertices"][:, 0], tri_output["vertices"][:, 1], "ro", markersize=2)
 ax.set_aspect("equal")
+ax.set_axis_off()
 plt.show()
 
-# ----------------------------- export mesh ------------------------------
+# --------------------------------------- export --------------------------------------
 triangles = tri_output["triangles"]
 edges = []
 for tri in triangles:

@@ -9,16 +9,13 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 import time
 from pathlib import Path
 
-import cvxopt
-import cvxopt.cholmod
 import matplotlib.pyplot as plt
 import mlhp
 import numpy as np
 import scipy.ndimage
-import scipy.sparse
 from tqdm import tqdm
 
-from solvers.optimization import MMA
+from solvers.optimization import MMA, ReferenceMMA, StructuredFEM
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
@@ -36,7 +33,7 @@ args = parser.parse_args()
 LENGTHS = [1.0, 1.0]
 
 # discretization
-NX, NY = np.array(LENGTHS).astype(int) * 200  # 400  # 400
+NX, NY = np.array(LENGTHS).astype(int) * 400  # 200  # 200  # 400  # 400
 SUB_VOXELS = 1  # do not seem helpful
 DEGREE = 1
 QUAD_ORDER = DEGREE + 1
@@ -49,13 +46,14 @@ K0, KMIN = (1.0, 1e-4)  # solid / void conductivity contrast
 SOURCE = 1.0  # uniform volumetric heat generation
 SINK_FRACTION = 0.1  # heat-sink length as a fraction of the left edge
 
-# post-processing
+# postprocessing
 THRESHOLD = 0.5
 
 # optimization with beta-continuation
 MAX_ITER = 800
 CHANGE_TOL = 0.01
 MMA_MOVE = 0.2  # MMA step move limit
+USE_DUAL = True  # True: dual MMA subsolver; False: mmapy (slower, but better)
 ETA_E, ETA_I, ETA_D = 0.6, 0.5, 0.4  # eroded / intermediate / dilated thresholds
 BETA_MAX = 16.0
 CONT_STEP = 25
@@ -66,7 +64,6 @@ assert NX % SUB_VOXELS == 0 and NY % SUB_VOXELS == 0, (
 )
 nelx_e, nely_e = NX // SUB_VOXELS, NY // SUB_VOXELS
 N_elems = nelx_e * nely_e
-n_sub = SUB_VOXELS**2
 elem_lengths = [LENGTHS[0] / nelx_e, LENGTHS[1] / nely_e]
 
 mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[nelx_e, nely_e], lengths=LENGTHS))
@@ -113,76 +110,11 @@ force = np.asarray(v).copy()
 force_free = force[free]
 
 # --------------------------- FEM assembly & solver helpers ---------------------------
-# every element contributes ndof_e^2 entries to the same (iK, jK) locs of K each iter
-iK = np.repeat(efts, ndof_e, axis=1).ravel()
-jK = np.tile(efts, (1, ndof_e)).ravel()
+fem = StructuredFEM(efts, free, ndof, K_locals, (NX, NY), SUB_VOXELS)
 
 
-def grid_to_elements(field):  # (NX, NY) -> (N_elems, n_sub)
-    return (
-        field.reshape(nelx_e, SUB_VOXELS, nely_e, SUB_VOXELS)
-        .transpose(0, 2, 1, 3)
-        .reshape(N_elems, n_sub)
-    )
-
-
-def elements_to_grid(field):  # (N_elems, n_sub) -> (NX, NY)
-    return (
-        field.reshape(nelx_e, nely_e, SUB_VOXELS, SUB_VOXELS)
-        .transpose(0, 2, 1, 3)
-        .reshape(NX, NY)
-    )
-
-
-# see topopt_mbb.py for explanation
-def build_assemble_K_free():
-    dof_map = np.full(ndof, -1)
-    dof_map[free] = np.arange(free.size)
-    keep = (dof_map[iK] >= 0) & (dof_map[jK] >= 0)  # entries with both dofs free
-    ri, rj = dof_map[iK[keep]], dof_map[jK[keep]]
-    order = np.lexsort((ri, rj))  # column-major order expected by CSC
-    data_idx = np.flatnonzero(keep)[order]  # gather positions into K_e.ravel()
-    ri, rj = ri[order], rj[order]
-    first = np.empty(ri.size, dtype=bool)
-    first[0] = True
-    first[1:] = (ri[1:] != ri[:-1]) | (rj[1:] != rj[:-1])
-    seg = np.flatnonzero(first)  # duplicate (row, col) group boundaries
-    indices = ri[first].astype(np.int32)
-    indptr = np.concatenate(
-        [[0], np.cumsum(np.bincount(rj[first], minlength=free.size))]
-    ).astype(np.int32)
-
-    def assemble_K_free(k_grid):  # element conductivity field -> free-free matrix
-        k_e = grid_to_elements(k_grid)
-        K_e = np.einsum("es,sij->eij", k_e, K_locals, optimize=True)
-        data = np.add.reduceat(K_e.ravel()[data_idx], seg)
-        return scipy.sparse.csc_matrix(
-            (data, indices, indptr), shape=(free.size, free.size)
-        )
-
-    return assemble_K_free
-
-
-assemble_K_free = build_assemble_K_free()
-
-
-# for CHOLMOD: the SPD system's sparsity is factored symbolically once
-K_free = assemble_K_free(np.full((NX, NY), K0))
-A = cvxopt.spmatrix(
-    cvxopt.matrix(K_free.data),
-    cvxopt.matrix(K_free.indices.tolist()),
-    cvxopt.matrix(np.repeat(np.arange(free.size), np.diff(K_free.indptr)).tolist()),
-    (free.size, free.size),
-)
-factor = cvxopt.cholmod.symbolic(A)
-
-
-def solve_free(k_grid):  # solve K(k) T = f for the free temperatures
-    A.V = cvxopt.matrix(assemble_K_free(k_grid).data)
-    cvxopt.cholmod.numeric(A, factor)
-    b = cvxopt.matrix(force_free)
-    cvxopt.cholmod.solve(factor, b)
-    return np.array(b).ravel()
+def simp(rho):  # SIMP conductivity interpolation between void and solid
+    return KMIN + rho**PENAL * (K0 - KMIN)
 
 
 # --------------------------- density filter & Heaviside projection -------------------
@@ -211,12 +143,8 @@ def dprojection(x_tilde, beta, eta):  # d(projection)/d(x_tilde)
 
 
 # ------------------------------------ optimization -----------------------------------
-# continuous move-limited MMA (solvers.optimization, a fast numba kernel reproducing
-# Svanberg's iterates) with beta-continuation: the asymptotes are kept across the whole
-# run. Objective = compliance of the eroded design; one volume constraint on the dilated
-# design with its bound rescaled each iter so the intermediate design hits VOLFRAC
 n = NX * NY
-mma = MMA(n, move=MMA_MOVE)
+mma = MMA(n, move=MMA_MOVE) if USE_DUAL else ReferenceMMA(n, move=MMA_MOVE)
 xval = np.full((n, 1), VOLFRAC)
 
 beta = 1.0
@@ -234,11 +162,10 @@ for it in pbar:
     x_d = projection(x_tilde, beta, ETA_D)
 
     u = np.zeros(ndof)
-    u[free] = solve_free(KMIN + x_e**PENAL * (K0 - KMIN))
+    u[free] = fem.solve(simp(x_e), force_free)
     compliance = force @ u
     c_ref = compliance if c_ref is None else c_ref
-    ue = u[efts]
-    ce = elements_to_grid(np.einsum("ei,sij,ej->es", ue, K_locals, ue, optimize=True))
+    ce = fem.element_energy(u)
     dc = filter_adjoint(
         -PENAL
         * x_e ** (PENAL - 1)
@@ -286,14 +213,14 @@ print(
     f"time per iter {(toc - tic) / it:.2e} s"
 )
 
-# ---------------------------------- post-processing ----------------------------------
+# ----------------------------------- postprocessing ----------------------------------
 x_int = projection(density_filter(xval.reshape(NX, NY)), beta, ETA_I)
 rho_thresh = (x_int > THRESHOLD).astype(float)
 
 u = np.zeros(ndof)
-u[free] = solve_free(KMIN + x_int**PENAL * (K0 - KMIN))
+u[free] = fem.solve(simp(x_int), force_free)
 compliance_phys = force @ u
-u[free] = solve_free(KMIN + rho_thresh**PENAL * (K0 - KMIN))
+u[free] = fem.solve(simp(rho_thresh), force_free)
 compliance_thresh = force @ u
 print(
     f"intermediate c {compliance_phys:.3e} vol {x_int.mean():.3f}\n"
@@ -301,7 +228,7 @@ print(
 )
 
 # temperature field of the intermediate design
-u[free] = solve_free(KMIN + x_int**PENAL * (K0 - KMIN))
+u[free] = fem.solve(simp(x_int), force_free)
 postmesh = mlhp.domainCellMesh(source_domain, [DEGREE + 1] * 2)
 temperature = mlhp.DataAccumulator()
 mlhp.basisOutput(

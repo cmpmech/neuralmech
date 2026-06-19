@@ -5,16 +5,16 @@ import numpy as np
 from scipy.ndimage import label
 
 BASE_DIR = Path(__file__).parent
-EXT_DATA_DIR = BASE_DIR / "../../external_data"
-DATA_DIR = BASE_DIR / "../../data"
+EXT_DATA_DIR = (BASE_DIR / "../../external_data").resolve()
+DATA_DIR = (BASE_DIR / "../../data").resolve()
 
-# ------------------------------------ ct settings ------------------------------------
+# -------------------------------------- settings -------------------------------------
 CT_FILE = "B-HAI-1.nrrd"
 CROP = (slice(None), slice(256, 772), slice(1, 1060))  # (z_all, row_crop, col_crop)
-SEED = (5, 5, 5)   # must be solid
-SOLID_STRIP = 3    # voxels of guaranteed solid at x=Lx
+SEED = (5, 5, 5)  # must be solid
+SOLID_STRIP = 3  # voxels of guaranteed solid at x=Lx
 
-# --------------------------------------- load ----------------------------------------
+# ------------------------------------- load data -------------------------------------
 data, _ = nrrd.read(EXT_DATA_DIR / CT_FILE)
 data = np.array(data)
 
@@ -23,21 +23,20 @@ data = (data - data.min()) / (data.max() - data.min())
 data = (data > 0.5).astype(np.uint8)
 
 # --------------------------------------- crop ----------------------------------------
-data = data[CROP]           # (Nz, Nx_crop, Ny_crop)
-data = data.transpose(1, 2, 0)  # → (Nx, Ny, Nz)
+data = data[CROP]  # (Nz, Nx_crop, Ny_crop)
+data = data.transpose(1, 2, 0)  # -> (Nx, Ny, Nz)
 
 # ----------------------------------- bfs cleaning ------------------------------------
 labeled, _ = label(data)
 seed_label = labeled[SEED]
 data[labeled != seed_label] = 0
 
-# --------------------------------- orient + trim -------------------------------------
+# ----------------------------------- orient & trim -----------------------------------
 rows = np.where(np.any(data, axis=(1, 2)))[0]
 cols = np.where(np.any(data, axis=(0, 2)))[0]
 deps = np.where(np.any(data, axis=(0, 1)))[0]
 data = data[rows[0] : rows[-1] + 1, cols[0] : cols[-1] + 1, deps[0] : deps[-1] + 1]
 
-# -------------------------- solid strip at right face --------------------------------
 data[-SOLID_STRIP:, :, :] = 1
 
 # --------------------------------------- export --------------------------------------

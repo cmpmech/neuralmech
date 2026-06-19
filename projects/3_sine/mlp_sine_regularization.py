@@ -16,8 +16,8 @@ from NN import MLP
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
-RESULTS_DIR = BASE_DIR / "../../results"
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -27,26 +27,25 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 device = torch.device("cpu")  # faster on cpu, because matrices are small
 
-# -------------------------- training settings ---------------------------
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
 EPOCHS = 1000  # 400
 LR = 1e-2
 REGULARIZATION = 0  # 0 # 1e0  # 5e0  # 1e1
 DROPOUT = 0.0  # 0.1
 BATCH_SIZE = 32
 
-PATIENCE = 200
-# PATIENCE = None
+PATIENCE = 200  # None
 
 # define loss
 cost_fun = nn.MSELoss(reduction="mean")
 
-# ---------------------------- model settings ----------------------------
+# model settings
 # three hidden layers is sufficient (five to show overfitting)
-layers = [1, 24, 24, 24, 24, 1]
-# layers = [1, 48, 48, 48, 48, 1]
-activations = [nn.GELU(approximate="tanh")] * (len(layers) - 2)
+LAYERS = [1, 24, 24, 24, 24, 1]
+ACTIVATIONS = [nn.GELU(approximate="tanh") for _ in range(len(LAYERS) - 2)]
 
-# ----------------------------- prepare data -----------------------------
+# ------------------------------------- load data -------------------------------------
 data = np.load(DATA_DIR / "sine.npz")
 dataset = TensorDataset(
     torch.from_numpy(data["X"]).to(torch.float32),
@@ -60,16 +59,16 @@ Y_train = train_data.dataset.tensors[1][train_data.indices]
 standardizex = Standardizer(X_train, dim=0)
 standardizey = Standardizer(Y_train, dim=0)
 
-# ----------------- instantiate model & prepare training -----------------
-dropouts = [DROPOUT] * (len(layers) - 2) if DROPOUT else None
-model = MLP(layers, activations, dropouts=dropouts)
+# --------------------------- instantiate model & optimizer ---------------------------
+dropouts = [DROPOUT] * (len(LAYERS) - 2) if DROPOUT else None
+model = MLP(LAYERS, ACTIVATIONS, dropouts=dropouts)
 model.to(device)
-init_weights(model, activations[0])
+init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(model.parameters(), LR, weight_decay=REGULARIZATION)
 train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
 val_loader = DataLoader(val_data, batch_size=len(val_data), shuffle=True)
 
-# ------------------------------- training -------------------------------
+# -------------------------------------- training -------------------------------------
 train_cost = [0] * EPOCHS
 val_cost = [0] * EPOCHS
 weight_rms = [0] * EPOCHS
@@ -130,7 +129,7 @@ if PATIENCE is not None and best_state is not None:
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
-
+# ----------------------------------- postprocessing ----------------------------------
 x_test = torch.linspace(-1.3, 1.3, 100).unsqueeze(1)
 y_test = torch.sin(2 * torch.pi * x_test)
 model.eval()
@@ -144,9 +143,7 @@ with torch.no_grad():
 X_val = train_data.dataset.tensors[0][val_data.indices]
 Y_val = train_data.dataset.tensors[1][val_data.indices]
 
-
 if not args.book:
-# ---------------------------- postprocessing ----------------------------
     fig, ax = plt.subplots()
     ax.plot(x_test, y_test, "k")
     ax.plot(X_train, Y_train, "ko")
@@ -163,8 +160,9 @@ if not args.book:
     ax2 = ax.twinx()
     ax2.plot(weight_rms, "b")
     plt.show()
+
+# -------------------------------- book postprocessing --------------------------------
 else:
-# ------------------------- book postprocessing --------------------------
     save_csv(
         RESULTS_DIR
         / f"mlp_sine_regularization_{PATIENCE}_{REGULARIZATION}_{DROPOUT}.csv",
@@ -173,7 +171,7 @@ else:
         w=weight_rms,
     )
 
-    if PATIENCE == None and DROPOUT == 0.0:
+    if PATIENCE is None and DROPOUT == 0.0:
         save_csv(
             RESULTS_DIR / f"mlp_sine_regularization_pred_{REGULARIZATION}.csv",
             x=x_test.flatten(),

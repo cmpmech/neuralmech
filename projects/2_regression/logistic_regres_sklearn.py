@@ -6,11 +6,12 @@ from sklearn.preprocessing import PolynomialFeatures
 
 rng = np.random.default_rng(2)
 
+# -------------------------------------- settings -------------------------------------
 # select polynomial degree
 # P = 1
 P = 3
 
-# --------------------------- data generation ----------------------------
+# ------------------------------------ create data ------------------------------------
 x_train = rng.standard_normal((40, 2))
 y_train = (
     2 * x_train[:, 0] + x_train[:, 1] > 1 + 0.1 * rng.standard_normal(40)
@@ -21,13 +22,12 @@ y_val = (2 * x_val[:, 0] + x_val[:, 1] > 1 + 0.1 * rng.standard_normal(20)).asty
     np.float64
 )
 
-# ----------------------------- fitting ----------------------------------
-# step 1: transform to polynomial features
-# step 2: perform linear regression
+# -------------------------------------- fitting --------------------------------------
+# transform to polynomial features, then logistic regression
 model = make_pipeline(PolynomialFeatures(degree=P), LogisticRegression())
 model.fit(x_train, y_train)
 
-# ---------------------------- postprocessing ----------------------------
+# ----------------------------------- postprocessing ----------------------------------
 x1, x2 = np.meshgrid(np.linspace(-3, 3, 200), np.linspace(-3, 3, 200))
 grid = np.column_stack([x1.ravel(), x2.ravel()])
 z = model.predict(grid).reshape(x1.shape)

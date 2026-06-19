@@ -14,8 +14,8 @@ from NN import FNO
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
-RESULTS_DIR = BASE_DIR / "../../results"
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -25,7 +25,8 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-# -------------------------- training settings ---------------------------
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
 TRAIN_RES = 32
 TEST_RES = 64  # 64 # 256
 
@@ -36,14 +37,14 @@ BATCH_SIZE = 24
 # define loss
 cost_fun = nn.MSELoss()
 
-# ---------------------------- model settings ----------------------------
-n_modes = 16
-hidden_channels = 16
-n_layers = 2
-in_channels = 1
-out_channels = 1
+# model settings
+N_MODES = 16
+HIDDEN_CHANNELS = 16
+N_LAYERS = 2
+IN_CHANNELS = 1
+OUT_CHANNELS = 1
 
-# ----------------------------- prepare data -----------------------------
+# ------------------------------------ prepare data -----------------------------------
 data = np.load(DATA_DIR / f"fno_sine_{TRAIN_RES}.npz")
 grid = data["x"]
 dataset = TensorDataset(
@@ -62,19 +63,19 @@ Y_test = torch.from_numpy(data_test["Y"]).unsqueeze(1).to(torch.float32)
 standardizex = Standardizer(X_train, dim=(0, 2))  # global (per channel)
 standardizey = Standardizer(Y_train, dim=(0, 2))  # global (per channel)
 
-# ----------------- instantiate model & prepare training -----------------
+# --------------------------- instantiate model & optimizer ---------------------------
 model = FNO(
-    n_modes=(n_modes,),
-    in_channels=in_channels,
-    out_channels=out_channels,
-    hidden_channels=hidden_channels,
-    n_layers=n_layers,
+    n_modes=(N_MODES,),
+    in_channels=IN_CHANNELS,
+    out_channels=OUT_CHANNELS,
+    hidden_channels=HIDDEN_CHANNELS,
+    n_layers=N_LAYERS,
 )
 model.to(device)
 optimizer = torch.optim.AdamW(model.parameters(), LR)
 train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-# ------------------------------- training -------------------------------
+# -------------------------------------- training -------------------------------------
 train_cost = [0] * EPOCHS
 tic = time.time()
 print_every = 10
@@ -98,7 +99,7 @@ toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
 
-# ---------------------------- postprocessing ----------------------------
+# ----------------------------------- postprocessing ----------------------------------
 model.eval()
 
 x_train, y_train = X_train[0:1], Y_train[0:1]
@@ -118,8 +119,8 @@ if not args.book:
     ax.plot(grid_test, y_test.squeeze(), "k")
     ax.plot(grid_test, y_test_pred.cpu().squeeze(), "r--")
     plt.show()
+# -------------------------------- book postprocessing --------------------------------
 else:
-# ------------------------- book postprocessing --------------------------
     save_csv(
         RESULTS_DIR / f"fno_{TEST_RES}.csv",
         x=grid_test,

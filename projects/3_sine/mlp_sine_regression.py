@@ -15,8 +15,8 @@ from NN import MLP
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
-RESULTS_DIR = BASE_DIR / "../../results"
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -26,7 +26,8 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 device = torch.device("cpu")  # faster on cpu, because matrices are small
 
-# -------------------------- training settings ---------------------------
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
 EPOCHS = 4000  # 400
 LR = 1e-2
 REGULARIZATION = 0  # 1e0
@@ -35,12 +36,12 @@ BATCH_SIZE = 32
 # define loss
 cost_fun = nn.MSELoss(reduction="mean")
 
-# ---------------------------- model settings ----------------------------
+# model settings
 # three hidden layers is sufficient (five to show overfitting)
-layers = [1, 24, 24, 24, 1]
-activations = [nn.GELU(approximate="tanh")] * (len(layers) - 2)
+LAYERS = [1, 24, 24, 24, 1]
+ACTIVATIONS = [nn.GELU(approximate="tanh") for _ in range(len(LAYERS) - 2)]
 
-# ----------------------------- prepare data -----------------------------
+# ------------------------------------- load data -------------------------------------
 data = np.load(DATA_DIR / "sine.npz")
 dataset = TensorDataset(
     torch.from_numpy(data["X"]).to(torch.float32),
@@ -54,15 +55,15 @@ Y_train = train_data.dataset.tensors[1][train_data.indices]
 standardizex = Standardizer(X_train, dim=0)
 standardizey = Standardizer(Y_train, dim=0)
 
-# ----------------- instantiate model & prepare training -----------------
-model = MLP(layers, activations)
+# --------------------------- instantiate model & optimizer ---------------------------
+model = MLP(LAYERS, ACTIVATIONS)
 model.to(device)
-init_weights(model, activations[0])
+init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(model.parameters(), LR, weight_decay=REGULARIZATION)
 train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
 val_loader = DataLoader(val_data, batch_size=len(val_data), shuffle=True)
 
-# ------------------------------- training -------------------------------
+# -------------------------------------- training -------------------------------------
 train_cost = [0] * EPOCHS
 val_cost = [0] * EPOCHS
 tic = time.time()
@@ -99,6 +100,7 @@ toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
 
+# ----------------------------------- postprocessing ----------------------------------
 x_test = torch.linspace(-1.3, 1.3, 100).unsqueeze(1)
 y_test = torch.sin(2 * torch.pi * x_test)
 model.eval()
@@ -107,8 +109,8 @@ with torch.no_grad():
     y_pred_test = standardizey.inverse(y_pred_test).cpu().numpy()
 X_val = train_data.dataset.tensors[0][val_data.indices]
 Y_val = train_data.dataset.tensors[1][val_data.indices]
+
 if not args.book:
-# ---------------------------- postprocessing ----------------------------
     fig, ax = plt.subplots()
     ax.set_yscale("log")
     ax.plot(train_cost, "k")
@@ -121,24 +123,25 @@ if not args.book:
     ax.plot(X_val, Y_val, "ro")
     ax.plot(x_test, y_pred_test, "r--")
     plt.show()
+
+# -------------------------------- book postprocessing --------------------------------
 else:
-# ------------------------- book postprocessing --------------------------
     save_csv(
         RESULTS_DIR / f"mlp_sine_test_{EPOCHS}.csv",
         x=x_test[:, 0],
         y=y_test[:, 0],
         ypred=y_pred_test[:, 0],
     )
-    save_csv(RESULTS_DIR / f"mlp_sine_train.csv", x=X_train[:, 0], y=Y_train[:, 0])
-    save_csv(RESULTS_DIR / f"mlp_sine_val.csv", x=X_val[:, 0], y=Y_val[:, 0])
+    save_csv(RESULTS_DIR / "mlp_sine_train.csv", x=X_train[:, 0], y=Y_train[:, 0])
+    save_csv(RESULTS_DIR / "mlp_sine_val.csv", x=X_val[:, 0], y=Y_val[:, 0])
     if EPOCHS == 4000:
         save_csv(
-            RESULTS_DIR / f"mlp_sine_cost_history.csv",
+            RESULTS_DIR / "mlp_sine_cost_history.csv",
             train=np.array(train_cost) / train_cost[0],
             val=np.array(val_cost) / val_cost[0],
         )
 
-# --------------------- gradient book postprocessing ---------------------
+# ---------------------------- gradient book postprocessing ---------------------------
 if args.book:
     x_test.requires_grad = True
     y_pred = model(standardizex(x_test).to(device))
@@ -156,7 +159,7 @@ if args.book:
 
     if EPOCHS == 400:
         save_csv(
-            RESULTS_DIR / f"mlp_sine_grad.csv",
+            RESULTS_DIR / "mlp_sine_grad.csv",
             x=x_test.detach()[:, 0],
             y=y_pred.detach()[:, 0],
             dy=dy_pred.detach()[:, 0] / 2 / np.pi,

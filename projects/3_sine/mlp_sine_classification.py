@@ -1,3 +1,4 @@
+import argparse
 import time
 from pathlib import Path
 
@@ -13,39 +14,47 @@ from NN import MLP
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+args = parser.parse_args()
+
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 device = torch.device("cpu")  # faster on cpu, because matrices are small
 
-# -------------------------- training settings ---------------------------
-epochs = 200
-lr = 1e-2
-regularization = 1e-2
-batch_size = 32
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
+EPOCHS = 200
+LR = 1e-2
+REGULARIZATION = 1e-2
+BATCH_SIZE = 32
 
 # define loss
 cost_fun = nn.CrossEntropyLoss(reduction="mean")
 
-# ---------------------------- model settings ----------------------------
-classes = 3  # has to fit to the data generation
-layers = [
+# model settigns
+CLASSES = 3  # has to fit to the data generation
+LAYERS = [
     1,
     24,
     24,
     24,
-    classes,
+    CLASSES,
 ]  # three hidden layers is sufficient (five to show overfitting)
-activations = [torch.nn.GELU(approximate="tanh")] * (len(layers) - 2)
+ACTIVATIONS = [torch.nn.GELU(approximate="tanh") for _ in range(len(LAYERS) - 2)]
 
-# ----------------------------- prepare data -----------------------------
-data = np.load(BASE_DIR / "../../data/discrete_sine.npz")
+# ------------------------------------- load data -------------------------------------
+data = np.load(DATA_DIR / "discrete_sine.npz")
 dataset = TensorDataset(
     torch.from_numpy(data["X"]).to(torch.float32),
     torch.from_numpy(data["Y"]).to(torch.long),
 )
 train_data, val_data = torch.utils.data.random_split(dataset, [0.5, 0.5])
 
-test_data = np.load(BASE_DIR / "../../data/discrete_sine_test.npz")
+test_data = np.load(DATA_DIR / "discrete_sine_test.npz")
 x_test = torch.from_numpy(test_data["X"]).to(torch.float32).to(device)
 y_test = torch.from_numpy(test_data["Y"]).to(torch.long).to(device)
 
@@ -53,20 +62,20 @@ y_test = torch.from_numpy(test_data["Y"]).to(torch.long).to(device)
 X_train = train_data.dataset.tensors[0][train_data.indices]
 standardizex = Standardizer(X_train, dim=0)
 
-# ----------------- instantiate model & prepare training -----------------
-model = MLP(layers, activations)
+# --------------------------- instantiate model & optimizer ---------------------------
+model = MLP(LAYERS, ACTIVATIONS)
 model.to(device)
-init_weights(model, activations[0])
-optimizer = torch.optim.AdamW(model.parameters(), lr, weight_decay=regularization)
-train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+init_weights(model, ACTIVATIONS[0])
+optimizer = torch.optim.AdamW(model.parameters(), LR, weight_decay=REGULARIZATION)
+train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
 val_loader = DataLoader(val_data, batch_size=len(val_data), shuffle=True)
 
-# ------------------------------- training -------------------------------
-train_cost = [0] * epochs
-val_cost = [0] * epochs
+# -------------------------------------- training -------------------------------------
+train_cost = [0] * EPOCHS
+val_cost = [0] * EPOCHS
 tic = time.time()
 print_every = 10
-pbar = tqdm(range(epochs))
+pbar = tqdm(range(EPOCHS))
 for epoch in pbar:
     model.train()
     for x, y in train_loader:
@@ -97,13 +106,7 @@ for epoch in pbar:
 toc = time.time()
 print(f"Elapsed time {toc - tic:.2f} s")
 
-# ---------------------------- postprocessing ----------------------------
-fig, ax = plt.subplots()
-ax.set_yscale("log")
-ax.plot(train_cost, "k")
-ax.plot(val_cost, "r")
-plt.show()
-
+# ----------------------------------- postprocessing ----------------------------------
 model.eval()
 with torch.no_grad():
     y_pred_test = torch.argmax(model(standardizex(x_test)), dim=-1)
@@ -111,21 +114,28 @@ with torch.no_grad():
 Y_train = train_data.dataset.tensors[1][train_data.indices]
 X_val = train_data.dataset.tensors[0][val_data.indices]
 Y_val = train_data.dataset.tensors[1][val_data.indices]
-fig, ax = plt.subplots()
-ax.plot(x_test.cpu(), y_test.cpu(), "k")
-ax.plot(X_train, Y_train, "ko")
-ax.plot(X_val, Y_val, "ro")
-ax.plot(x_test.cpu(), y_pred_test.cpu(), "b.")
-plt.show()
 
-# ------------------------- book post-processing -------------------------
-save_csv(
-    BASE_DIR / "../../results/mlp_discrete_sine_test.csv",
-    x=x_test[:, 0],
-    y=y_test,
-    ypred=y_pred_test,
-)
-save_csv(
-    BASE_DIR / "../../results/mlp_discrete_sine_train.csv", x=X_train[:, 0], y=Y_train
-)
-save_csv(BASE_DIR / "../../results/mlp_discrete_sine_val.csv", x=X_val[:, 0], y=Y_val)
+if not args.book:
+    fig, ax = plt.subplots()
+    ax.set_yscale("log")
+    ax.plot(train_cost, "k")
+    ax.plot(val_cost, "r")
+    plt.show()
+
+    fig, ax = plt.subplots()
+    ax.plot(x_test.cpu(), y_test.cpu(), "k")
+    ax.plot(X_train, Y_train, "ko")
+    ax.plot(X_val, Y_val, "ro")
+    ax.plot(x_test.cpu(), y_pred_test.cpu(), "b.")
+    plt.show()
+
+# -------------------------------- book postprocessing --------------------------------
+else:
+    save_csv(
+        RESULTS_DIR / "mlp_discrete_sine_test.csv",
+        x=x_test[:, 0],
+        y=y_test,
+        ypred=y_pred_test,
+    )
+    save_csv(RESULTS_DIR / "mlp_discrete_sine_train.csv", x=X_train[:, 0], y=Y_train)
+    save_csv(RESULTS_DIR / "mlp_discrete_sine_val.csv", x=X_val[:, 0], y=Y_val)

@@ -20,7 +20,8 @@ from DL import (
 from NN import MLP
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -30,31 +31,28 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 device = torch.device("cpu")
 
-
-CASE = 0
-# CASE = 1
-
-# -------------------------- training settings ---------------------------
-EPOCHS = 500  # 500  # 4000
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
+DATA_HALF = 0  # which half of the data the landscape is measured on (0 or 1)
+EPOCHS = 500  # 4000
 LR = 1e-2
 BATCH_SIZE = 32
 REGULARIZATION = 0.0
-HIDDEN_LAYERS = 12  # 1 # 12
+HIDDEN_LAYERS = 12  # 1
 
 # define loss
 cost_fun = nn.MSELoss(reduction="mean")
 
-
-# ------------------------ interpolation settings ------------------------
-GRID_STEPS = 200  # 200  # 40  # resolution of the landscape grid
+# interpolation
+GRID_STEPS = 200  # 40  # resolution of the landscape grid
 ALPHA_RANGE = 2.0  # half-range along each direction
 
-# ---------------------------- model settings ----------------------------
-layers = [1] + [24] * HIDDEN_LAYERS + [1]
-activations = [nn.Tanh()] * (len(layers) - 2)
+# model settings
+LAYERS = [1] + [24] * HIDDEN_LAYERS + [1]
+ACTIVATIONS = [nn.Tanh() for _ in range(len(LAYERS) - 2)]
 
-# ----------------------------- prepare data -----------------------------
-data = np.load(BASE_DIR / "../../data/sine.npz")
+# ------------------------------------- load data -------------------------------------
+data = np.load(DATA_DIR / "sine.npz")
 dataset = TensorDataset(
     torch.from_numpy(data["X"]).to(torch.float32),
     torch.from_numpy(data["Y"]).to(torch.float32),
@@ -68,13 +66,13 @@ standardizey = Standardizer(Y_data, dim=0)
 full_loader = DataLoader(dataset, batch_size=len(dataset), shuffle=False)
 num_samples = len(dataset)
 
-# ----------------- instantiate model & prepare training -----------------
-model = MLP(layers, activations).to(device)
-init_weights(model, activations[0])
+# --------------------------- instantiate model & optimizer ---------------------------
+model = MLP(LAYERS, ACTIVATIONS).to(device)
+init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(model.parameters(), LR, weight_decay=REGULARIZATION)
 train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-# ------------------------------- training -------------------------------
+# -------------------------------------- training -------------------------------------
 pbar = tqdm(range(EPOCHS), desc="training")
 for epoch in pbar:
     model.train()
@@ -84,7 +82,7 @@ for epoch in pbar:
         cost_fun(model(x), y).backward()
         optimizer.step()
 
-# ------------------------ optimization landscape ------------------------
+# ------------------------------- optimization landscape ------------------------------
 params_shape = get_params(model)
 params_opt = flatten_params(params_shape)
 dir1 = flatten_params(
@@ -110,14 +108,14 @@ for i in tqdm(range(GRID_STEPS), desc="sampling"):
         set_params(model, unflatten_params(cur, params_shape))
         with torch.no_grad():
             x, y = next(iter(full_loader))
-            idx = num_samples // 2
-            x = x[idx * CASE : idx * (CASE + 1)]
-            y = y[idx * CASE : idx * (CASE + 1)]
+            half_size = num_samples // 2
+            x = x[half_size * DATA_HALF : half_size * (DATA_HALF + 1)]
+            y = y[half_size * DATA_HALF : half_size * (DATA_HALF + 1)]
             x, y = standardizex(x), standardizey(y)
             costs[i, j] = cost_fun(model(x), y).item()
 
-# ---------------------------- postprocessing ----------------------------
-fig, ax = plt.subplots(figsize=(4, 4), dpi=200)  # TODO
+# ----------------------------------- postprocessing ----------------------------------
+fig, ax = plt.subplots(figsize=(4, 4), dpi=200)
 log_costs = np.log10(costs + 1e-10)
 ax.contourf(a1, a2, log_costs, levels=60, cmap="cividis")
 ax.plot(0, 0, "ws", ms=4)
@@ -126,9 +124,9 @@ ax.axis("off")
 ax.set_rasterized(True)  # avoid contourline artifacts
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
+# -------------------------------- book postprocessing --------------------------------
 if args.book:
-# ------------------------- book postprocessing --------------------------
-    fig.savefig(RESULTS_DIR / f"NN_landscape_{HIDDEN_LAYERS}_{CASE}.pdf")
+    fig.savefig(RESULTS_DIR / f"NN_landscape_{HIDDEN_LAYERS}_{DATA_HALF}.pdf")
 else:
     plt.show()
 plt.close(fig)

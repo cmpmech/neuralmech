@@ -13,7 +13,7 @@ from NN import KAN
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -23,46 +23,42 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# -------------------------- training settings ---------------------------
-resolution = 256
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
+RESOLUTION = 256
 
-epochs = 1000
-lr = 2e-2
+EPOCHS = 1000
+LR = 2e-2
 
 # define loss
 cost_fun = nn.MSELoss()
 
-# ---------------------------- model settings ----------------------------
-layers = [1, 6, 6, 1]
-spline_order, grid_size = 3, 5  # default is 3, 5
-base_activation = nn.SiLU
+# model settings
+LAYERS = [1, 6, 6, 1]
+SPLINE_ORDER, GRID_SIZE = 3, 5  # default is 3, 5
+BASE_ACTIVATION = nn.SiLU
 
-# ----------------------------- prepare data -----------------------------
-x_ = np.linspace(-1, 1, resolution)
+# ------------------------------------ prepare data -----------------------------------
+x_ = np.linspace(-1, 1, RESOLUTION)
 y = np.sin(8 * np.pi * x_) * np.sin(6 * np.pi * x_)
+y = torch.from_numpy(y).to(torch.float32).unsqueeze(1).to(device)
 
-
-y = torch.from_numpy(y).to(torch.float32).unsqueeze(1).to(device).to(device)
-
-# -------------------- instantiate model & optimizer ---------------------
+# --------------------------- instantiate model & optimizer ---------------------------
 model = KAN(
-    layers,
-    spline_order=spline_order,
-    grid_size=grid_size,
-    base_activation=base_activation,
+    LAYERS,
+    spline_order=SPLINE_ORDER,
+    grid_size=GRID_SIZE,
+    base_activation=BASE_ACTIVATION,
 )
 model.to(device)
-# x = torch.randn((resolution, layers[0]), dtype=torch.float32).to(device)
-x = torch.from_numpy(x_).to(torch.float32).unsqueeze(1).to(device).to(device)
-optimizer = torch.optim.AdamW(model.parameters(), lr)
+x = torch.from_numpy(x_).to(torch.float32).unsqueeze(1).to(device)
+optimizer = torch.optim.AdamW(model.parameters(), LR)
 
-print(model)
-
-# ------------------------------- training -------------------------------
-train_cost = [0] * epochs
+# -------------------------------------- training -------------------------------------
+train_cost = [0] * EPOCHS
 tic = time.time()
 print_every = 10
-pbar = tqdm(range(epochs))
+pbar = tqdm(range(EPOCHS))
 model.train()
 for epoch in pbar:
     optimizer.zero_grad()
@@ -77,20 +73,7 @@ for epoch in pbar:
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
-# ---------------------------- postprocessing ----------------------------
-fig, ax = plt.subplots()
-ax.set_yscale("log")
-ax.plot(train_cost, "k")
-plt.show()
-
-# prediction
-fig, ax = plt.subplots(dpi=200)
-ax.plot(x_, y.cpu(), "k", linewidth=1.5)
-ax.plot(x_, y_pred.detach().cpu(), "r--", linewidth=1.5)
-plt.show()
-
-
-# ------------------------------- testing --------------------------------
+# ----------------------------------- postprocessing ----------------------------------
 base_params, spline_params = count_kan_params(model)
 total_params = base_params + spline_params
 print(f"linear {base_params:d} & spline {spline_params:d}: total {total_params:d}")
@@ -104,17 +87,18 @@ edge_strength_1 = acts_1.abs().mean(-1)  # (out, in)
 np.set_printoptions(precision=3, suppress=True)
 print("edge strength layer 1 (out x in):\n", edge_strength_1.numpy())
 
+if not args.book:
+    fig, ax = plt.subplots()
+    ax.set_yscale("log")
+    ax.plot(train_cost, "k")
+    plt.show()
 
-# # first layer
-# fig, ax = plt.subplots(*acts_x_0.shape[:2], squeeze=False, figsize=(10, 10))
-# for i in range(acts_x_0.shape[0]):
-#     for j in range(acts_x_0.shape[1]):
-#         ax[i, j].plot(acts_x_0[i, j], acts_0[i, j])
-# plt.show()
-
-
-# ------------------------- book postprocessing --------------------------
-if args.book:
+    fig, ax = plt.subplots(dpi=200)
+    ax.plot(x_, y.cpu(), "k", linewidth=1.5)
+    ax.plot(x_, y_pred.detach().cpu(), "r--", linewidth=1.5)
+    plt.show()
+# -------------------------------- book postprocessing --------------------------------
+else:
     save_csv(
         RESULTS_DIR / "kan_fit.csv",
         x=x_,

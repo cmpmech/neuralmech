@@ -8,12 +8,13 @@ from datasets import load_dataset
 from postprocessing import show_image
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
 args = parser.parse_args()
 
+# ------------------------------------- load data -------------------------------------
 ds = load_dataset("ylecun/mnist", split="train", streaming=True)
 seen = set()
 for sample in ds:
@@ -22,9 +23,13 @@ for sample in ds:
         continue
     seen.add(digit)
     img = 255 - np.array(sample["image"])  # invert color scheme
+# ----------------------------------- postprocessing ----------------------------------
     print(digit)
     show_image(
-        img, grayscale=True, path=RESULTS_DIR / f"mnist_{digit}.png", close=args.book
+        img,
+        grayscale=True,
+        path=RESULTS_DIR / f"mnist_{digit}.png",
+        close=args.book,
     )
     if len(seen) == 10:
         break

@@ -3,14 +3,14 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import torch
-import torch.nn as nn
+from torch import nn
 from tqdm import tqdm
 
 from NN import ICNN
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 device = torch.device("cpu")
 torch.manual_seed(0)
@@ -18,35 +18,39 @@ torch.backends.cudnn.deterministic = True
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
-parser.add_argument("--animate", action="store_true")
+parser.add_argument("--animate", action="store_true")  # TODO could be animated
 args = parser.parse_args()
 
-# --------------------------- hyperparameters ----------------------------
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
 EPOCHS = 3000
 LR = 1e-2
-N_TRAIN = 16
+SAMPLES = 16
 NOISE = 0.3
+
+# model settings
 LAYERS = [1, 16, 16, 16, 1]
 USE_NONNEG = True  # False
 
 # all must be convex and non-decreasing for ICNN output to be convex in x
-activation = torch.nn.Softplus()
-# activation = torch.nn.ReLU()
-# activation = torch.nn.ELU()
-# activation = torch.nn.LeakyReLU(negative_slope=0.1)
+activation = nn.Softplus()
+# activation = nn.ReLU()
+# activation = nn.ELU()
+# activation = nn.LeakyReLU(negative_slope=0.1)
 
+# define loss
 cost_fun = nn.MSELoss()
 
-# ------------------------------- data -----------------------------------
-x_train = torch.linspace(-2, 2, N_TRAIN).unsqueeze(1).to(device)
+# ------------------------------------ create data ------------------------------------
+x_train = torch.linspace(-2, 2, SAMPLES).unsqueeze(1).to(device)
 y_train = (x_train**2 + NOISE * torch.randn_like(x_train)).to(device)
 
-# -------------------------- model + optimizer ---------------------------
-activations = [activation] * (len(LAYERS) - 2)
+# --------------------------- instantiate model & optimizer ---------------------------
+activations = [activation for _ in range(len(LAYERS) - 2)]
 model = ICNN(LAYERS, activations).to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=LR)
 
-# ------------------------------ training --------------------------------
+# -------------------------------------- training -------------------------------------
 train_cost = [0.0] * EPOCHS
 pbar = tqdm(range(EPOCHS))
 for epoch in pbar:
@@ -61,18 +65,20 @@ for epoch in pbar:
     if epoch % 100 == 0:
         pbar.set_postfix({"train": f"{cost.item():.2e}"})
 
-# --------------------------- postprocessing -----------------------------
+# ----------------------------------- postprocessing ----------------------------------
 x_test = torch.linspace(-2.5, 2.5, 200).unsqueeze(1).to(device)
 y_test = x_test**2
 with torch.no_grad():
     y_test_pred = model(x_test)
 
-fig, ax = plt.subplots()
-ax.plot(x_test.cpu(), y_test.cpu(), "k")
-ax.plot(x_test.cpu(), y_test_pred.detach().cpu(), "r--")
-ax.plot(x_train.cpu(), y_train.cpu(), "bo")
-
-if args.book:
+if not args.book:
+    fig, ax = plt.subplots()
+    ax.plot(x_test.cpu(), y_test.cpu(), "k")
+    ax.plot(x_test.cpu(), y_test_pred.detach().cpu(), "r--")
+    ax.plot(x_train.cpu(), y_train.cpu(), "bo")
+    plt.show()
+# -------------------------------- book postprocessing --------------------------------
+else:
     save_csv(
         RESULTS_DIR / f"icnn_parabola_test_{USE_NONNEG}.csv",
         x=x_test[:, 0].cpu(),
@@ -84,6 +90,3 @@ if args.book:
         x=x_train[:, 0].cpu(),
         y=y_train[:, 0].cpu(),
     )
-    plt.close()
-else:
-    plt.show()

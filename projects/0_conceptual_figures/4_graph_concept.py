@@ -7,24 +7,25 @@ from scipy.spatial import Delaunay
 from scipy.stats import qmc
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
 args = parser.parse_args()
 
-# ---------------------------- generate graph ----------------------------
+# ------------------------------------ create graph -----------------------------------
 sampler = qmc.LatinHypercube(d=2, seed=0)
 points = sampler.random(n=26)
 tri = Delaunay(points)
 
+# ----------------------------------- postprocessing ----------------------------------
 if not args.book:
     fig, ax = plt.subplots()
     ax.triplot(points[:, 0], points[:, 1], tri.simplices, lw=1.2)
     ax.scatter(points[:, 0], points[:, 1], color="k")
     plt.show()
 
-# ---------------------------- extract edges -----------------------------
+# extract edges
 edges = set()
 for tri_nodes in tri.simplices:
     i, j, k = tri_nodes
@@ -33,7 +34,7 @@ for tri_nodes in tri.simplices:
     edges.add(tuple(sorted((k, i))))
 edges = np.array(list(edges))
 
-# --------------------------- receptive field ----------------------------
+# receptive field
 point0 = np.expand_dims(points[21], 0)
 point1 = points[[3, 22, 19, 23, 17]]
 point2 = points[[18, 10, 0, 14, 5, 11, 2, 1, 7, 20, 15]]
@@ -61,6 +62,7 @@ edges12 = [
     points[[17, 20]],
 ]
 
+# ----------------------------------- postprocessing ----------------------------------
 if not args.book:
     fig, ax = plt.subplots()
     ax.triplot(points[:, 0], points[:, 1], tri.simplices, lw=1.2)
@@ -72,6 +74,7 @@ if not args.book:
     ax.scatter(point2[:, 0], point2[:, 1], color="y")
     plt.show()
 
+# -------------------------------- book postprocessing --------------------------------
 if args.book:
     np.savetxt(RESULTS_DIR / "graph_concept_nodes.txt", points, fmt="%.6f %.6f")
     np.savetxt(RESULTS_DIR / "graph_concept_edges.txt", edges, fmt="%d %d")

@@ -128,7 +128,7 @@ for cmap_file in sorted(CMAP_DIR.glob("*.cmap")):
 ```
 
 The same files load in matplotlib via `postprocessing.load_cmap` (see the
-`create_project_driver` skill). When adding a new shared colormap, dump a ParaView
+`neuralmech-style` skill). When adding a new shared colormap, dump a ParaView
 preset with `vtkSMTransferFunctionPresets.GetPresetAsString(i)` and keep
 `{Name, ColorSpace, RGBPoints}`.
 

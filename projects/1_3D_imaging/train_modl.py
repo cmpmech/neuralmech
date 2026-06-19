@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
+from helper import MoDL
 from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm import tqdm
 
@@ -56,7 +57,7 @@ BASE_CH = 32
 DEPTH = 3
 DOMAIN_SIZE = 128
 PRINT_EVERY = 10
-N_OVERFIT = None  # set to int for quick overfit test
+OVERFIT = None  # set to int for quick overfit test
 
 cost_fun = nn.MSELoss(reduction="mean")
 
@@ -65,8 +66,8 @@ data = torch.from_numpy(
     np.load(BASE_DIR / f"../../data/graded_fibers_{DOMAIN_SIZE}.npy")
 )
 data = data.to(torch.float32).unsqueeze(1)  # (N, 1, H, W)
-if N_OVERFIT is not None:
-    data = data[:N_OVERFIT]
+if OVERFIT is not None:
+    data = data[:OVERFIT]
 
 
 class FiberMaskDataset(Dataset):
@@ -97,45 +98,10 @@ val_loader = DataLoader(val_set, batch_size=len(val_set))
 
 # TODO standardization?
 
-
-# ------------------- forward operator ---------------------------
-def A_op(x, mask):
-    return mask * x
-
-
-def At_op(y, mask):
-    return mask * y  # A^T = A for masking
-
-
-def cg_solve(mask, rhs, lam: float, n_iter: int = 10) -> torch.Tensor:
-    # solves (A^T A + λI) x = rhs; for masking: (mask + λ) x = rhs
-    def Lx(v):
-        return At_op(A_op(v, mask), mask) + lam * v
-
-    x = torch.zeros_like(rhs)
-    r = rhs - Lx(x)
-    p = r.clone()
-    rs_old = (r * r).sum()
-
-    for _ in range(n_iter):
-        Ap = Lx(p)
-        alpha = rs_old / ((p * Ap).sum() + 1e-12)
-        x = x + alpha * p
-        r = r - alpha * Ap
-        rs_new = (r * r).sum()
-        if rs_new.sqrt() < 1e-6:
-            break
-        p = r + (rs_new / (rs_old + 1e-12)) * p
-        rs_old = rs_new
-
-    return x
-
-
 # --------------------------- model ------------------------------
 levels = [1] + [BASE_CH * 2**i for i in range(DEPTH)]  # [1, 16, 32, 64]
 # act = partial(nn.ReLU, inplace=True)
-act = nn.GELU  # slightly better
-# act = nn.LeakyReLU
+act = nn.GELU
 
 downs = [
     DCN(
@@ -146,7 +112,6 @@ downs = [
         padding=1,
         dim=2,
         normalizations=[nn.GroupNorm(1, levels[i + 1]) for _ in range(2)],
-        # normalizations=[nn.BatchNorm2d(levels[i + 1]) for _ in range(2)], # TODO layernorm?
     )
     for i in range(DEPTH)
 ]
@@ -160,54 +125,27 @@ ups = [
         padding=1,
         dim=2,
         resamplings=[
-            nn.Upsample(
-                scale_factor=2, mode="nearest"
-            ),  # TODO try nearest instead of bilinear (with align_corners)
+            nn.Upsample(scale_factor=2, mode="nearest"),
             None,
         ],
         normalizations=[
             nn.GroupNorm(1, levels[i + 1]),
             nn.GroupNorm(1, levels[i]) if i > 0 else None,
         ],
-        # normalizations=[
-        #     nn.BatchNorm2d(levels[i + 1]),
-        #     nn.BatchNorm2d(levels[i]) if i > 0 else None,
-        # ],
     )
     for i in reversed(range(DEPTH))
 ]
 
 denoiser = nn.Sequential(UNet(downs, ups), nn.Sigmoid())
 
-
-class MoDL(nn.Module):
-    # K unrolled iterations: z = D_w(x), x = CG-solve(A^TA + λI | A^Tb + λz)
-    # D_w is weight-shared across all K iterations
-    def __init__(self, denoiser: nn.Module, K: int, lam: float, cg_iter: int):
-        super().__init__()
-        self.K = K
-        self.lam = lam
-        self.cg_iter = cg_iter
-        self.D_w = denoiser
-
-    def forward(self, b, mask):
-        x = b.clone()
-        for _ in range(self.K):
-            z = self.D_w(x)
-            rhs = At_op(b, mask) + self.lam * z
-            x = cg_solve(mask, rhs, self.lam, self.cg_iter)
-        return x
-
-
 model = MoDL(denoiser, K=K, lam=LAM, cg_iter=CG_ITER).to(device)
 init_weights(model.D_w, act())
 optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     optimizer, T_max=EPOCHS, eta_min=LR * 1e-2
-)  # T_max matches EPOCHS — step() called once per epoch
-# scheduler = None
+)
 
-# -------------------------- training ----------------------------
+# -------------------------------------- training -------------------------------------
 train_cost = [0.0] * EPOCHS
 val_cost = [0.0] * EPOCHS
 pbar = tqdm(range(EPOCHS), desc="Training: ", ncols=90)
@@ -238,10 +176,10 @@ for epoch in pbar:
             {"train": f"{train_cost[epoch]:.2e}", "val": f"{val_cost[epoch]:.2e}"}
         )
 
-# --------------------------- save model -------------------------
+# ------------------------------------- save model ------------------------------------
 torch.save(model, BASE_DIR / f"../../models/modl_{DOMAIN_SIZE}.pt2")
 
-# ----------------------- postprocessing -------------------------
+# ----------------------------------- postprocessing ----------------------------------
 fig, ax = plt.subplots()
 ax.plot(train_cost, "k")
 ax.plot(val_cost, "r")
@@ -259,7 +197,7 @@ fig, axes = plt.subplots(1, 3, figsize=(9, 3), dpi=150)
 for ax, img in zip(axes, [b, x_pred, x_gt]):
     ax.imshow(img[0, 0].cpu(), cmap="binary", vmin=0, vmax=1)
     ax.axis("off")
-fig.tight_layout(pad=0)
+fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 plt.savefig(TMP_DIR / "recon.png")
 plt.close()
 
@@ -273,6 +211,6 @@ fig, axes = plt.subplots(1, 3, figsize=(9, 3), dpi=150)
 for ax, img in zip(axes, [b, x_pred, x_gt]):
     ax.imshow(img[0, 0].cpu(), cmap="binary", vmin=0, vmax=1)
     ax.axis("off")
-fig.tight_layout(pad=0)
+fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 plt.savefig(TMP_DIR / "recon_train.png")
 plt.close()

@@ -1,80 +1,97 @@
-from NN import MLP, ResNet, ResidualBlock
-from DL import init_weights
-import torch
-import torch.nn as nn
+import argparse
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
+from torch import nn
+
+from DL import init_weights
+from NN import MLP, ResNet, ResidualBlock
 from postprocessing import save_csv
+
+BASE_DIR = Path(__file__).parent
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+args = parser.parse_args()
 
 torch.manual_seed(1)
 torch.backends.cudnn.deterministic = True
+device = torch.device("cpu")  # faster on cpu, because matrices are small
 
-# ------------------------------- NN model -------------------------------
-use_normalization = True
-# normalization = 'batchnorm'
-normalization = 'layernorm'
-num_layers = 40
-neurons = 100
-activation = nn.ReLU
+# -------------------------------------- settings -------------------------------------
+# model settings
+USE_NORMALIZATION = True
+NORMALIZATION = "layernorm"  # batchnorm
+HIDDEN_LAYERS = 40
+NEURONS = 100
+ACTIVATION = nn.ReLU
 
-layers = [1] + [neurons] * num_layers + [1]
-activations = [activation() for _ in range(len(layers) - 2)]
-if normalization == 'batchnorm':
-    normalizations = [nn.BatchNorm1d(layers[i], affine=False) for i in range(1, len(layers) - 1)]
-elif normalization == 'layernorm':
-    normalizations = [nn.LayerNorm(layers[i]) for i in range(1, len(layers) - 1)]
+LAYERS = [1] + [NEURONS] * HIDDEN_LAYERS + [1]
+ACTIVATIONS = [ACTIVATION() for _ in range(len(LAYERS) - 2)]
+if NORMALIZATION == "batchnorm":
+    NORMALIZATIONS = [nn.BatchNorm1d(LAYERS[i], affine=False) for i in range(1, len(LAYERS) - 1)]
+elif NORMALIZATION == "layernorm":
+    NORMALIZATIONS = [nn.LayerNorm(LAYERS[i]) for i in range(1, len(LAYERS) - 1)]
 
-if use_normalization:
-    base_model = MLP(layers, activations, normalizations)
-    skip_connections=[(3 * i + 3, 3 * i + 5) for i in range(num_layers - 1)]
+# --------------------------- instantiate model & optimizer ---------------------------
+# the normalization layer adds a module per block, shifting the skip indices
+if USE_NORMALIZATION:
+    base_model = MLP(LAYERS, ACTIVATIONS, NORMALIZATIONS)
+    skip_connections = [(3 * i + 3, 3 * i + 5) for i in range(HIDDEN_LAYERS - 1)]
 else:
-    base_model = MLP(layers, activations)
-    skip_connections=[(2 * i + 2, 2 * i + 3) for i in range(num_layers - 1)]
+    base_model = MLP(LAYERS, ACTIVATIONS)
+    skip_connections = [(2 * i + 2, 2 * i + 3) for i in range(HIDDEN_LAYERS - 1)]
 model = ResNet(base_model, skip_connections)
+model.to(device)
+init_weights(model, ACTIVATIONS[0])
 
-init_weights(model, activations[0])
-
-# ------------------------------ prediction ------------------------------
+# ------------------------------------- prediction ------------------------------------
+# hook the normalization (or linear) outputs to read their activation magnitude
 activations_avgs = []
 hooks = []
-def hook_fn(name):
-    def hook(module, input, output):
-        activations_avgs.append(torch.mean(torch.abs(output)).item())
-    return hook
 
-# Register hooks on Linear layers
-if use_normalization:
-    module_to_hook = {'batchnorm' : nn.BatchNorm1d, 'layernorm' : nn.LayerNorm}[normalization]
+
+def hook_fn(module, input, output):
+    activations_avgs.append(torch.mean(torch.abs(output)).item())
+
+
+if USE_NORMALIZATION:
+    module_to_hook = {"batchnorm": nn.BatchNorm1d, "layernorm": nn.LayerNorm}[NORMALIZATION]
 else:
     module_to_hook = nn.Linear
 modules = len(model.model)
 for i, module in enumerate(model.model):
     if i == modules - 1:
         if isinstance(module, nn.Linear):
-            hooks.append(module.register_forward_hook(hook_fn(f"layer_{i}")))
+            hooks.append(module.register_forward_hook(hook_fn))
     elif isinstance(module, module_to_hook):
-        hooks.append(module.register_forward_hook(hook_fn(f"layer_{i}")))
+        hooks.append(module.register_forward_hook(hook_fn))
     if isinstance(module, ResidualBlock):
-        for j, submodule in enumerate(module.module):
+        for submodule in module.module:
             if isinstance(submodule, module_to_hook):
-                hooks.append(submodule.register_forward_hook(hook_fn(f"layer_{i}_{j}")))
+                hooks.append(submodule.register_forward_hook(hook_fn))
 
-x = torch.randn((100, 1))
+x = torch.randn((100, 1)).to(device)
 y_pred = model(x)
 
 for hook in hooks:
     hook.remove()
 
-# ---------------------------- postprocessing ----------------------------
-layers = np.arange(num_layers + 1)
-fig, ax = plt.subplots()
-ax.plot(layers, activations_avgs, 'k')
-ax.set_yscale('log')
-plt.show()
+# ----------------------------------- postprocessing ----------------------------------
+layer_ids = np.arange(HIDDEN_LAYERS + 1)
+if not args.book:
+    fig, ax = plt.subplots()
+    ax.set_yscale("log")
+    ax.plot(layer_ids, activations_avgs, "k")
+    plt.show()
 
-for i, item in enumerate(activations_avgs):
-    print(f"{i+1}. {item:.2e}")
-
-# ------------------------- book postprocessing --------------------------
-save_csv(f'../../results/act_norms_{normalization}_{use_normalization}',
-         x=layers, y=activations_avgs)
+# -------------------------------- book postprocessing --------------------------------
+else:
+    save_csv(
+        RESULTS_DIR / f"act_norms_{NORMALIZATION}_{USE_NORMALIZATION}.csv",
+        x=layer_ids,
+        y=activations_avgs,
+    )

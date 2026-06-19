@@ -38,7 +38,7 @@ The user said "keep this minimal" — these are starting points, not exhaustive.
 - Check batch size — too small underutilizes the GPU, too large fragments memory.
 - Profile with `torch.profiler` if the bottleneck is unclear.
 - Replace Python-level loops with vectorized tensor ops.
-- Disable `cudnn.deterministic` only if reproducibility is **not** required (rare in this repo — reproducibility is a hard rule, see `python_hard_rules`).
+- Disable `cudnn.deterministic` only if reproducibility is **not** required (rare in this repo — reproducibility is a hard rule, see `neuralmech-style`).
 - For data loading: use `num_workers > 0`, `pin_memory=True`.
 - Cache results that are recomputed each epoch.
 
@@ -124,5 +124,5 @@ After the budget runs out:
 
 - **Don't change the experiment's intent.** If the driver is comparing two architectures, don't unify them; if it sweeps a hyperparameter, don't fix the value.
 - **Don't break the `--book` / `--animate` outputs.** A driver that feeds a book figure must remain reproducible against the printed figure (see the monorepo CLAUDE.md). If a change shifts the output, flag it before keeping the change.
-- **Don't bypass `python_hard_rules`.** The reproducibility lines, `Path(__file__).parent`, etc. stay even when optimizing.
+- **Don't bypass the `neuralmech-style` hard rules.** The reproducibility lines, `Path(__file__).parent`, etc. stay even when optimizing.
 - **One change per iteration.** Don't bundle multiple changes — you lose attribution when something works (or breaks).

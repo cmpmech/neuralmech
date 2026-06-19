@@ -13,8 +13,8 @@ from NN import MLP
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
-RESULTS_DIR = BASE_DIR / "../../results"
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -24,23 +24,23 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 device = torch.device("cpu")  # faster on cpu, because matrices are small
 
-# -------------------------- training settings ---------------------------
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
 EPOCHS = 1000  # 400
 LR = 1e-2
 REGULARIZATION = 0  # 1e0
 BATCH_SIZE = 32
-
 ENSEMBLE_SAMPLES = 100
 
 # define loss
 cost_fun = nn.MSELoss(reduction="mean")
 
-# ---------------------------- model settings ----------------------------
+# model settings
 # three hidden layers is sufficient (five to show overfitting)
-layers = [1, 24, 24, 24, 1]
-activations = [nn.GELU(approximate="tanh")] * (len(layers) - 2)
+LAYERS = [1, 24, 24, 24, 1]
+ACTIVATIONS = [nn.GELU(approximate="tanh") for _ in range(len(LAYERS) - 2)]
 
-# ----------------------------- prepare data -----------------------------
+# ------------------------------------- load data -------------------------------------
 data = np.load(DATA_DIR / "sine.npz")
 dataset = TensorDataset(
     torch.from_numpy(data["X"]).to(torch.float32),
@@ -55,19 +55,19 @@ standardizex = Standardizer(X_train, dim=0)
 standardizey = Standardizer(Y_train, dim=0)
 
 
-# ------------------------------ ensembling ------------------------------
+# -------------------------------------- ensembling -----------------------------------
 x_test = torch.linspace(-1.3, 1.3, 200).unsqueeze(1)
 
 y_preds = []
 for _ in tqdm(range(ENSEMBLE_SAMPLES), desc="ensemble"):
-# ----------------- instantiate model & prepare training -----------------
-    model = MLP(layers, activations)
+# --------------------------- instantiate model & optimizer ---------------------------
+    model = MLP(LAYERS, ACTIVATIONS)
     model.to(device)
-    init_weights(model, activations[0])
+    init_weights(model, ACTIVATIONS[0])
     optimizer = torch.optim.AdamW(model.parameters(), LR, weight_decay=REGULARIZATION)
     train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
 
-# ------------------------------- training -------------------------------
+# -------------------------------------- training -------------------------------------
     for _ in range(EPOCHS):
         model.train()
         for x, y in train_loader:
@@ -85,17 +85,18 @@ for _ in tqdm(range(ENSEMBLE_SAMPLES), desc="ensemble"):
 
     y_preds.append(y_pred_test.flatten())
 
+# ----------------------------------- postprocessing ----------------------------------
 y_preds = np.stack(y_preds)
 y_pred_mean = np.mean(y_preds, 0)
+
 if not args.book:
-# ---------------------------- postprocessing ----------------------------
     fig, ax = plt.subplots()
     ax.plot(x_test[:, 0], y_preds.T, "k", alpha=0.2)
     ax.plot(x_test[:, 0], y_pred_mean, "k")
     plt.show()
 
+# -------------------------------- book postprocessing --------------------------------
 else:
-# ------------------------- book postprocessing --------------------------
     save_csv(
         RESULTS_DIR / "mlp_sine_ensemble.csv",
         x=x_test[:, 0],

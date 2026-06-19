@@ -1,37 +1,53 @@
+import argparse
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import mlhp
 import numpy as np
 
+from postprocessing import load_cmap
+
+BASE_DIR = Path(__file__).parent
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CMAP_DIR = (BASE_DIR / "../../.cmap").resolve()
+rainbow = load_cmap(CMAP_DIR / "rainbow_desaturated.cmap")
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+args = parser.parse_args()
+
 # -------------------------------------- settings -------------------------------------
 D = 2
-polynomialDegree = 2
-nelements = [20] * D
-alphaFCM = 1e-8
 
+# discretization
+DEGREE = 2
+NELEMENTS = [20] * D
+ALPHAFCM = 1e-8
+
+# physics
+E = 210e9
+NU = 0.3
+LENGTH = 1.0
 
 # -------------------------------------- geometry -------------------------------------
-origin, max = [0.0] * D, [1.0] * D
+origin, max = [0.0] * D, [LENGTH] * D
 
 cube = mlhp.implicitCube(origin, max)
-circle = mlhp.implicitCube((0.2, 0.2), (0.4, 0.4))
-cylinder1 = mlhp.extrude(circle, -1.0, 1.0, 2) if D == 3 else circle
+hole = mlhp.implicitCube((0.2, 0.2), (0.4, 0.4))
+domain = mlhp.implicitSubtraction([cube, hole])
 
-cylinders = mlhp.implicitUnion([cylinder1])  # add the other cylinders
-domain = mlhp.implicitSubtraction([cube, cylinders])
-
-# ----------------------------------- discretzation -----------------------------------
+# ---------------------------------------- mesh ---------------------------------------
 lengths = [m - o for o, m in zip(origin, max)]
 
-baseGrid = mlhp.makeGrid(nelements, lengths, origin)
+baseGrid = mlhp.makeGrid(NELEMENTS, lengths, origin)
 
 grid = mlhp.makeRefinedGrid(
-    mlhp.makeFilteredGrid(baseGrid, domain=domain, nseedpoints=polynomialDegree + 2)
+    mlhp.makeFilteredGrid(baseGrid, domain=domain, nseedpoints=DEGREE + 2)
 )
-basis = mlhp.makeHpTrunkSpace(grid, degree=polynomialDegree, nfields=D)
+basis = mlhp.makeHpTrunkSpace(grid, degree=DEGREE, nfields=D)
 print(basis)
 
 # -------------------------------- boundary conditions --------------------------------
-# Face numbering: (2 * normalAxis + side): left -> 0, right -> 1, front -> 2, back -> 3, bottom -> 4, top -> 5
 leftDofs = mlhp.integrateDirichletDofs(mlhp.vectorField(D, [0.0] * D), basis, [0])
 dirichlet = mlhp.combineDirichletDofs([leftDofs])
 
@@ -39,17 +55,15 @@ dirichlet = mlhp.combineDirichletDofs([leftDofs])
 matrix = mlhp.allocateSparseMatrix(basis, dirichlet[0])
 vector = mlhp.allocateRhsVector(matrix)
 
-E = mlhp.scalarField(D, 210e9)
-nu = mlhp.scalarField(D, 0.3)
+E_field = mlhp.scalarField(D, E)
+nu_field = mlhp.scalarField(D, NU)
 rhs = mlhp.vectorField(D, [0.0] * D)
 
 kinematics = mlhp.smallStrainKinematics(D)
-constitutive = mlhp.planeStressMaterial(E, nu)
+constitutive = mlhp.planeStressMaterial(E_field, nu_field)
 integrand = mlhp.staticDomainIntegrand(kinematics, constitutive, rhs)
 
-quadrature = mlhp.spaceTreeQuadrature(
-    domain, depth=polynomialDegree + 1, epsilon=alphaFCM
-)
+quadrature = mlhp.spaceTreeQuadrature(domain, depth=DEGREE + 1, epsilon=ALPHAFCM)
 
 mlhp.integrateOnDomain(
     basis, integrand, [matrix, vector], quadrature=quadrature, dirichletDofs=dirichlet
@@ -72,7 +86,8 @@ internalDofs, norms = mlhp.cg(
 
 allDofs = mlhp.inflateDofs(internalDofs, dirichlet)
 
-# ---------------------------------- post-processing ----------------------------------
+# ----------------------------------- postprocessing ----------------------------------
+# data preparation mlhp
 result = mlhp.DataAccumulator()
 cellmesh = mlhp.domainCellMesh(domain, [5] * D)
 processors = [
@@ -81,15 +96,22 @@ processors = [
 ]
 mlhp.basisOutput(basis, cellmesh=cellmesh, processors=processors, output=result)
 
+# data preparation numpy
 tri = result.triangulation(mpl=True)
 data = result.data()
-disp = np.array(data[0]).reshape(-1, D)
+disp = np.array(data[0]).reshape(-1, D)  # vector field: D components per node
+stress = np.array(data[1])  # von Mises is a scalar field: one value per node
+
 
 fig, ax = plt.subplots(figsize=(5, 5), dpi=400)
 ax.tricontourf(tri, disp[:, 0], levels=64, cmap="turbo")  # x displacement
+# ax.tricontourf(tri, stress, levels=64, cmap=rainbow)
 ax.set_aspect("equal")
 ax.axis("off")
 ax.set_rasterized(True)
-fig.tight_layout(pad=0)
-plt.savefig("../../results/platewithahole.pdf", bbox_inches="tight", pad_inches=0)
-plt.show()
+fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+if args.book:
+    plt.savefig(RESULTS_DIR / "platewithahole.pdf")
+    plt.close()
+else:
+    plt.show()

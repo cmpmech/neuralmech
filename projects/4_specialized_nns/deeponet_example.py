@@ -14,8 +14,8 @@ from NN import MLP, DeepONet
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
-RESULTS_DIR = BASE_DIR / "../../results"
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -25,7 +25,8 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-# -------------------------- training settings ---------------------------
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
 # query resolution can change between train and test;
 # sensor count is fixed by the branch architecture
 TRAIN_RES = 32
@@ -39,14 +40,14 @@ BATCH_SIZE = 24
 # define loss
 cost_fun = nn.MSELoss()
 
-# ---------------------------- model settings ----------------------------
+# model settings
 P = 16  # latent basis dimension
-branch_layers = [SENSORS, 16, 16, P]
-trunk_layers = [1, 16, 16, P]
-branch_acts = [nn.GELU(approximate="tanh")] * (len(branch_layers) - 2)
-trunk_acts = [nn.GELU(approximate="tanh")] * (len(trunk_layers) - 2)
+BRANCH_LAYERS = [SENSORS, 16, 16, P]
+TRUNK_LAYERS = [1, 16, 16, P]
+BRANCH_ACTS = [nn.GELU(approximate="tanh") for _ in range(len(BRANCH_LAYERS) - 2)]
+TRUNK_ACTS = [nn.GELU(approximate="tanh") for _ in range(len(TRUNK_LAYERS) - 2)]
 
-# ----------------------------- prepare data -----------------------------
+# ------------------------------------ prepare data -----------------------------------
 data = np.load(DATA_DIR / f"deeponet_sine_{TRAIN_RES}.npz")
 G_train = torch.from_numpy(data["G"]).to(torch.float32)  # (N, S) sensor values
 X_train = torch.from_numpy(data["X"]).to(torch.float32)  # (N, R) query coords
@@ -63,15 +64,15 @@ dataset = TensorDataset(G_train, X_train, Y_train)
 standardizeg = Standardizer(G_train, dim=(0, 1))  # global per-channel
 standardizey = Standardizer(Y_train, dim=(0, 1))  # global per-channel
 
-# ----------------- instantiate model & prepare training -----------------
-branch_model = MLP(branch_layers, branch_acts)
-trunk_model = MLP(trunk_layers, trunk_acts)
+# --------------------------- instantiate model & optimizer ---------------------------
+branch_model = MLP(BRANCH_LAYERS, BRANCH_ACTS)
+trunk_model = MLP(TRUNK_LAYERS, TRUNK_ACTS)
 model = DeepONet(branch_model, trunk_model)
 model.to(device)
 optimizer = torch.optim.AdamW(model.parameters(), LR)
 train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-# ------------------------------- training -------------------------------
+# -------------------------------------- training -------------------------------------
 train_cost = [0] * EPOCHS
 tic = time.time()
 print_every = 10
@@ -102,7 +103,7 @@ toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
 
-# ---------------------------- postprocessing ----------------------------
+# ----------------------------------- postprocessing ----------------------------------
 model.eval()
 
 
@@ -134,8 +135,8 @@ if not args.book:
     ax.plot(x_test_s[idx_test], y_test_s[idx_test], "k")
     ax.plot(x_test_s[idx_test], y_test_pred[idx_test], "r--")
     plt.show()
+# -------------------------------- book postprocessing --------------------------------
 else:
-# ------------------------- book postprocessing --------------------------
     save_csv(
         RESULTS_DIR / f"deeponet_{TEST_RES}.csv",
         x=x_test_s[idx_test],

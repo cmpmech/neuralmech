@@ -14,8 +14,8 @@ from NN import DCN
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
-RESULTS_DIR = BASE_DIR / "../../results"
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -25,7 +25,8 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-# -------------------------- training settings ---------------------------
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
 TRAIN_RES = 32
 TEST_RES = 64  # 32 64 256
 
@@ -36,12 +37,12 @@ BATCH_SIZE = 24
 # define loss
 cost_fun = nn.MSELoss()
 
-# ---------------------------- model settings ----------------------------
-channels = [1, 16, 16, 16, 1]
-activations = [torch.nn.GELU(approximate="tanh")] * (len(channels) - 2)
-kernel_size, stride, padding = 3, 1, 1
+# model settings
+CHANNELS = [1, 16, 16, 16, 1]
+ACTIVATIONS = [nn.GELU(approximate="tanh") for _ in range(len(CHANNELS) - 2)]
+KERNEL_SIZE, STRIDE, PADDING = 3, 1, 1
 
-# ----------------------------- prepare data -----------------------------
+# ------------------------------------ prepare data -----------------------------------
 data = np.load(DATA_DIR / f"fno_sine_{TRAIN_RES}.npz")
 grid = data["x"]
 dataset = TensorDataset(
@@ -60,14 +61,14 @@ Y_test = torch.from_numpy(data_test["Y"]).unsqueeze(1).to(torch.float32)
 standardizex = Standardizer(X_train, dim=(0, 2))  # global (per channel)
 standardizey = Standardizer(Y_train, dim=(0, 2))  # global (per channel)
 
-# ----------------- instantiate model & prepare training -----------------
-model = DCN(channels, activations, kernel_size, stride, padding, dim=1)
+# --------------------------- instantiate model & optimizer ---------------------------
+model = DCN(CHANNELS, ACTIVATIONS, KERNEL_SIZE, STRIDE, PADDING, dim=1)
 model.to(device)
-init_weights(model, activations[0])
+init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(model.parameters(), LR)
 train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-# ------------------------------- training -------------------------------
+# -------------------------------------- training -------------------------------------
 train_cost = [0] * EPOCHS
 tic = time.time()
 print_every = 10
@@ -91,7 +92,7 @@ toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
 
-# ---------------------------- postprocessing ----------------------------
+# ----------------------------------- postprocessing ----------------------------------
 model.eval()
 
 x_train, y_train = X_train[0:1], Y_train[0:1]
@@ -111,8 +112,8 @@ if not args.book:
     ax.plot(grid_test, y_test.squeeze(), "k")
     ax.plot(grid_test, y_test_pred.cpu().squeeze(), "r--")
     plt.show()
+# -------------------------------- book postprocessing --------------------------------
 else:
-# ------------------------- book postprocessing --------------------------
     save_csv(
         RESULTS_DIR / f"cnn_neuraloperator_{TEST_RES}.csv",
         x=grid_test,

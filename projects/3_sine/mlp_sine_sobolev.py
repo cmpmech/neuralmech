@@ -15,8 +15,8 @@ from NN import MLP
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
-RESULTS_DIR = BASE_DIR / "../../results"
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -26,7 +26,8 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 device = torch.device("cpu")  # faster on cpu, because matrices are small
 
-# -------------------------- training settings ---------------------------
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
 EPOCHS = 400
 LR = 1e-2
 REGULARIZATION = 0
@@ -40,12 +41,12 @@ def cost_fun(y_pred, dy_pred, y, dy):
     return (mse(y_pred, y) + mse(dy_pred, dy)) / (len(y) + len(dy))
 
 
-# ---------------------------- model settings ----------------------------
+# model settings
 # three hidden layers is sufficient (five to show overfitting)
-layers = [1, 24, 24, 24, 1]
-activations = [nn.GELU(approximate="tanh")] * (len(layers) - 2)
+LAYERS = [1, 24, 24, 24, 1]
+ACTIVATIONS = [nn.GELU(approximate="tanh") for _ in range(len(LAYERS) - 2)]
 
-# ----------------------------- prepare data -----------------------------
+# ------------------------------------- load data -------------------------------------
 data = np.load(DATA_DIR / "sobolev_sine.npz")
 dataset = TensorDataset(
     torch.from_numpy(data["X"]).to(torch.float32),
@@ -60,17 +61,17 @@ Y_train = train_data.dataset.tensors[1][train_data.indices]
 DY_train = train_data.dataset.tensors[2][train_data.indices]
 standardizex = Standardizer(X_train, dim=0)
 standardizey = Standardizer(Y_train, dim=0)
-# standaradize dy as y
+# standardize dy as y
 
-# ----------------- instantiate model & prepare training -----------------
-model = MLP(layers, activations)
+# --------------------------- instantiate model & optimizer ---------------------------
+model = MLP(LAYERS, ACTIVATIONS)
 model.to(device)
-init_weights(model, activations[0])
+init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(model.parameters(), LR, weight_decay=REGULARIZATION)
 train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
 val_loader = DataLoader(val_data, batch_size=len(val_data), shuffle=True)
 
-# ------------------------------- training -------------------------------
+# -------------------------------------- training -------------------------------------
 train_cost = [0] * EPOCHS
 val_cost = [0] * EPOCHS
 tic = time.time()
@@ -109,7 +110,7 @@ for epoch in pbar:
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
-
+# ----------------------------------- postprocessing ----------------------------------
 x_test = torch.linspace(-1.3, 1.3, 100).unsqueeze(1)
 y_test = torch.sin(2 * torch.pi * x_test)
 model.eval()
@@ -118,8 +119,8 @@ with torch.no_grad():
     y_pred_test = standardizey.inverse(y_pred_test).cpu().numpy()
 X_val = train_data.dataset.tensors[0][val_data.indices]
 Y_val = train_data.dataset.tensors[1][val_data.indices]
+
 if not args.book:
-# ---------------------------- postprocessing ----------------------------
     fig, ax = plt.subplots()
     ax.set_yscale("log")
     ax.plot(train_cost, "k")
@@ -133,7 +134,7 @@ if not args.book:
     ax.plot(x_test, y_pred_test, "r--")
     plt.show()
 
-# ----------------------- gradient postprocessing ------------------------
+# ------------------------------- gradient postprocessing -----------------------------
 x_test.requires_grad = True
 y_pred = model(standardizex(x_test).to(device))
 y_pred = standardizey.inverse(y_pred)
@@ -156,11 +157,11 @@ if not args.book:
     ax.plot(x_test.detach(), dddy_pred.detach() / 8 / np.pi**3, "g")
     plt.show()
 
+# ---------------------------- gradient book postprocessing ---------------------------
 else:
-# --------------------- gradient book postprocessing ---------------------
     if EPOCHS == 400:
         save_csv(
-            RESULTS_DIR / f"mlp_sine_sobolev_grad.csv",
+            RESULTS_DIR / "mlp_sine_sobolev_grad.csv",
             x=x_test.detach()[:, 0],
             y=y_pred.detach()[:, 0],
             dy=dy_pred.detach()[:, 0] / 2 / np.pi,
@@ -169,7 +170,7 @@ else:
         )
 
     save_csv(
-        RESULTS_DIR / f"mlp_sine_sobolev_train.csv",
+        RESULTS_DIR / "mlp_sine_sobolev_train.csv",
         x=X_train[:, 0],
         y=Y_train[:, 0],
         dy=DY_train[:, 0] / 2 / np.pi,

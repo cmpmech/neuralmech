@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 
 @dataclass(frozen=True)
@@ -18,9 +18,9 @@ class Problem:
     yrange: tuple
 
 
-a, b = 1, 100
+# --------------------------------- objective functions -------------------------------
 rosenbrock = Problem(
-    f=lambda x: (a - x[0]) ** 2 + b * (x[1] - x[0] ** 2) ** 2,
+    f=lambda x: (1 - x[0]) ** 2 + 100 * (x[1] - x[0] ** 2) ** 2,
     guess=[3.0, 3.0],
     xrange=(-2, 4),
     yrange=(-1, 5),
@@ -39,7 +39,7 @@ ackley = Problem(
 )
 
 
-# ---------------------------- postprocessing ----------------------------
+# ----------------------------------- postprocessing ----------------------------------
 def plot(problem: Problem, name: str, book: bool, resolution: int = 800):
     x = np.linspace(*problem.xrange, resolution)
     y = np.linspace(*problem.yrange, resolution)
@@ -55,7 +55,6 @@ def plot(problem: Problem, name: str, book: bool, resolution: int = 800):
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
     if book:
-# ------------------------- book postprocessing --------------------------
         fig.savefig(RESULTS_DIR / f"{name}.png")
     else:
         plt.show()

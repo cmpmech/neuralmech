@@ -14,7 +14,7 @@ from NN import MLP, SIRENsine
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
@@ -25,13 +25,14 @@ parser.add_argument("--book", action="store_true")
 parser.add_argument("--animate", action="store_true")
 args = parser.parse_args()
 
-# -------------------------- training settings ---------------------------
-SIREN = True
-# SIREN = False
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
+USE_SIREN = True
+# USE_SIREN = False
 
-epochs = 2000
-lr = 1e-2  # 5e-3
-batch_size = 32
+EPOCHS = 2000
+LR = 1e-2  # 5e-3
+BATCH_SIZE = 32
 FREQ = 3
 SAMPLES = 256
 
@@ -39,20 +40,21 @@ SHARPNESS = 4.0
 # SHARPNESS = 8.0
 # SHARPNESS = 16.0
 
+# define loss
 cost_fun = nn.MSELoss(reduction="mean")
 
-# ---------------------------- model settings ----------------------------
-layers = [1, 32, 32, 1]
+# model settings
+LAYERS = [1, 32, 32, 1]
 OMEGA_0 = 2.0
 # OMEGA_0 = 10.0
 # OMEGA_0 = 15.0
 
-# ----------------------------- prepare data -----------------------------
+# ------------------------------------ prepare data -----------------------------------
 X = torch.linspace(-1, 1, SAMPLES).unsqueeze(1)
 Y = torch.tanh(SHARPNESS * torch.sin(2 * torch.pi * FREQ * X))
 
 dataset = TensorDataset(X, Y)
-train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
 X_train = dataset.tensors[0]
 Y_train = dataset.tensors[1]
@@ -60,24 +62,24 @@ standardizex = Standardizer(X_train, dim=0)
 standardizey = Standardizer(Y_train, dim=0)
 
 
-# -------------------- instantiate model & optimizer ---------------------
-if SIREN == True:
+# --------------------------- instantiate model & optimizer ---------------------------
+if USE_SIREN:
     activation = SIRENsine(omega_0=OMEGA_0)
 else:
     activation = nn.ReLU(inplace=True)
     # activation = nn.GELU(approximate="tanh")
 
-activations = [activation] * (len(layers) - 2) + [None]
-model = MLP(layers, activations=activations)
+activations = [activation for _ in range(len(LAYERS) - 2)] + [None]
+model = MLP(LAYERS, activations=activations)
 model.to(device)
 init_weights(model, activation)
-optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+optimizer = torch.optim.AdamW(model.parameters(), lr=LR)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
 
-# ------------------------------- training -------------------------------
-train_cost = [0.0] * epochs
+# -------------------------------------- training -------------------------------------
+train_cost = [0.0] * EPOCHS
 tic = time.time()
-pbar = tqdm(range(epochs))
+pbar = tqdm(range(EPOCHS))
 model.train()
 for epoch in pbar:
     for x, y in train_loader:
@@ -96,7 +98,7 @@ for epoch in pbar:
 toc = time.time()
 print(f"elapsed time: {toc - tic:.2f} s")
 
-# ---------------------------- postprocessing ----------------------------
+# ----------------------------------- postprocessing ----------------------------------
 f = lambda x: torch.tanh(SHARPNESS * torch.sin(2 * torch.pi * FREQ * x))
 
 x_test = torch.linspace(-1, 1, 2 * SAMPLES).unsqueeze(1)
@@ -122,9 +124,22 @@ dy_test = (
     * torch.cos(2 * torch.pi * FREQ * x_test)
 )
 
-tag = f"siren_{SHARPNESS}_{SIREN}_{OMEGA_0}"
+tag = f"siren_{SHARPNESS}_{USE_SIREN}_{OMEGA_0}"
 
-if args.book:
+if not args.book:
+    fig, ax = plt.subplots()
+    ax.plot(x_test, y_test, "k")
+    ax.plot(x_test, y_pred.detach().cpu(), "r--")
+    ax.plot(X_train, Y_train, "bo")
+    ax.set_ylim(-2, 2)
+    plt.show()
+
+    fig, ax = plt.subplots()
+    ax.plot(x_test, dy_test, "k")
+    ax.plot(x_grad.detach(), dy_pred.detach(), "r--")
+    plt.show()
+# -------------------------------- book postprocessing --------------------------------
+else:
     save_csv(
         RESULTS_DIR / f"{tag}_test.csv",
         x=x_test[:, 0],
@@ -143,15 +158,3 @@ if args.book:
         y=Y_train[:, 0],
         ypred=y_pred_train[:, 0],
     )
-else:
-    fig, ax = plt.subplots()
-    ax.plot(x_test, y_test, "k")
-    ax.plot(x_test, y_pred.detach().cpu(), "r--")
-    ax.plot(X_train, Y_train, "bo")
-    ax.set_ylim(-2, 2)
-    plt.show()
-
-    fig, ax = plt.subplots()
-    ax.plot(x_test, dy_test, "k")
-    ax.plot(x_grad.detach(), dy_pred.detach(), "r--")
-    plt.show()

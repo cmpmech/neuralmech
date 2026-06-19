@@ -10,10 +10,7 @@ The detailed conventions live in skills under `.claude/skills/`. Invoke them by 
 
 | Skill | When |
 |---|---|
-| `python_hard_rules` | Editing or writing any `.py` file — must-follow paths, seeds, model loading, imports, no aligned `=`. |
-| `unify_style` | Per-project audit (`projects/<N>_*/`) — report violations, suggest fixes. |
-| `create_project_driver` | New driver script in `projects/`. Full 10-step template, plotting palette, save formats. |
-| `create_unit_test` | Pytest tests for `NN.py`, `DL.py`, `ML.py`, `postprocessing.py` only. Drivers are not unit-tested. |
+| `neuralmech-style` | Writing or editing ANY `.py` in `code/` (drivers, library, helpers), cleaning a file to match style, or auditing a project. The authoritative rules + house style: hard rules (paths, seeds, model loading, imports, no aligned `=`), banners, ALL_CAPS constants, the 10-step structure, no legends, README shape, chapter/naming registries, and a report-only audit mode. |
 | `optimize_code` | Iterative improvement against a metric (wall clock, validation error, accuracy, memory). |
 | `pvpython` | Writing or editing pvpython/ParaView render scripts in `projects/0_pvpython/` — render pipeline, point-cloud sphere glyphs (avoiding impostor speckles), the shared `.cmap/` colormaps + Spectral pitfall, supersampled AA, transparent backgrounds, legacy-VTK point export. |
 | `mlhp` | Writing or editing any mlhp-based FEM driver — full Python API (meshes/grids, refinement, implicit CSG, hp/B-spline bases, fields, quadrature/FCM, elasticity/Poisson integrands, BCs, sparse + matrix-free assembly, solvers, postprocessing, numbering conventions) plus the `projects/16_elastic_fem/` voxel-FEM recipes (NumPy + CUDA matrix-free, CT geometry loading). |
@@ -63,7 +60,7 @@ If the relevant skill is not loaded, these basics apply everywhere:
 - **Driver flags**: `--book` (write to `results/`), `--animate` (write frames), no flag (interactive `plt.show()`).
 - **No `__main__` guard** in drivers; modules execute top-to-bottom.
 
-For the full ruleset, invoke `python_hard_rules`. For driver scaffolding, `create_project_driver`.
+For the full ruleset, driver style, and scaffolding, invoke `neuralmech-style`.
 
 ## Key library conventions
 

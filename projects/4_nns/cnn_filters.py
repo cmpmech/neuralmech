@@ -1,74 +1,64 @@
+import argparse
 from pathlib import Path
 
 import numpy as np
 import torch
 from torch import nn
 from PIL import Image
+
 from postprocessing import show_image
 
 BASE_DIR = Path(__file__).parent
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+args = parser.parse_args()
+
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-# -------------------------- training settings ---------------------------
-resolution = 256
+# -------------------------------------- settings -------------------------------------
+# model settings
+KERNEL_SIZE, STRIDE, PADDING = 3, 1, 0
 
-epochs = 2000
-lr = 2e-2
+# hand-crafted 3x3 filters; in a CNN these weights would instead be learned
+KERNELS = [
+    ("identity", [[0, 0, 0], [0, 1, 0], [0, 0, 0]]),
+    ("shift and subtract", [[0, 0, 0], [0, 1, 0], [0, 0, -1]]),
+    ("edge detection", [[-1 / 8, -1 / 8, -1 / 8], [-1 / 8, 1, -1 / 8], [-1 / 8, -1 / 8, -1 / 8]]),
+    ("embossing", [[-2, -1, 0], [-1, 1, 1], [0, 1, 2]]),
+    ("gaussian", (np.array([[1, 2, 1], [2, 4, 2], [1, 2, 1]]) / 16).tolist()),
+    ("averaging", (np.ones((3, 3)) / 9).tolist()),
+    ("random", None),  # filled with random weights below
+]
 
-# define loss
-cost_fun = nn.MSELoss()
+# ------------------------------------- load image ------------------------------------
+img = Image.open(DATA_DIR / "images/water.jpg").convert("L")
+x = torch.from_numpy(np.asarray(img)).unsqueeze(0).unsqueeze(0).to(torch.float32)
 
-# ---------------------------- model settings ----------------------------
-channels = [1, 1]
-activations = []
-kernel_size = 3
-stride = 1
-padding = 0
-
-model = nn.Conv2d(channels[0], channels[1], kernel_size, stride, padding, bias=False)
-
-for filter in range(7):
-    # ----------------------------- set filters ------------------------------
+# ----------------------------------- set filters -------------------------------------
+model = nn.Conv2d(1, 1, KERNEL_SIZE, STRIDE, PADDING, bias=False)
+for i, (name, kernel) in enumerate(KERNELS):
     with torch.no_grad():
-        if filter == 0: # identity
-            model.weight[:] = torch.tensor([[0,0,0],
-                                            [0,1,0],
-                                            [0,0,0]])
-        elif filter == 1: # shift and subtract
-            model.weight[:] = torch.tensor([[0,0,0],
-                                            [0,1,0],
-                                            [0,0,-1]])
-        elif filter == 2: # edge detection
-            model.weight[:] = torch.tensor([[-1/8,-1/8,-1/8],
-                                            [-1/8,1,-1/8],
-                                            [-1/8,-1/8,-1/8]])
-        elif filter == 3: # embossing
-            model.weight[:] = torch.tensor([[-2,-1,0],
-                                            [-1,1,1],
-                                            [0,1,2]])
-        elif filter == 4: # gaussian
-            model.weight[:] = torch.tensor([[1,2,1],
-                                            [2,4,2],
-                                            [1,2,1]]) / 16
-        elif filter == 5: # averaging
-            model.weight[:] = torch.tensor([[1,1,1],
-                                            [1,1,1],
-                                            [1,1,1]]) / 9
-        elif filter == 6: # random
-            torch.manual_seed(1) # 1
+        if kernel is None:
+            torch.manual_seed(1)
             model.weight[:] = torch.randn(model.weight.size())
-            print(model.weight)
+        else:
+            model.weight[:] = torch.tensor(kernel)
 
-    # ------------------------------ input data ------------------------------
-    img = Image.open(BASE_DIR / '../../data/images/water.jpg').convert('L')
-
-    x = torch.from_numpy(np.asarray(img)).unsqueeze(0).unsqueeze(0).to(dtype=torch.float32)
-
-    # ------------------------------ prediction ------------------------------
     with torch.no_grad():
         y = model(x)
 
-# ---------------------------- postprocessing ----------------------------
-    show_image(y[0, 0].numpy(), grayscale=True, path=BASE_DIR / f'../../results/filter_example_{filter}.jpg')
+# ----------------------------------- postprocessing ----------------------------------
+    if not args.book:
+        show_image(y[0, 0].numpy(), grayscale=True)
+    else:
+        show_image(
+            y[0, 0].numpy(),
+            grayscale=True,
+            path=RESULTS_DIR / f"filter_example_{i}.jpg",
+            close=True,
+        )

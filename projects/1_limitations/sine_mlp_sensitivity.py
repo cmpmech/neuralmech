@@ -11,11 +11,10 @@ from tqdm import tqdm
 
 from DL import Standardizer, init_weights
 from NN import MLP
-from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
-RESULTS_DIR = BASE_DIR / "../../results"
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -25,33 +24,29 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 device = torch.device("cpu")  # faster on cpu, because matrices are small
 
-# -------------------------- training settings ---------------------------
-EPOCHS = 800  # 600
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
+EPOCHS = 800
 REGULARIZATION = 0
 BATCH_SIZE = 32
 
+# define loss
 cost_fun = nn.MSELoss(reduction="mean")
 
-# ---------------------------- model settings ----------------------------
+# model settings
 # architecture fixed: only the init seed and learning rate vary
-# layers = [1, 24, 24, 24, 1]
-# layers = [1, 24, 24, 1]
-layers = [1, 12, 12, 12, 1]
-# activations = [nn.GELU(approximate="tanh")] * (len(layers) - 2)
-activations = [nn.Tanh()] * (len(layers) - 2)
-# activations = [nn.Sigmoid()] * (len(layers) - 2)
+LAYERS = [1, 12, 12, 12, 1]
+ACTIVATIONS = [nn.Tanh() for _ in range(len(LAYERS) - 2)]
 
-
-# --------------------------- sweep settings -----------------------------
-SEED_COUNT = 100  # 80  # number of distinct init seeds
-LR_RESOLUTION = 200  # 160
-# LR_RANGE = (1e-4, 1e-1)
+# sweep
+SEED_COUNT = 100
+LR_RESOLUTION = 200
 LR_RANGE = (1e-4, 1e0)
 
 seed_axis = np.arange(SEED_COUNT)
 lr_axis = np.logspace(np.log10(LR_RANGE[0]), np.log10(LR_RANGE[1]), LR_RESOLUTION)
 
-# ----------------------------- prepare data -----------------------------
+# ------------------------------------ prepare data -----------------------------------
 data = np.load(DATA_DIR / "sine.npz")
 dataset = TensorDataset(
     torch.from_numpy(data["X"]).to(torch.float32),
@@ -68,11 +63,11 @@ train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
 val_loader = DataLoader(val_data, batch_size=len(val_data), shuffle=True)
 
 
-# --------------------------- single training ----------------------------
+# ---------------------------------- single training ----------------------------------
 def train_run(seed, lr):
     torch.manual_seed(seed)  # only the init + shuffling stochasticity changes
-    model = MLP(layers, activations).to(device)
-    init_weights(model, activations[0])
+    model = MLP(LAYERS, ACTIVATIONS).to(device)
+    init_weights(model, ACTIVATIONS[0])
     optimizer = torch.optim.AdamW(model.parameters(), lr, weight_decay=REGULARIZATION)
 
     for _ in range(EPOCHS):
@@ -100,7 +95,7 @@ def train_run(seed, lr):
     return final_train, final_val
 
 
-# ------------------------------- sweep ----------------------------------
+# --------------------------------------- sweep ---------------------------------------
 train_grid = np.zeros((len(lr_axis), len(seed_axis)))
 val_grid = np.zeros((len(lr_axis), len(seed_axis)))
 tic = time.time()
@@ -116,19 +111,21 @@ pbar.close()
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
+# ----------------------------------- postprocessing ----------------------------------
 lr, seed = np.meshgrid(lr_axis, seed_axis, indexing="ij")
 
-# val_grid = lr**2 * seed**2 + 10
-# val_grid = np.random.rand(len(lr_axis), len(seed_axis)) + 10
-
-# ---------------------------- postprocessing ----------------------------
 # seeds are categorical, so use a discrete heatmap rather than a contour
 fig, ax = plt.subplots(figsize=(4, 2), dpi=200)
 ax.pcolormesh(np.log10(lr), seed, np.log10(val_grid), cmap="cividis")
-best_lr_idx = np.argmin(val_grid, axis=0)  # lowest-cost lr per seed
-ax.scatter(np.log10(lr_axis[best_lr_idx]), seed_axis, s=1, c="white")
+best_lr_ids = np.argmin(val_grid, axis=0)  # lowest-cost lr per seed
+ax.scatter(np.log10(lr_axis[best_lr_ids]), seed_axis, s=1, c="white")
 ax.axis("off")
 ax.set_rasterized(True)  # avoid contourline artifacts
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-plt.savefig(RESULTS_DIR / "robustness_sine.png")
+
+if not args.book:
+    plt.show()
+# -------------------------------- book postprocessing --------------------------------
+else:
+    fig.savefig(RESULTS_DIR / "robustness_sine.png")
 plt.close()

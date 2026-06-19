@@ -9,20 +9,22 @@ torch.backends.cudnn.deterministic = True
 rng = np.random.default_rng(0)
 
 
-# --------------------------- MLP from scratch ---------------------------
+# ---------------------------------- MLP from scratch ---------------------------------
 class MLP:
     def __init__(self, layers, activation, grad_activation):
         self.L = len(layers) - 1
 
-        self.weights = [rng.normal(layers[i], layers[i + 1]) for i in range(self.L)]
-        self.grad_weights = [None] * (self.L)
-        self.biases = [rng.normal(layers[i + 1]) for i in range(self.L)]
-        self.grad_biases = [None] * (self.L)
+        self.weights = [
+            rng.standard_normal((layers[i], layers[i + 1])) for i in range(self.L)
+        ]
+        self.biases = [rng.standard_normal(layers[i + 1]) for i in range(self.L)]
+        self.grad_weights = [None] * self.L
+        self.grad_biases = [None] * self.L
         self.act = activation
         self.grad_act = grad_activation
         self.preacts = [None] * (self.L + 1)
 
-# ------------------------- forward propagation --------------------------
+# -------------------------------- forward propagation --------------------------------
     def forward(self, x):
         self.preacts[0] = x  # stored for backward
         for l in range(self.L):
@@ -31,7 +33,7 @@ class MLP:
             x = self.act(x)
         return x
 
-# --------------------------- backpropagation ----------------------------
+# ---------------------------------- backpropagation ----------------------------------
     def backward(self, grad_cost):
         samples = len(grad_cost)
         deltal = grad_cost * self.grad_act(self.preacts[-1])
@@ -49,63 +51,47 @@ class MLP:
                 self.grad_weights[l] = self.act(self.preacts[l]).T @ deltal / samples
             self.grad_biases[l] = np.mean(deltal, 0)
 
-# ----------------------- steepest descent update ------------------------
+# ------------------------------ steepest descent update ------------------------------
     def update(self, lr):
         for i in range(len(self.weights)):
             self.weights[i] -= lr * self.grad_weights[i]
             self.biases[i] -= lr * self.grad_biases[i]
 
 
-# --------------------------- model definition ---------------------------
-layers = [1, 24, 24, 24, 1]
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
+LR = 5e-2
+EPOCHS = 200
+
+# model settings
+LAYERS = [1, 24, 24, 24, 1]
 activation = np.tanh
 grad_activation = lambda x: 1 - np.tanh(x) ** 2
 
+# define loss
 cost_fun = lambda y_pred, y: np.mean((y - y_pred) ** 2)
 grad_cost_fun = lambda y_pred, y: -2 * (y - y_pred)
 
-model = MLP(layers, activation, grad_activation)
-
-# ---------------------------- training data -----------------------------
+# ----------------------------------- training data -----------------------------------
 x = np.expand_dims(np.linspace(0, 1, 12), 1)
 y = x**2
 
-# ---------------------- forward & backpropagation -----------------------
-y_pred = model.forward(x)
-cost = cost_fun(y_pred, y)
-model.backward(grad_cost_fun(y_pred, y))
+# --------------------------------- instantiate model ---------------------------------
+model = MLP(LAYERS, activation, grad_activation)
 
-# ----------------------- validation with PyTorch ------------------------
-modeltorch = MLPtorch(layers, [nn.Tanh()] * (len(layers) - 1))
-for i, p in enumerate(modeltorch.parameters()):
+# torch model initialized with the same weights, to validate the from-scratch gradients
+model_torch = MLPtorch(LAYERS, [nn.Tanh() for _ in range(len(LAYERS) - 1)])
+for i, p in enumerate(model_torch.parameters()):
     if i % 2 == 0:
         p.data = torch.from_numpy(model.weights[i // 2].T).clone()
     else:
         p.data = torch.from_numpy(model.biases[i // 2]).clone()
 
-xtorch = torch.from_numpy(x)
-ytorch = torch.from_numpy(y)
-cost_funtorch = lambda y_pred, y: torch.mean((ytorch - y_predtorch) ** 2)
-y_predtorch = modeltorch(xtorch)
-costtorch = cost_funtorch(y_predtorch, ytorch)
-costtorch.backward()
+x_torch = torch.from_numpy(x)
+y_torch = torch.from_numpy(y)
+cost_fun_torch = lambda y_pred, y: torch.mean((y - y_pred) ** 2)
 
-# compare gradients
-# for i, p in enumerate(modeltorch.parameters()):
-#     if i % 2 == 0:
-#         print('weight')
-#         print(p.grad.data.numpy())
-#         print(model.grad_weights[i // 2].T)
-#     else:
-#         print('bias')
-#         print(p.grad.data.numpy())
-#         print(model.grad_biases[i // 2])
-
-# --------------------------- hyperparameters ----------------------------
-LR = 5e-2
-EPOCHS = 200
-
-# ------------------------------- training -------------------------------
+# -------------------------------------- training -------------------------------------
 print("from scratch")
 cost_history = np.zeros(EPOCHS)
 for epoch in range(EPOCHS):
@@ -118,30 +104,30 @@ for epoch in range(EPOCHS):
     if epoch % 10 == 0:
         print(f"cost = {cost:.2e}")
 
-# ---------------------------- training torch ----------------------------
+# ----------------------------------- training torch ----------------------------------
 print("torch")
-optimizer = torch.optim.SGD(modeltorch.parameters(), lr=LR)
-cost_historytorch = np.zeros(EPOCHS)
+optimizer = torch.optim.SGD(model_torch.parameters(), lr=LR)
+cost_history_torch = np.zeros(EPOCHS)
 for epoch in range(EPOCHS):
     optimizer.zero_grad()
-    y_predtorch = modeltorch.forward(xtorch)
-    cost = cost_funtorch(y_pred, ytorch)
-    cost_historytorch[epoch] = cost.detach()
+    y_pred_torch = model_torch.forward(x_torch)
+    cost = cost_fun_torch(y_pred_torch, y_torch)
+    cost_history_torch[epoch] = cost.detach()
     cost.backward()
     optimizer.step()
 
     if epoch % 10 == 0:
         print(f"cost = {cost:.2e}")
 
-# ---------------------------- postprocessing ----------------------------
+# ----------------------------------- postprocessing ----------------------------------
 fig, ax = plt.subplots(dpi=150)
 ax.plot(x, y, "k")
 ax.plot(x, y_pred, "r--")
-ax.plot(x, y_predtorch.detach(), "r:")
+ax.plot(x, y_pred_torch.detach(), "r:")
 plt.show()
 
 fig, ax = plt.subplots(dpi=150)
 ax.set_yscale("log")
 ax.plot(cost_history, "k")
-ax.plot(cost_historytorch, "r:")
+ax.plot(cost_history_torch, "r:")
 plt.show()

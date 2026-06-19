@@ -8,13 +8,13 @@ from scipy.interpolate import BSpline
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
 args = parser.parse_args()
 
-
+# -------------------------------------- B-spline -------------------------------------
 P = np.array(
     [[0, 0], [1, 2], [2, 2], [3, 0], [4, -2.5], [5.5, -2], [6, 0]], dtype=float
 )
@@ -29,33 +29,29 @@ knots = np.linspace(0, 1, n + degree + 1)
 # )
 print("knotvector: ", knots)
 
-
-# Basis functions: use identity matrix as control points
+# basis functions
 t = np.linspace(0, 1, 300)
-# t = np.linspace(knots[degree], knots[-degree - 1], 300)
 basis = BSpline(knots, np.eye(n), degree)(t)  # shape (300, n)
 
-fig, axes = plt.subplots(2, 1, figsize=(8, 6))
+# ----------------------------------- postprocessing ----------------------------------
+fig, ax = plt.subplots(2, 1, figsize=(8, 6))
 
 # B-spline curve
 x = BSpline(knots, P[:, 0], degree)(t)
 y = BSpline(knots, P[:, 1], degree)(t)
-axes[0].plot(x, y, "k")
-axes[0].plot(*P.T, "o--", color="gray")
-axes[0].set_title("B-spline curve")
-axes[0].set_ylim(-3, 3)
+ax[0].plot(x, y, "k")
+ax[0].plot(*P.T, "o--", color="gray")
+ax[0].set_ylim(-3, 3)
 
-# Basis functions
+# basis functions
 for i in range(n):
-    axes[1].plot(t, basis[:, i], label=f"$N_{{{i},{degree}}}$")
-axes[1].legend(loc="upper right")
-axes[1].set_title("Basis functions")
-axes[1].set_ylim(-1, 1)
+    ax[1].plot(t, basis[:, i])
+ax[1].set_ylim(-1, 1)
 
 plt.tight_layout()
 plt.show()
 
-# ---------------------------- postprocessing ----------------------------
+# -------------------------------- book postprocessing --------------------------------
 if args.book:
     save_csv(RESULTS_DIR / "bspline.csv", x=x, y=y)
     save_csv(RESULTS_DIR / "bspline_controlpoints.csv", x=P.T[0], y=P.T[1])

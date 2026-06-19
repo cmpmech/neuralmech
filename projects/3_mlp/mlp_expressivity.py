@@ -9,8 +9,8 @@ from NN import MLP
 from postprocessing import show_image
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
-ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+ANIMATION_DIR = (RESULTS_DIR / "animations/animation_frames").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -20,10 +20,9 @@ args = parser.parse_args()
 torch.manual_seed(1)
 torch.backends.cudnn.deterministic = True
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-activation_id = None
 
 
-# -------------------------------- helper --------------------------------
+# --------------------------------------- helper --------------------------------------
 def init_weights(m):
     if type(m) == torch.nn.Linear:
         torch.nn.init.uniform_(m.weight, a=-10, b=10)
@@ -36,86 +35,72 @@ class SinActivation(torch.nn.Module):
         self.w0 = w0
 
     def forward(self, x):
-        return torch.sin(self.w0 * x)  # 0.1
+        return torch.sin(self.w0 * x)
 
 
-# --------------------------- hyperparameters ----------------------------
+# -------------------------------------- settings -------------------------------------
 # depth study
-HIDDEN_LAYERS = 8  # 2  # 1, 2, 4, 8
+HIDDEN_LAYERS = 8  # 1, 2, 4, 8
 NEURONS = 128
 
 # width study
 # HIDDEN_LAYERS = 2
 # NEURONS = 337  # 30, 128, 221, 337
 
+# more samples to resolve the finer features of the deeper networks
+SAMPLES = {1: 200, 2: 400, 4: 800, 8: 1400}.get(HIDDEN_LAYERS, 400)
+
+# model settings
+ACTIVATION, ACTIVATION_ID = torch.nn.Sigmoid(), 0
+# ACTIVATION, ACTIVATION_ID = torch.nn.Tanh(), 1
+# ACTIVATION, ACTIVATION_ID = torch.nn.Mish(), 2
+# ACTIVATION, ACTIVATION_ID = SinActivation(0.05), 3
+
+LAYERS = [2] + [NEURONS] * HIDDEN_LAYERS + [3]
+ACTIVATIONS = [ACTIVATION for _ in range(HIDDEN_LAYERS)]
+
 parameters = (
     NEURONS * 8 + NEURONS * NEURONS * (HIDDEN_LAYERS - 1) + NEURONS * HIDDEN_LAYERS
 )
 print(f"parameters: {parameters}")
 
-samples = 400
-if HIDDEN_LAYERS == 1:
-    samples = 200
-elif HIDDEN_LAYERS == 2:
-    samples = 400
-elif HIDDEN_LAYERS == 4:
-    samples = 800
-elif HIDDEN_LAYERS == 8:
-    samples = 1400
-
-ACTIVATION, activation_id = torch.nn.Sigmoid(), 0
-# ACTIVATION, activation_id = torch.nn.Tanh(), 1
-# ACTIVATION, activation_id = torch.nn.Mish(), 2
-# ACTIVATION, activation_id = SinActivation(0.05), 3
-
-# ---------------------------- preprocessing -----------------------------
-layers = [2] + [NEURONS] * HIDDEN_LAYERS + [3]
-activations = [ACTIVATION] * HIDDEN_LAYERS
-
-x = torch.linspace(-1, 1, samples)
-y = torch.linspace(-1, 1, samples)
+# ------------------------------------ prepare data -----------------------------------
+x = torch.linspace(-1, 1, SAMPLES)
+y = torch.linspace(-1, 1, SAMPLES)
 x, y = torch.meshgrid(x, y, indexing="ij")
-mlp_input = torch.cat((x.flatten().unsqueeze(1), y.flatten().unsqueeze(1)), 1).to(
-    device
-)
+mlp_input = torch.stack([x.flatten(), y.flatten()], dim=1).to(device)
 
-# --------------------------- model prediction ---------------------------
-model = MLP(layers, activations)
-model.apply(init_weights)
+# --------------------------------- instantiate model ---------------------------------
+model = MLP(LAYERS, ACTIVATIONS)
 model.to(device)
+model.apply(init_weights)
 
 
+# ---------------------------------- model prediction ---------------------------------
 def predict_rgb(mlp_input, norm=None):
     with torch.no_grad():
-        z_pred = model(mlp_input).reshape(samples, samples, 3).cpu()
+        z_pred = model(mlp_input).reshape(SAMPLES, SAMPLES, 3).cpu()
     if norm is None:
         norm = torch.stack([z_pred.amin(dim=(0, 1)), z_pred.amax(dim=(0, 1))])
     z_pred = (z_pred - norm[0]) / (norm[1] - norm[0]).clamp(min=1e-8)
-
     return z_pred, norm
 
 
 z_pred, norm1 = predict_rgb(mlp_input)
 
-
 if not args.animate:
-    if args.book:
-# ------------------------- book postprocessing --------------------------
-        path = (
-            RESULTS_DIR / f"expressivity_{activation_id}_{HIDDEN_LAYERS}_{NEURONS}.png"
-        )
-        close = True
+    if not args.book:
+# ----------------------------------- postprocessing ----------------------------------
+        show_image(z_pred.numpy())
+# -------------------------------- book postprocessing --------------------------------
     else:
-# ---------------------------- postprocessing ----------------------------
-        path = None
-        close = False
+        path = RESULTS_DIR / f"expressivity_{ACTIVATION_ID}_{HIDDEN_LAYERS}_{NEURONS}.png"
+        show_image(z_pred.numpy(), path=path, close=True)
 
-    show_image(z_pred.numpy(), path=path, close=close)
-
-# --------------------- interpolation for animation ----------------------
+# ---------------------------- interpolation for animation ----------------------------
 if args.animate:
-    ALPHA_RANGE = 1.0  # interpolation
-    FRAMES = 1000  # 500
+    ALPHA_RANGE = 1.0
+    FRAMES = 1000
 
     params_shape = get_params(model)
     params1 = flatten_params(params_shape)
@@ -130,20 +115,17 @@ if args.animate:
         ]
     )
 
-    a = torch.linspace(0, ALPHA_RANGE, FRAMES)
-    for i, a in tqdm(enumerate(a), total=len(a), desc="frames"):
+    folder = f"expressivity_{ACTIVATION_ID}_{HIDDEN_LAYERS}_{NEURONS}"
+    (ANIMATION_DIR / folder).mkdir(parents=True, exist_ok=True)
+
+    alpha = torch.linspace(0, ALPHA_RANGE, FRAMES)
+    for i, a in tqdm(enumerate(alpha), total=len(alpha), desc="frames"):
         params = params1 + a * (params2 - params1)
-        set_params(
-            model,
-            unflatten_params(params, params_shape),
-        )
+        set_params(model, unflatten_params(params, params_shape))
 
-        # prediction with combined normalization
+        # interpolated prediction with the combined normalization
         z_pred, _ = predict_rgb(mlp_input, norm)
-        z_pred = z_pred.clamp(0, 1)  # will sometimes exceed
-
-        folder = f"expressivity_{activation_id}_{HIDDEN_LAYERS}_{NEURONS}"
-        (ANIMATION_DIR / folder).mkdir(parents=True, exist_ok=True)
+        z_pred = z_pred.clamp(0, 1)  # interpolated frames sometimes exceed [0, 1]
         show_image(
             z_pred.numpy(), path=ANIMATION_DIR / f"{folder}/frame_{i}.jpg", close=True
         )

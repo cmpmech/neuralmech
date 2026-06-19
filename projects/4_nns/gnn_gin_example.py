@@ -1,57 +1,61 @@
+import time
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+import matplotlib.tri as mtri
 import torch
 from torch import nn
 from torch_geometric.data import Data
-from NN import DGIN
-import matplotlib.pyplot as plt
-import matplotlib.tri as mtri
-import time
 from tqdm import tqdm
 
-# ---------------------------------- NN ----------------------------------
+from NN import DGIN
 
 BASE_DIR = Path(__file__).parent
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-# -------------------------- training settings ---------------------------
-epochs = 1000
-lr = 1e-2
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
+EPOCHS = 1000
+LR = 1e-2
 
-# define cost
+# define loss
 cost_fun = nn.MSELoss()
 
-# ---------------------------- model settings ----------------------------
-mlps = 1
-layers = [1, 24, 24, 24, 24, 1]
-mlp_layers = [layers * mlps]
-mlp_layers[0][0] = 8 # first layer
-mlp_activations = [[nn.GELU(approximate='tanh')] * (len(layers) - 2)]
+# model settings
+# one message-passing block, each parametrized by its own MLP
+MLP_LAYERS = [[8, 24, 24, 24, 24, 1]]
+MLP_ACTIVATIONS = [[nn.GELU(approximate="tanh") for _ in range(len(MLP_LAYERS[0]) - 2)]]
 
-# ----------------------------- prepare data -----------------------------
-f = lambda x1, x2 : torch.sin(14 * torch.pi * x1 * x2)
+# ------------------------------------ prepare data -----------------------------------
+f = lambda x1, x2: torch.sin(14 * torch.pi * x1 * x2)
 
-data = torch.load(BASE_DIR / '../../data/ghana_mesh.pt')
-y = Data(x=f(data['pos'][:,0], data['pos'][:,1]).unsqueeze(-1),
-         edge_index=data['edge_index'],
-         pos=data['pos']).to(device)
+data = torch.load(DATA_DIR / "ghana_mesh.pt", weights_only=False)
+y = Data(
+    x=f(data["pos"][:, 0], data["pos"][:, 1]).unsqueeze(-1),
+    edge_index=data["edge_index"],
+    pos=data["pos"],
+).to(device)
 
-# -------------------- instantiate model & optimizer ---------------------
-model = DGIN(mlp_layers, mlp_activations, train_eps=True).to(device)
+# random noise on the nodes mapped to the target
+x = Data(
+    x=torch.randn((len(data["pos"]), MLP_LAYERS[0][0])),
+    edge_index=data["edge_index"],
+    pos=data["pos"],
+).to(device)
 
-x = Data(x=torch.randn((len(data['pos']), mlp_layers[0][0])),
-         edge_index=data['edge_index'],
-         pos=data['pos']).to(device)
+# --------------------------- instantiate model & optimizer ---------------------------
+model = DGIN(MLP_LAYERS, MLP_ACTIVATIONS, train_eps=True).to(device)
+optimizer = torch.optim.AdamW(model.parameters(), LR)
 
-optimizer = torch.optim.AdamW(model.parameters(), lr)
-
-# ------------------------------- training -------------------------------
-train_cost = [0] * epochs
+# -------------------------------------- training -------------------------------------
+train_cost = [0] * EPOCHS
 tic = time.time()
 print_every = 10
-pbar = tqdm(range(epochs))
+pbar = tqdm(range(EPOCHS))
 model.train()
 for epoch in pbar:
     optimizer.zero_grad()
@@ -62,44 +66,22 @@ for epoch in pbar:
     train_cost[epoch] = cost.item()
 
     if epoch % print_every == 0:
-        pbar.set_postfix({'train': f'{train_cost[epoch]:.2e}'})
+        pbar.set_postfix({"train": f"{train_cost[epoch]:.2e}"})
 toc = time.time()
-print(f'elapsed time {toc - tic:.2f} s')
+print(f"elapsed time {toc - tic:.2f} s")
 
-# ---------------------------- postprocessing ----------------------------
-fig, ax = plt.subplots()
-ax.set_yscale('log')
-ax.plot(train_cost, 'k')
-plt.show()
-
+# ----------------------------------- postprocessing ----------------------------------
 pos = y.pos.cpu().numpy()
-edge_index = y.edge_index.cpu().numpy().T
-triangles = data['triangles'].cpu().numpy()
+triangles = data["triangles"].cpu().numpy()
+tri = mtri.Triangulation(pos[:, 0], pos[:, 1], triangles)
 
-tri = mtri.Triangulation(pos[:,0], pos[:,1], triangles)
-
-# ground truth
-fig, ax = plt.subplots(figsize=(5,10), dpi=200)
-fig.patch.set_alpha(0)
-ax.patch.set_alpha(0)
-ax.tripcolor(tri, y.x.squeeze().cpu(), shading='gouraud', cmap='Spectral')
-ax.triplot(tri, color='k', linewidth=1, alpha=0.6)
-ax.scatter(pos[:,0], pos[:,1], color='k', s=5)
-plt.gca().set_aspect('equal')
-ax.axis('off')
-ax.set_rasterized(True)
-fig.tight_layout(pad=0)
+fig, ax = plt.subplots()
+ax.set_yscale("log")
+ax.plot(train_cost, "k")
 plt.show()
 
-# prediction
-fig, ax = plt.subplots(figsize=(5,10), dpi=200)
-fig.patch.set_alpha(0)
-ax.patch.set_alpha(0)
-ax.tripcolor(tri, y_pred.detach().squeeze().cpu(), shading='gouraud', cmap='Spectral')
-ax.triplot(tri, color='k', linewidth=1, alpha=0.6)
-ax.scatter(pos[:,0], pos[:,1], color='k', s=5)
-plt.gca().set_aspect('equal')
-ax.axis('off')
-ax.set_rasterized(True)
-fig.tight_layout(pad=0)
+fig, ax = plt.subplots(figsize=(5, 10), dpi=100)
+ax.tripcolor(tri, y_pred.detach().squeeze().cpu(), shading="gouraud", cmap="Spectral")
+ax.triplot(tri, color="k", linewidth=1, alpha=0.6)
+ax.set_aspect("equal")
 plt.show()

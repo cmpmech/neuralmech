@@ -7,11 +7,12 @@ from pybliometrics.scopus import ScopusSearch
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 init()
 
-terms = {
+# -------------------------------------- settings -------------------------------------
+TERMS = {
     "artificial_intelligence": '"artificial intelligence"',
     "machine_learning": '"machine learning"',
     "deep_learning": '"deep learning"',
@@ -19,8 +20,8 @@ terms = {
     "physics-informed_neural_network": '"physics-informed neural network"',
     "artificial-general_intelligence": '"artificial general intelligence"',
 }
-years = np.arange(1940, 2026)
-cm_journals = [
+YEARS = np.arange(1940, 2026)
+CM_JOURNALS = [
     "Computer Methods in Applied Mechanics and Engineering",
     "International Journal for Numerical Methods in Engineering",
     "Computational Mechanics",
@@ -31,15 +32,18 @@ cm_journals = [
     "Computers and Structures",
 ]
 
-journal_filter = " OR ".join([f'SRCTITLE("{j}")' for j in cm_journals])
+# ------------------------------------ create data ------------------------------------
+# restrict the search to representative computational mechanics journals
+journal_filter = " OR ".join([f'SRCTITLE("{j}")' for j in CM_JOURNALS])
 results = {}
-for label, term in terms.items():
-    print(f"Fetching: {label}")
+for label, term in TERMS.items():
+    print(f"fetching {label}")
     counts = []
-    for year in years:
+    for year in YEARS:
         query = f"TITLE-ABS-KEY({term}) AND PUBYEAR = {year} AND ({journal_filter})"
         s = ScopusSearch(query, download=False)
         counts.append(s.get_results_size())
     results[label] = counts
 
-save_csv(RESULTS_DIR / "ai_in_cm.csv", year=years, **results)
+# --------------------------------------- export --------------------------------------
+save_csv(RESULTS_DIR / "ai_in_cm.csv", year=YEARS, **results)

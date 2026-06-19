@@ -1,3 +1,4 @@
+import argparse
 import time
 from pathlib import Path
 
@@ -12,12 +13,16 @@ from DL import init_weights
 from NN import MLP
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
-RESULTS_DIR = BASE_DIR / "../../results/3D"
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../results/3D").resolve()
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+args = parser.parse_args()
 
 
 # ------------------------------------ pointnet++ -------------------------------------
@@ -89,16 +94,18 @@ class PointNetPP(nn.Module):
         return self.head(x)
 
 
-# --------------------------------- training settings ---------------------------------
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
 EPOCHS = 2000
 LR = 4e-3
 
+# define loss
 cost_fun = nn.MSELoss()
 
-# ----------------------------------- model settings ----------------------------------
-activation = nn.GELU(approximate="tanh")
+# model settings
+ACTIVATION = nn.GELU(approximate="tanh")
 
-# ----------------------------------- prepare data ------------------------------------
+# ------------------------------------ prepare data -----------------------------------
 FREQ = 2.0
 f = lambda p: (
     torch.sin(FREQ * torch.pi * p[:, 0])  # * torch.sin(FREQ * torch.pi * p[:, 1])
@@ -115,9 +122,9 @@ xn = ((points - center) / scale).to(device)  # normalized coords in ~[-1, 1]
 x = xn
 y = f(xn).unsqueeze(-1)
 
-# ------------------------ instantiate model & optimizer ------------------------------
-model = PointNetPP(activation).to(device)
-init_weights(model, activation)
+# --------------------------- instantiate model & optimizer ---------------------------
+model = PointNetPP(ACTIVATION).to(device)
+init_weights(model, ACTIVATION)
 optimizer = torch.optim.AdamW(model.parameters(), LR)
 
 # -------------------------------------- training -------------------------------------
@@ -140,10 +147,11 @@ toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
 # ----------------------------------- postprocessing ----------------------------------
-fig, ax = plt.subplots()
-ax.set_yscale("log")
-ax.plot(train_cost, "k")
-plt.show()
+if not args.book:
+    fig, ax = plt.subplots()
+    ax.set_yscale("log")
+    ax.plot(train_cost, "k")
+    plt.show()
 
 truth = y.squeeze().cpu().numpy()
 pred = y_pred.detach().squeeze().cpu().numpy()

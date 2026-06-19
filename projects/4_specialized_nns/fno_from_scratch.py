@@ -1,6 +1,6 @@
 import torch
 import torch.fft
-import torch.nn as nn
+from torch import nn
 
 
 class FNOLayer1D(nn.Module):

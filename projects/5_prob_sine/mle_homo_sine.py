@@ -5,7 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
@@ -14,26 +14,27 @@ from NN import MLP
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
 args = parser.parse_args()
 
-device = torch.device("cpu")  # faster on cpu, because matrices are small
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
+device = torch.device("cpu")  # faster on cpu, because matrices are small
 
-# --------------------------- hyperparameters ----------------------------
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
 EPOCHS = 6000
 LR = 1e-2
 REGULARIZATION = 1e0
 BATCH_SIZE = 3200  # full batch
 SAMPLES = 128
-STD_NOISE = 0.2
+NOISE_STD = 0.2
 
 
-# ------------------------------ loss fun --------------------------------
+# define loss
 def gaussian_nll(mean, log_var, y_true):
     var = torch.exp(log_var)
     nll = 0.5 * torch.log(2 * torch.pi * var) + (y_true - mean) ** 2 / (2.0 * var)
@@ -42,9 +43,13 @@ def gaussian_nll(mean, log_var, y_true):
 
 cost_fun = gaussian_nll
 
-# ----------------------------- data loading -----------------------------
+# model settings
+LAYERS = [1, 32, 32, 1]
+ACTIVATIONS = [nn.GELU(approximate="tanh") for _ in range(len(LAYERS) - 2)]
+
+# ------------------------------------ create data ------------------------------------
 x_data = torch.rand(SAMPLES) * 2 - 1
-y_data = torch.sin(2 * torch.pi * x_data) + torch.randn_like(x_data) * STD_NOISE
+y_data = torch.sin(2 * torch.pi * x_data) + torch.randn_like(x_data) * NOISE_STD
 x_data, y_data = x_data.unsqueeze(1).to(device), y_data.unsqueeze(1).to(device)
 
 dataset = TensorDataset(x_data, y_data)
@@ -57,22 +62,19 @@ Y_train = train_data.dataset.tensors[1][train_data.indices]
 standardizex = Standardizer(X_train, dim=0)
 standardizey = Standardizer(Y_train, dim=0)
 
-# ----------------------- instantiate model & optimizer ------------------
-layers = [1, 32, 32, 1]
-activations = [nn.GELU(approximate="tanh")] * (len(layers) - 2)
-
-model = MLP(layers, activations).to(device)
-log_var = nn.Parameter(torch.tensor([-1.0], device=device))
-init_weights(model, activations[0])
+# --------------------------- instantiate model & optimizer ---------------------------
+model = MLP(LAYERS, ACTIVATIONS).to(device)
+log_var = nn.Parameter(torch.tensor([-1.0], device=device))  # homoscedastic noise
+init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(
     [
         {"params": model.parameters(), "weight_decay": REGULARIZATION},
-        {"params": [log_var], "weight_decay": 0.0},
-    ],  # do not penalize log_var
+        {"params": [log_var], "weight_decay": 0.0},  # do not penalize log_var
+    ],
     LR,
 )
 
-# ------------------------------- training -------------------------------
+# -------------------------------------- training -------------------------------------
 train_cost = [0] * EPOCHS
 val_cost = [0] * EPOCHS
 print_every = 10
@@ -107,7 +109,7 @@ for epoch in pbar:
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
-# ------------------------------ prediction ------------------------------
+# ----------------------------------- postprocessing ----------------------------------
 f = lambda x: torch.sin(2 * torch.pi * x)
 x_test = torch.linspace(-1.3, 1.3, 100).unsqueeze(1).to(device)
 y_test = f(x_test)
@@ -125,7 +127,6 @@ x_train_arr = train_data.dataset.tensors[0][train_data.indices].squeeze().cpu().
 y_train_arr = train_data.dataset.tensors[1][train_data.indices].squeeze().cpu().numpy()
 
 if not args.book:
-# ---------------------------- postprocessing ----------------------------
     fig, ax = plt.subplots()
     ax.set_yscale("log")
     ax.plot(train_cost, "k")
@@ -145,8 +146,8 @@ if not args.book:
     ax.plot(x_test.cpu(), mean_test, "r--")
     ax.set_ylim(-2, 2)
     plt.show()
+# -------------------------------- book postprocessing --------------------------------
 else:
-# ------------------------- book postprocessing --------------------------
     save_csv(
         RESULTS_DIR / "mle_homo.csv",
         x=x_test.squeeze().cpu().numpy(),

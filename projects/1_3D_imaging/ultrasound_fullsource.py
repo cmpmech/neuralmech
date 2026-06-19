@@ -3,16 +3,16 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from helper import born_forward, das_backproject
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
-parser.add_argument("--animate", action="store_true")
 args = parser.parse_args()
 
-# -------------------------- settings --------------------------
+# -------------------------------------- settings -------------------------------------
 # physics
 C = 1.0
 DT = 0.002
@@ -24,7 +24,6 @@ R_MAX = 0.5 * (T_MAX - T_START) / C
 
 # sensors (physical coordinates)
 SENSOR_XS = np.array([0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
-# SENSOR_XS = np.array([0.1, 0.3, 0.5, 0.7, 0.9])
 SENSOR_Y = R_MAX
 
 # defect (physical coordinates)
@@ -36,81 +35,62 @@ DEFECT_SIZE = 0.1
 NX = 100
 NY = 50
 
-# -------------------- domain + reflectivity -------------------
+# -------------------------------------- geometry -------------------------------------
 x = np.linspace(SENSOR_XS.mean() - R_MAX, SENSOR_XS.mean() + R_MAX, NX)
 y = np.linspace(0, R_MAX, NY)
 
 z = np.zeros((NX, NY))
+# reflective defect
 z[
     np.ix_(
         np.abs(x - DEFECT_X) <= DEFECT_SIZE / 2, np.abs(y - DEFECT_Y) <= DEFECT_SIZE / 2
     )
 ] = 1.0
 
-# ---------------------- forward model -------------------------
+# all sensors emit now
+sensor_positions = np.stack([SENSOR_XS, np.full_like(SENSOR_XS, SENSOR_Y)], axis=1)
+
+# ----------------------------------- forward model -----------------------------------
 t = np.arange(T_START, T_MAX, DT)
 n = len(SENSOR_XS)
-signals = np.zeros((n, n, len(t)))
 
 
 def pulse(tau):
     return np.exp(-(tau**2) / (2 * PULSE_WIDTH**2))
 
 
-for e, ex in enumerate(SENSOR_XS):
-    emitter_pos = np.array([ex, SENSOR_Y])
+signals = np.stack(
+    [
+        born_forward(sensor_positions[e], sensor_positions, z, x, y, t, C, pulse)
+        for e in range(n)
+    ]
+)
 
-    # source
-    for j, sx in enumerate(SENSOR_XS):
-        tof_direct = np.linalg.norm(np.array([sx, SENSOR_Y]) - emitter_pos) / C
-        signals[e, j] += pulse(t - tof_direct)
-
-    # reflection (Born approximation)
-    for ix in range(NX):
-        for iy in range(NY):
-            if z[ix, iy] == 0.0:
-                continue
-            cell = np.array([x[ix], y[iy]])
-            d_emit = np.linalg.norm(cell - emitter_pos)
-            for j, sx in enumerate(SENSOR_XS):
-                tof = (d_emit + np.linalg.norm(cell - np.array([sx, SENSOR_Y]))) / C
-                signals[e, j] += z[ix, iy] * pulse(t - tof)
-
-# ---------------------------- delay-and-sum -----------------------------
+# ----------------------------------- reconstruction ----------------------------------
+# delay-and-sum: remove the direct arrival, then backproject over all emitters
 signals_das = signals.copy()
-for e, ex in enumerate(SENSOR_XS):
-    emitter_pos = np.array([ex, SENSOR_Y])
-    for j, sx in enumerate(SENSOR_XS):
-        tof_direct = np.linalg.norm(np.array([sx, SENSOR_Y]) - emitter_pos) / C
+for e in range(n):
+    for j, sensor_pos in enumerate(sensor_positions):
+        tof_direct = np.linalg.norm(sensor_pos - sensor_positions[e]) / C
         signals_das[e, j] -= pulse(t - tof_direct)
 
 das = np.zeros((NX, NY))
-for ix in range(NX):
-    for iy in range(NY):
-        cell = np.array([x[ix], y[iy]])
-        for e, ex in enumerate(SENSOR_XS):
-            d_emit = np.linalg.norm(cell - np.array([ex, SENSOR_Y]))
-            for j, sx in enumerate(SENSOR_XS):
-                tof = (d_emit + np.linalg.norm(cell - np.array([sx, SENSOR_Y]))) / C
-                das[ix, iy] += np.interp(tof, t, signals_das[e, j])
+for e in range(n):
+    das += das_backproject(
+        sensor_positions[e], sensor_positions, signals_das[e], x, y, t, C
+    )
 
-# --------------------------- post-processing ----------------------------
+# ----------------------------------- postprocessing ----------------------------------
 fig, ax = plt.subplots(figsize=(NX / 10, NY / 10), dpi=100)
 ax.imshow(z.T, origin="lower", cmap="binary")
 ax.axis("off")
 ax.set_rasterized(True)
-fig.tight_layout(pad=0)
+fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+plt.show()
 
-fig2, ax2 = plt.subplots(figsize=(NX / 10, NY / 10), dpi=100)
-ax2.imshow(das.T, origin="lower", cmap="binary")
-ax2.axis("off")
-ax2.set_rasterized(True)
-fig2.tight_layout(pad=0)
-
-if args.book:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    fig.savefig(RESULTS_DIR / "ultrasoundV2_groundtruth.png")
-    fig2.savefig(RESULTS_DIR / "ultrasoundV2_prediction.png")
-    plt.close("all")
-else:
-    plt.show()
+fig, ax = plt.subplots(figsize=(NX / 10, NY / 10), dpi=100)
+ax.imshow(das.T, origin="lower", cmap="binary")
+ax.axis("off")
+ax.set_rasterized(True)
+fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+plt.show()

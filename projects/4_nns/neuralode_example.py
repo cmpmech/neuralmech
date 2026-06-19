@@ -1,52 +1,64 @@
-import numpy as np
+import argparse
 import time
-from tqdm import tqdm
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from torch import nn
-import matplotlib.pyplot as plt
+from tqdm import tqdm
+
 from DL import init_weights
-from postprocessing import save_csv
 from NN import MLP, NODE
+from postprocessing import save_csv
+
+BASE_DIR = Path(__file__).parent
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+args = parser.parse_args()
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
-device = torch.device('cpu') # faster on a cpu
+device = torch.device("cpu")  # faster on cpu, because matrices are small
+rng = np.random.default_rng(0)
 
-# -------------------------- training settings ---------------------------
-resolution = 32
-
-epochs = 700
-lr = 1e-2
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
+SAMPLES = 32
+EPOCHS = 700
+LR = 1e-2
 
 # define loss
 cost_fun = nn.MSELoss()
 
-# ---------------------------- model settings ----------------------------
-layers = [2, 32, 32, 1]
-activations = [torch.nn.GELU(approximate='tanh')] * (len(layers) - 2)
+# model settings
+# the right-hand-side network: two inputs (state and time) to one derivative
+LAYERS = [2, 32, 32, 1]
+ACTIVATIONS = [nn.GELU(approximate="tanh") for _ in range(len(LAYERS) - 2)]
 
-# ----------------------------- prepare data -----------------------------
-x_ = np.sort(np.random.uniform(0, 1, resolution))
-x_[0] = 0 # include 0 as initial condition
+# ------------------------------------ prepare data -----------------------------------
+x_ = np.sort(rng.uniform(0, 1, SAMPLES))
+x_[0] = 0  # include 0 as initial condition
 y_ = np.sin(2 * np.pi * x_)
 
 x = torch.from_numpy(x_).float().to(device)
-y = torch.from_numpy(y_).float().view(resolution, 1, 1).to(device) # (seq len, batch size, features)
-
-# initial condition
+y = torch.from_numpy(y_).float().view(SAMPLES, 1, 1).to(device)  # (seq len, batch, features)
 y0 = y[0]
-# -------------------- instantiate model & optimizer ---------------------
-rhs_model = MLP(layers, activations)
-model = NODE(rhs_model)
-model = model.to(device)
-init_weights(model, activations[0])
-optimizer = torch.optim.AdamW(model.parameters(), lr)
 
-# ------------------------------- training -------------------------------
-train_cost = [0] * epochs
+# --------------------------- instantiate model & optimizer ---------------------------
+rhs_model = MLP(LAYERS, ACTIVATIONS)
+model = NODE(rhs_model)
+model.to(device)
+init_weights(model, ACTIVATIONS[0])
+optimizer = torch.optim.AdamW(model.parameters(), LR)
+
+# -------------------------------------- training -------------------------------------
+train_cost = [0] * EPOCHS
 tic = time.time()
 print_every = 10
-pbar = tqdm(range(epochs))
+pbar = tqdm(range(EPOCHS))
 model.train()
 for epoch in pbar:
     optimizer.zero_grad()
@@ -57,30 +69,32 @@ for epoch in pbar:
     train_cost[epoch] = cost.item()
 
     if epoch % print_every == 0:
-        pbar.set_postfix({'train': f'{train_cost[epoch]:.2e}'})
+        pbar.set_postfix({"train": f"{train_cost[epoch]:.2e}"})
 toc = time.time()
-print(f'elapsed time {toc - tic:.2f} s')
+print(f"elapsed time {toc - tic:.2f} s")
 
-# ------------------------------ prediction ------------------------------
-x = torch.linspace(0,1, 256, dtype=torch.float32).to(device)
-y0 = torch.zeros((1 ,1), dtype=torch.float32).to(device)
-
+# ------------------------------------- prediction ------------------------------------
+x = torch.linspace(0, 1, 256, dtype=torch.float32).to(device)
+y0 = torch.zeros((1, 1), dtype=torch.float32).to(device)
 y_pred = model(x, y0)
 
-# --------------------------- post-processing ----------------------------
-fig, ax = plt.subplots()
-ax.set_yscale('log')
-ax.plot(train_cost, 'k')
-plt.show()
+# ----------------------------------- postprocessing ----------------------------------
+if not args.book:
+    fig, ax = plt.subplots()
+    ax.set_yscale("log")
+    ax.plot(train_cost, "k")
+    plt.show()
 
-# prediction
-fig, ax = plt.subplots()
-ax.plot(x_, y[:,0,0].cpu(), 'ko')
-ax.plot(x.cpu(), y_pred[:,0,0].detach().cpu(), 'r--')
-plt.show()
+    fig, ax = plt.subplots()
+    ax.plot(x_, y_, "ko")
+    ax.plot(x.cpu(), y_pred[:, 0, 0].detach().cpu(), "r--")
+    plt.show()
 
-# ------------------------- book postprocessing --------------------------
-save_csv('../../results/node_sine_test.csv',
-         x=x.squeeze().cpu(), y=y_pred.squeeze().detach().cpu())
-save_csv('../../results/node_sine_train.csv',
-         x=x_, y=y_)
+# -------------------------------- book postprocessing --------------------------------
+else:
+    save_csv(
+        RESULTS_DIR / "node_sine_test.csv",
+        x=x.squeeze().cpu(),
+        y=y_pred.squeeze().detach().cpu(),
+    )
+    save_csv(RESULTS_DIR / "node_sine_train.csv", x=x_, y=y_)

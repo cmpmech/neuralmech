@@ -4,11 +4,12 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from scipy.ndimage import gaussian_filter
+from helper import cg
 from tqdm import tqdm
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+DATA_DIR = (BASE_DIR / "../../data").resolve()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(42)
@@ -16,34 +17,33 @@ torch.backends.cudnn.deterministic = True
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
-parser.add_argument("--animate", action="store_true")
+# TODO could be animated
 args = parser.parse_args()
 
-# ----------------------- hyperparameters ------------------------
-DOMAIN_SIZE = 128  # 256  # 128
-N_EXAMPLES = 7  # TODO where is this?
-USE_TV = False  # True  # False  # True  # False  # True  # False: zero-fill (min-norm), True: TV-regularized ADMM
-LAM = 0.1  # 0.05  # 0.02  # TV weight
+# -------------------------------------- settings -------------------------------------
+RESOLUTION = 128
+EXAMPLES = 7
+USE_TV = False  # True
+LAMBDA = 0.1  # TV weight
 RHO = 0.1  # ADMM penalty parameter
 ADMM_ITER = 200
 CG_ITER = 20
 
-# ----------------------------- data -----------------------------
-data = torch.from_numpy(
-    np.load(BASE_DIR / f"../../data/graded_fibers_test_{DOMAIN_SIZE}.npy")
-)
+# ------------------------------------- load data -------------------------------------
+data = torch.from_numpy(np.load(DATA_DIR / f"graded_fibers_test_{RESOLUTION}.npy"))
 masks = torch.from_numpy(
-    np.load(BASE_DIR / f"../../data/graded_fiber_masks_test_{DOMAIN_SIZE}.npy")
+    np.load(DATA_DIR / f"graded_fiber_masks_test_{RESOLUTION}.npy")
 )
 data = data.to(torch.float32)
 masks = masks.to(torch.int)
 
-x_gt = data[:N_EXAMPLES].to(device)  # (N, H, W)
-masks = masks[:N_EXAMPLES].to(device)
+x_gt = data[:EXAMPLES].to(device)  # (N, H, W)
+masks = masks[:EXAMPLES].to(device)
 b = x_gt * masks  # masked observations
 
 
-# ---------------------- operators -------------------------------
+# --------------------------------------- helper --------------------------------------
+# for gradient
 def lap(x):
     # D^T D x, discrete Laplacian with periodic BC
     return (
@@ -69,62 +69,40 @@ def soft_thresh(x, t):
     return x.sign() * (x.abs() - t).clamp(min=0.0)
 
 
-def cg(A_fn, rhs, n_iter):
-    x = torch.zeros_like(rhs)
-    r = rhs.clone()
-    p = r.clone()
-    rs = (r * r).sum()
-    for _ in range(n_iter):
-        Ap = A_fn(p)
-        alpha = rs / ((p * Ap).sum() + 1e-12)
-        x = x + alpha * p
-        r = r - alpha * Ap
-        rs_new = (r * r).sum()
-        if rs_new.sqrt() < 1e-7:
-            break
-        p = r + (rs_new / (rs + 1e-12)) * p
-        rs = rs_new
-    return x
-
-
-# -------------------- reconstruction ----------------------------
-def reconstruct(b_i, mask_i):
-    # b_i, mask_i: (H, W)
+# ----------------------------------- reconstruction ----------------------------------
+def reconstruct(b_i, mask_i):  # b_i (measurement), mask_i (mask): (H, W)
     if not USE_TV:
-        return b_i.clone()  # pseudoinverse for masking = zero-fill
+        return b_i.clone()  # (trivial) pseudoinverse for masking = zero-fill
 
-    def A_fn(v):
+    def A_fn(v):  # v is reconstruction
         return mask_i * v + RHO * lap(v)  # mask^2 = mask for binary mask
 
+    # ADMM split: x-update (CG) + TV-prox (soft-threshold) + dual update (see README)
     x = b_i.clone()
-    zh, zv = fdiff(x)
+    zh, zv = fdiff(x)  # horizontal & vertical gradients
     zh, zv = zh.clone(), zv.clone()
     uh = torch.zeros_like(zh)
     uv = torch.zeros_like(zv)
 
+    # solved with augmented Lagrangian using ADMM
     for _ in range(ADMM_ITER):
         rhs = mask_i * b_i + RHO * fdiv(zh - uh, zv - uv)
-        x = cg(A_fn, rhs, CG_ITER)
+        x = cg(A_fn, rhs, CG_ITER, tol=1e-7)
 
         dh, dv = fdiff(x)
-        zh = soft_thresh(dh + uh, LAM / RHO)
-        zv = soft_thresh(dv + uv, LAM / RHO)
+        zh = soft_thresh(dh + uh, LAMBDA / RHO)
+        zv = soft_thresh(dv + uv, LAMBDA / RHO)
         uh = uh + dh - zh
         uv = uv + dv - zv
 
     return x.clamp(0.0, 1.0)
 
 
-x_rec = torch.stack(
-    [
-        reconstruct(b[i], masks[i])
-        for i in tqdm(range(N_EXAMPLES), desc="Reconstructing")
-    ]
-)
+x_rec = torch.stack([reconstruct(b[i], masks[i]) for i in tqdm(range(EXAMPLES))])
 
-# ----------------------- postprocessing -------------------------
-for i in range(N_EXAMPLES):
-    fig, ax = plt.subplots(figsize=(DOMAIN_SIZE / 100, DOMAIN_SIZE / 100), dpi=100)
+# ----------------------------------- postprocessing ----------------------------------
+for i in range(EXAMPLES):
+    fig, ax = plt.subplots(figsize=(RESOLUTION / 100, RESOLUTION / 100), dpi=100)
     ax.imshow(x_gt[i].T.cpu(), origin="lower", cmap="binary")
     ax.imshow(
         (1 - masks[i]).T.cpu(),
@@ -134,22 +112,22 @@ for i in range(N_EXAMPLES):
     )
     ax.axis("off")
     ax.set_rasterized(True)
-    fig.tight_layout(pad=0)
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.savefig(RESULTS_DIR / f"img_measurement_{i}.png")
     plt.close()
 
-    fig, ax = plt.subplots(figsize=(DOMAIN_SIZE / 100, DOMAIN_SIZE / 100), dpi=100)
+    fig, ax = plt.subplots(figsize=(RESOLUTION / 100, RESOLUTION / 100), dpi=100)
     ax.imshow(x_gt[i].T.cpu(), origin="lower", cmap="binary")
     ax.axis("off")
     ax.set_rasterized(True)
-    fig.tight_layout(pad=0)
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.savefig(RESULTS_DIR / f"img_groundtruth_{i}.png")
     plt.close()
 
-    fig, ax = plt.subplots(figsize=(DOMAIN_SIZE / 100, DOMAIN_SIZE / 100), dpi=100)
+    fig, ax = plt.subplots(figsize=(RESOLUTION / 100, RESOLUTION / 100), dpi=100)
     ax.imshow(x_rec[i].T.cpu(), origin="lower", cmap="binary", vmin=0, vmax=1)
     ax.axis("off")
     ax.set_rasterized(True)
-    fig.tight_layout(pad=0)
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.savefig(RESULTS_DIR / f"img_prediction_tv_{i}_{USE_TV}.png")
     plt.close()

@@ -14,8 +14,13 @@ args = parser.parse_args()
 
 np.random.seed(0)
 
+# -------------------------------------- settings -------------------------------------
+SAMPLES = 64
+NOISE = 0.0
+LANDSCAPE_RESOLUTION = 128
 
-# -------------------------------- helper --------------------------------
+
+# --------------------------------------- helper --------------------------------------
 def Gabor(a, b):
     return lambda x: (
         np.sin(a + 0.06 * b * x) * np.exp(-((a + 0.06 * b * x) ** 2) / 32.0)
@@ -23,7 +28,7 @@ def Gabor(a, b):
 
 
 def cost(ypred, y):
-    return np.mean((y - ypred) ** 2)
+    return np.mean((y - ypred) ** 2)  # mse
 
 
 def cost_grad(a, b, x, y):
@@ -48,7 +53,7 @@ def optimize(params0, lr, epochs, batch_size):
     params = params0.copy()
     for epoch in range(epochs):
         np.random.shuffle(indices)
-        for batch in range(samples // batch_size):
+        for batch in range(SAMPLES // batch_size):
             batchindices = indices[batch * batch_size : (batch + 1) * batch_size]
             grad = cost_grad(params[0], params[1], x[batchindices], y[batchindices])
             params -= lr * grad
@@ -64,16 +69,13 @@ def find_local_minima(a, b, landscape):
     return np.vstack([a[indices], b[indices]]).T
 
 
-# ----------------------------- fitting data -----------------------------
-samples = 64
-noise = 0.0
-x = np.random.uniform(-10, 10, samples)
-y = Gabor(0, 16)(x) + np.random.uniform(-noise, noise, samples)
+# ------------------------------------ create data ------------------------------------
+x = np.random.uniform(-10, 10, SAMPLES)
+y = Gabor(0, 16)(x) + np.random.uniform(-NOISE, NOISE, SAMPLES)
 
-# -------------------- sample optimization landscape ---------------------
-samples_landscape = 128
-a = np.linspace(-10, 10, samples_landscape)
-b = np.linspace(1e-4, 20, samples_landscape)
+# -------------------------------- sample optimization --------------------------------
+a = np.linspace(-10, 10, LANDSCAPE_RESOLUTION)
+b = np.linspace(1e-4, 20, LANDSCAPE_RESOLUTION)
 a, b = np.meshgrid(a, b, indexing="ij")
 
 cost_landscape = np.zeros_like(a)
@@ -82,18 +84,18 @@ for i in range(len(a)):
         y_pred = Gabor(a[i, j], b[i, j])(x)
         cost_landscape[i, j] = cost(y_pred, y)
 
-# ------------------------------ regularize ------------------------------
+# regularize
 b0 = 10
 regularization = np.sqrt(a**2 + (b - b0) ** 2)
 factor = 0.05
 regularized_cost = cost_landscape + factor * regularization
 
-# -------------------------- find local optima ---------------------------
+# find local minima
 minima_cost = find_local_minima(a, b, cost_landscape)
 minima_regularization = find_local_minima(a, b, regularization)
 minima_regularized_cost = find_local_minima(a, b, regularized_cost)
 
-# ---------------------------- postprocessing ----------------------------
+# ----------------------------------- postprocessing ----------------------------------
 fig, ax = plt.subplots(figsize=(4, 4), dpi=150)
 ax.contourf(a, b, cost_landscape, levels=36, cmap="cividis")
 for i in range(len(minima_cost)):
@@ -104,9 +106,9 @@ ax.set_xlim(-10, 10)
 ax.set_ylim(0, 20)
 ax.axis("off")
 ax.set_rasterized(True)
-fig.tight_layout(pad=0)
+fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    plt.savefig(RESULTS_DIR / "gabor_landscape_standard.pdf")
+    plt.savefig(RESULTS_DIR / "gabor_landscape_standard.png")
     plt.close()
 else:
     plt.show()
@@ -118,9 +120,9 @@ ax.set_xlim(-10, 10)
 ax.set_ylim(0, 20)
 ax.axis("off")
 ax.set_rasterized(True)
-fig.tight_layout(pad=0)
+fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    plt.savefig(RESULTS_DIR / "regularization_landscape.pdf")
+    plt.savefig(RESULTS_DIR / "regularization_landscape.png")
     plt.close()
 else:
     plt.show()
@@ -134,9 +136,9 @@ ax.set_xlim(-10, 10)
 ax.set_ylim(0, 20)
 ax.axis("off")
 ax.set_rasterized(True)
-fig.tight_layout(pad=0)
+fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    plt.savefig(RESULTS_DIR / "regularized_gabor_landscape.pdf")
+    plt.savefig(RESULTS_DIR / "regularized_gabor_landscape.png")
     plt.close()
 else:
     plt.show()

@@ -7,112 +7,113 @@ import numpy as np
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
 args = parser.parse_args()
 
-# ------------------------------- momentum -------------------------------
-x = np.array([0, 0.3, 0.6, 1.3, 2.5])
-y = np.array([2, 0.3, 0.8, 0, 2])
-
-coefficients = np.polyfit(x, y, 4)
+# -------------------------------------- momentum -------------------------------------
+# create function from points
+x_data = np.array([0, 0.3, 0.6, 1.3, 2.5])
+y_data = np.array([2, 0.3, 0.8, 0, 2])
+coefficients = np.polyfit(x_data, y_data, 4)
 f = np.poly1d(coefficients)
 dfdx = f.deriv()
 
-x_ = np.linspace(-0.1, 2.5, 100)
-y_ = f(x_)
+# sample function
+x = np.linspace(-0.1, 2.5, 100)
+y = f(x)
 
 # gradient descent
 alpha = 0.01
-xgd = np.zeros(16)
-xgd[0] = -0.05
-for i in range(len(xgd) - 1):
-    xgd[i + 1] = xgd[i] - alpha * dfdx(xgd[i])
+x_gd = np.zeros(16)
+x_gd[0] = -0.05
+for i in range(len(x_gd) - 1):
+    x_gd[i + 1] = x_gd[i] - alpha * dfdx(x_gd[i])
 
 # gradient descent with momentum
 alpha = 0.01
 eta = 0.9
-xgdm = np.zeros(16)
+x_gdm = np.zeros(16)
 vm = np.zeros(16)
-xgdm[0] = -0.05
-for i in range(len(xgdm) - 1):
-    vm[i + 1] = eta * vm[i] - alpha * dfdx(xgdm[i])
-    xgdm[i + 1] = xgdm[i] + vm[i + 1]
+x_gdm[0] = -0.05
+for i in range(len(x_gdm) - 1):
+    vm[i + 1] = eta * vm[i] - alpha * dfdx(x_gdm[i])
+    x_gdm[i + 1] = x_gdm[i] + vm[i + 1]
 
 if not args.book:
     fig, ax = plt.subplots()
-    ax.plot(x_, y_, "k")
-    ax.plot(xgd, f(xgd), "ro")
+    ax.plot(x, y, "k")
+    ax.plot(x_gd, f(x_gd), "ro")
     plt.show()
 
     fig, ax = plt.subplots()
-    ax.plot(x_, y_, "k")
-    ax.plot(xgdm, f(xgdm), "ro")
+    ax.plot(x, y, "k")
+    ax.plot(x_gdm, f(x_gdm), "ro")
     plt.show()
 
 if args.book:
-    save_csv(RESULTS_DIR / "momentum.csv", x=xgd, y=f(xgd), xm=xgdm, ym=f(xgdm))
+    save_csv(RESULTS_DIR / "momentum.csv", x=x_gd, y=f(x_gd), xm=x_gdm, ym=f(x_gdm))
 
-# ------------------------------- adagrad --------------------------------
-x = np.array([-1, 0, 1])
-y = np.array([2, 0, 2])
+# -------------------------------------- adagrad --------------------------------------
+x_data = np.array([-1, 0, 1])
+y_data = np.array([2, 0, 2])
 
-coefficients = np.polyfit(x, y, 2)
+coefficients = np.polyfit(x_data, y_data, 2)
 f = np.poly1d(coefficients)
 dfdx = f.deriv()
 
-x_ = np.linspace(-2, 2, 100)
-y_ = f(x_)
+x = np.linspace(-2, 2, 100)
+y = f(x)
 
 # gradient descent large learning rate
 alpha = 0.45
-xgdl = np.zeros(15)
-xgdl[0] = -1.8
-for i in range(len(xgdl) - 1):
-    xgdl[i + 1] = xgdl[i] - alpha * dfdx(xgdl[i])
+x_gdl = np.zeros(15)
+x_gdl[0] = -1.8
+for i in range(len(x_gdl) - 1):
+    x_gdl[i + 1] = x_gdl[i] - alpha * dfdx(x_gdl[i])
 
 # gradient descent small learning rate
 alpha = 0.03
-xgds = np.zeros(15)
-xgds[0] = -1.8
-for i in range(len(xgds) - 1):
-    xgds[i + 1] = xgds[i] - alpha * dfdx(xgds[i])
+x_gds = np.zeros(15)
+x_gds[0] = -1.8
+for i in range(len(x_gds) - 1):
+    x_gds[i + 1] = x_gds[i] - alpha * dfdx(x_gds[i])
 
 # adagrad
 alpha = 0.9
-xgd = np.zeros(15)
-xgd[0] = -1.8
+x_gd = np.zeros(15)
+x_gd[0] = -1.8
 gt = 0
 epsilon = 1e-8
-for i in range(len(xgd) - 1):
-    gt += dfdx(xgd[i]) ** 2
-    xgd[i + 1] = xgd[i] - alpha / np.sqrt(gt + epsilon) * dfdx(xgd[i])
+for i in range(len(x_gd) - 1):
+    gt += dfdx(x_gd[i]) ** 2
+    x_gd[i + 1] = x_gd[i] - alpha / np.sqrt(gt + epsilon) * dfdx(x_gd[i])
 
 if not args.book:
     fig, ax = plt.subplots()
-    ax.plot(x_, y_, "k")
-    ax.plot(xgdl, f(xgdl), "ro")
+    ax.plot(x, y, "k")
+    ax.plot(x_gdl, f(x_gdl), "ro")
     plt.show()
 
     fig, ax = plt.subplots()
-    ax.plot(x_, y_, "k")
-    ax.plot(xgds, f(xgds), "ro")
+    ax.plot(x, y, "k")
+    ax.plot(x_gds, f(x_gds), "ro")
     plt.show()
 
     fig, ax = plt.subplots()
-    ax.plot(x_, y_, "k")
-    ax.plot(xgd, f(xgd), "ro")
+    ax.plot(x, y, "k")
+    ax.plot(x_gd, f(x_gd), "ro")
     plt.show()
 
 if args.book:
     save_csv(
         RESULTS_DIR / "adagrad.csv",
-        xs=xgds,
-        ys=f(xgds),
-        xl=xgdl,
-        yl=f(xgdl),
-        x=xgd,
-        y=f(xgd),
+        xs=x_gds,
+        ys=f(x_gds),
+        xl=x_gdl,
+        yl=f(x_gdl),
+        x=x_gd,
+        y=f(x_gd),
     )

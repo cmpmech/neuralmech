@@ -4,25 +4,26 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 from tqdm import tqdm
 
 from NN import BayesianMLP
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
 args = parser.parse_args()
 
-device = torch.device("cpu")  # faster on cpu, because matrices are small
 torch.manual_seed(3)
 torch.backends.cudnn.deterministic = True
+device = torch.device("cpu")  # faster on cpu, because matrices are small
 
-# --------------------------- hyperparameters ----------------------------
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
 EPOCHS = 5000
 LR = 1e-2
 PRIOR_STD = 1.0  # acts as (inverse) L2 regularization
@@ -33,7 +34,7 @@ SAMPLES = 32
 INF_SAMPLES = 100
 
 
-# ------------------------------ loss fun --------------------------------
+# define loss
 def elbo(model, x, y, prior_std, noise_std, mc_samples, kl_weight):
     nll = 0
     for _ in range(mc_samples):
@@ -44,21 +45,22 @@ def elbo(model, x, y, prior_std, noise_std, mc_samples, kl_weight):
     return loss, nll / mc_samples, kl / len(x)
 
 
-# ----------------------------- data loading -----------------------------
+# model settings
+LAYERS = [1, 32, 32, 32, 1]
+ACTIVATIONS = [nn.GELU(approximate="tanh") for _ in range(len(LAYERS) - 2)]
+
+# ------------------------------------ create data ------------------------------------
 x_train1 = torch.rand(SAMPLES // 2) * (-3)
 x_train2 = torch.rand(SAMPLES // 2) * 1.5 + 1.5
 x_train = torch.cat([x_train1, x_train2], dim=0).reshape(-1, 1)
 y_train = torch.sin(x_train) + torch.randn_like(x_train) * NOISE_STD
 x_train, y_train = x_train.to(device), y_train.to(device)
 
-# ----------------------- instantiate model & optimizer ------------------
-layers = [1, 32, 32, 32, 1]
-activations = [nn.GELU(approximate="tanh")] * (len(layers) - 2)
-
-model = BayesianMLP(layers, activations).to(device)
+# --------------------------- instantiate model & optimizer ---------------------------
+model = BayesianMLP(LAYERS, ACTIVATIONS).to(device)
 optimizer = torch.optim.Adam(model.parameters(), LR)
 
-# ------------------------------- training -------------------------------
+# -------------------------------------- training -------------------------------------
 train_cost = [0] * EPOCHS
 print_every = 10
 
@@ -85,9 +87,9 @@ for epoch in pbar:
 
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
-model.eval()
 
-# ------------------------------ inference -------------------------------
+# ----------------------------------- postprocessing ----------------------------------
+model.eval()
 with torch.no_grad():
     x_test = torch.linspace(-6, 6, 200).reshape(-1, 1).to(device)
     y_preds = torch.stack([model(x_test) for _ in range(INF_SAMPLES)])
@@ -96,7 +98,6 @@ with torch.no_grad():
 total_std = torch.sqrt(std**2 + NOISE_STD**2)
 
 if not args.book:
-# ---------------------------- postprocessing ----------------------------
     fig, ax = plt.subplots()
     ax.set_yscale("log")
     ax.plot(train_cost, "k")
@@ -128,8 +129,8 @@ if not args.book:
     )
     ax.set_ylim(-2, 2)
     plt.show()
+# -------------------------------- book postprocessing --------------------------------
 else:
-# ------------------------- book postprocessing --------------------------
     save_csv(
         RESULTS_DIR / "vainf.csv",
         x=x_test.squeeze().cpu().numpy(),

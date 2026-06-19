@@ -4,28 +4,30 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import torch
 from matplotlib.colors import LogNorm
+
 from optimization_config import rosenbrock as objective
 
-torch.backends.cudnn.deterministic = True
-
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+
+torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
 args = parser.parse_args()
 
+# -------------------------------------- settings -------------------------------------
 f, xrange, yrange, guess = (
     objective.f,
     objective.xrange,
     objective.yrange,
     objective.guess,
 )
-
 EPOCHS = 2000
 
 
-# ------------------------------ optimizer -------------------------------
+# ------------------------------------- optimizer -------------------------------------
 def optimize(optimizer_cls, lr, use_closure=False, **kwargs):
     x = torch.nn.Parameter(torch.tensor(guess))
     optimizer = optimizer_cls([x], lr=lr, **kwargs)
@@ -48,7 +50,7 @@ def optimize(optimizer_cls, lr, use_closure=False, **kwargs):
     return torch.stack(trajectory)
 
 
-# ---------------------- optimization trajectories -----------------------
+# ----------------------------- optimization trajectories -----------------------------
 trajectories = {
     "steepest": optimize(torch.optim.SGD, 1e-4),
     "momentum": optimize(torch.optim.SGD, 1e-4, momentum=0.8),
@@ -59,7 +61,7 @@ trajectories = {
 }
 
 
-# ---------------------------- postprocessing ----------------------------
+# ----------------------------------- postprocessing ----------------------------------
 STYLES = [
     ("rmsprop", "w", "-", {"alpha": 0.6}),
     ("lbfgs", "c", "-", {"marker": "o"}),
@@ -93,10 +95,9 @@ def plot(xr, yr, filename, final_markers=False):
     ax.set_ylim(yy.min(), yy.max())
     ax.axis("off")
     ax.set_rasterized(True)
-    fig.tight_layout(pad=0)
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
     if args.book:
-# ------------------------- book postprocessing --------------------------
         fig.savefig(RESULTS_DIR / filename)
     else:
         plt.show()

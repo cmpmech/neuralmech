@@ -21,7 +21,7 @@ class Adam:
         return x - self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
 
 
-# ------------------------------ 1D example ------------------------------
+# ------------------------------------- 1D example ------------------------------------
 def f(x):
     return (x - 2) ** 4 + (x - 2) ** 2
 
@@ -31,7 +31,8 @@ def grad_f(x):
 
 
 GUESS = 7.0
-LR, EPOCHS = 0.3, 30
+LR = 0.3
+EPOCHS = 30
 
 x = np.array([GUESS])
 opt = Adam(lr=LR)
@@ -43,7 +44,7 @@ for _ in range(EPOCHS):
 
 print(f"minimum at x={x[0]:.6f}, f(x)={f(x).item():.2e}")
 
-# ---------------------------- postprocessing ----------------------------
+# ----------------------------------- postprocessing ----------------------------------
 xs = np.linspace(-1, 8, 400)
 fig, ax = plt.subplots()
 ax.plot(xs, f(xs), "k")

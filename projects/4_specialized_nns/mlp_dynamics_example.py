@@ -10,12 +10,12 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from DL import Standardizer, differentiate, init_weights
+from DL import init_weights
 from NN import MLP
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -24,7 +24,8 @@ args = parser.parse_args()
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 
-# --------------------------------- training settings ---------------------------------
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
 LR = 2e-3
 EPOCHS = 2000  # 20
 REGULARIZATION = 0
@@ -33,15 +34,14 @@ BATCH_SIZE = 10
 SAMPLES_TRAIN, TMAX_TRAIN = 10, 1.5
 SAMPLES_VAL, TMAX_VAL = 100, 18
 
-
 # define loss
 cost_fun = nn.MSELoss(reduction="mean")
 
-# ----------------------------------- model settings ----------------------------------
-layers = [2, 48, 48, 2]
-activations = [nn.GELU(approximate="tanh")] * (len(layers) - 2)
+# model settings
+LAYERS = [2, 48, 48, 2]
+ACTIVATIONS = [nn.GELU(approximate="tanh") for _ in range(len(LAYERS) - 2)]
 
-# ---------------------------------- data generation ----------------------------------
+# ------------------------------------ create data ------------------------------------
 k, m, du0dt = 10, 1, 1
 
 omega = np.sqrt(k / m)
@@ -65,9 +65,9 @@ def create_dataset(tmax, samples):
 train_data = create_dataset(TMAX_TRAIN, SAMPLES_TRAIN)
 val_data = create_dataset(TMAX_VAL, SAMPLES_VAL)
 
-# ------------------------ instantiate model & prepare training -----------------------
-model = MLP(layers, activations)
-init_weights(model, activations[0])
+# --------------------------- instantiate model & optimizer ---------------------------
+model = MLP(LAYERS, ACTIVATIONS)
+init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(model.parameters(), LR, weight_decay=REGULARIZATION)
 train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
 val_loader = DataLoader(val_data, batch_size=len(val_data), shuffle=True)
@@ -105,16 +105,9 @@ print(f"elapsed time {toc - tic:.2f} s")
 
 
 # ----------------------------------- postprocessing ----------------------------------
-fig, ax = plt.subplots()
-ax.set_yscale("log")
-ax.plot(train_cost, "k")
-ax.plot(val_cost, "r")
-plt.show()
-
 # trajectory prediction
 dt = 0.02
 t = np.arange(0, TMAX_VAL, dt)
-N = len(t)
 
 
 def system(t, y):
@@ -142,33 +135,39 @@ energy_kin = 0.5 / m * p**2
 energy_pot = 0.5 * k * u**2
 energy = energy_kin + energy_pot
 
-fig, ax = plt.subplots(1, 3)
-ax[0].plot(t, u, "k")
-ax[0].plot(t, p, "r")
-ax[0].plot(t_train, u_train, "ko")
-ax[0].plot(t_train, p_train, "ro")
-ax[1].plot(u, p, "k")
-ax[2].plot(t, energy, "k")
-ax[2].plot(t, energy_kin, "r")
-ax[2].plot(t, energy_pot, "b")
-plt.show()
+if not args.book:
+    fig, ax = plt.subplots()
+    ax.set_yscale("log")
+    ax.plot(train_cost, "k")
+    ax.plot(val_cost, "r")
+    plt.show()
 
-
-save_csv(
-    RESULTS_DIR / f"mlp_dynamics_{EPOCHS}.csv",
-    t=t,
-    u=u,
-    p=p,
-    e=energy,
-    ek=energy_kin,
-    ep=energy_pot,
-    utrue=u_fun(torch.from_numpy(t)),
-    dudttrue=dudt_fun(torch.from_numpy(t)),
-)
-
-save_csv(
-    RESULTS_DIR / f"mlp_dynamics_train.csv",
-    t=t_train,
-    u=u_train,
-    p=p_train,
-)
+    fig, ax = plt.subplots(1, 3)
+    ax[0].plot(t, u, "k")
+    ax[0].plot(t, p, "r")
+    ax[0].plot(t_train, u_train, "ko")
+    ax[0].plot(t_train, p_train, "ro")
+    ax[1].plot(u, p, "k")
+    ax[2].plot(t, energy, "k")
+    ax[2].plot(t, energy_kin, "r")
+    ax[2].plot(t, energy_pot, "b")
+    plt.show()
+# -------------------------------- book postprocessing --------------------------------
+else:
+    save_csv(
+        RESULTS_DIR / f"mlp_dynamics_{EPOCHS}.csv",
+        t=t,
+        u=u,
+        p=p,
+        e=energy,
+        ek=energy_kin,
+        ep=energy_pot,
+        utrue=u_fun(torch.from_numpy(t)),
+        dudttrue=dudt_fun(torch.from_numpy(t)),
+    )
+    save_csv(
+        RESULTS_DIR / "mlp_dynamics_train.csv",
+        t=t_train,
+        u=u_train,
+        p=p_train,
+    )

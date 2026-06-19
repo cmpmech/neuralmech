@@ -1,10 +1,20 @@
-import matplotlib.pyplot as plt
+from pathlib import Path
+
 import numpy as np
+
+BASE_DIR = Path(__file__).parent
+DATA_DIR = (BASE_DIR / "../../data").resolve()
 
 np.random.seed(45)
 
+# -------------------------------------- settings -------------------------------------
+RESOLUTION = 128
+MASK_RATIO = 0.6
 
-# -------------------------------- helper --------------------------------
+SAMPLES = 128
+
+
+# --------------------------------------- helper --------------------------------------
 def generate_circles(N, num_circles, radius=0.1, domain_length=1):
     domain = np.zeros((N, N))
     x = np.linspace(0, domain_length, N)
@@ -28,27 +38,26 @@ def generate_circles(N, num_circles, radius=0.1, domain_length=1):
     return domain
 
 
-# ------------------------------- settings -------------------------------
-N = 128
-MASK_RATIO = 0.6
-
-# ------------------------- generate normal data -------------------------
-samples = 128  # 256 #128 #8 #256 #64 #64 #64  # 32 #10 #200  # 500
-
+# ------------------------------------ create data ------------------------------------
 for j in range(2):
-    domains = np.zeros((samples, N, N))
-    for i in range(samples):
+    domains = np.zeros((SAMPLES, RESOLUTION, RESOLUTION))
+    for i in range(SAMPLES):
         num_circles = np.random.randint(5, 10)
         radius = np.random.uniform(0.05, 0.1)
-        domains[i] = generate_circles(N, num_circles, radius)
+        domains[i] = generate_circles(RESOLUTION, num_circles, radius)
 
-# -------------------------------- export --------------------------------
+# --------------------------------------- export --------------------------------------
     if j == 0:
-        np.save(f"../../data/graded_fibers_{N}.npy", domains)
+        np.save(DATA_DIR / f"graded_fibers_{RESOLUTION}.npy", domains)
     else:
-        np.save(f"../../data/graded_fibers_test_{N}.npy", domains)
-        n_observed = round((1 - MASK_RATIO) * N * N)
-        flat = np.zeros(N * N, dtype=bool)
+        np.save(DATA_DIR / f"graded_fibers_test_{RESOLUTION}.npy", domains)
+        n_observed = round((1 - MASK_RATIO) * RESOLUTION * RESOLUTION)
+        flat = np.zeros(RESOLUTION * RESOLUTION, dtype=bool)
         flat[:n_observed] = True
-        masks = np.array([np.random.permutation(flat).reshape(N, N) for _ in range(samples)])
-        np.save(f"../../data/graded_fiber_masks_test_{N}.npy", masks)
+        masks = np.array(
+            [
+                np.random.permutation(flat).reshape(RESOLUTION, RESOLUTION)
+                for _ in range(SAMPLES)
+            ]
+        )
+        np.save(DATA_DIR / f"graded_fiber_masks_test_{RESOLUTION}.npy", masks)

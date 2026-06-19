@@ -1,107 +1,111 @@
 from pathlib import Path
 
-from solvers.truss import (global_stiffness_matrix, edge_to_eft,
-                           multi_freedom_constraint, get_strains)
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
+import matplotlib.cm as cm
 import matplotlib.colors as colors
-import time
+import matplotlib.pyplot as plt
+import numpy as np
+
+from solvers.truss import global_stiffness_matrix
 
 BASE_DIR = Path(__file__).parent
 
-# ---------------------------- preprocessing -----------------------------
-structure = np.load(BASE_DIR / '../../data/truss.npz')
-coords = np.vstack([structure['x'], structure['y']]).T
-edges = structure['edges']
-num_nodes = int(np.sqrt(len(coords)))
+# -------------------------------------- settings -------------------------------------
+# geometry
+NUM_BAYS = 9  # bottom-chord panels (>= 3)
+SPAN = 1.0
+RISE = 0.3  # crown height of the parabolic top chord
+
+# physics
+EA = 1.0
+LOAD = 0.01  # downward point load per interior bottom node
+
+# postprocessing
+SCALING = 0.5  # deformation magnification
+
+
+# ---------------------------------------- helper -------------------------------------
+def generate_arch_truss(num_bays, span, rise):
+    dx = span / num_bays
+    bottom = [(i * dx, 0.0) for i in range(num_bays + 1)]
+    top = []
+    for i in range(1, num_bays):
+        xi = i * dx
+        top.append((xi, rise * (1.0 - ((xi - span / 2.0) / (span / 2.0)) ** 2)))
+    coords = np.array(bottom + top)
+
+    def top_id(i):
+        return num_bays + i  # top node sitting above bottom node i
+
+    edges = []
+    for i in range(num_bays):  # bottom chord
+        edges.append([i, i + 1])
+    for i in range(1, num_bays - 1):  # top chord
+        edges.append([top_id(i), top_id(i + 1)])
+    for i in range(1, num_bays):  # verticals
+        edges.append([i, top_id(i)])
+    for i in range(1, num_bays - 1):  # interior cross bracing
+        edges.append([i, top_id(i + 1)])
+        edges.append([i + 1, top_id(i)])
+    edges.append([0, top_id(1)])  # end diagonals
+    edges.append([num_bays, top_id(num_bays - 1)])
+
+    pinned = 0  # left support, fixed in x and y
+    roller = num_bays  # right support, fixed in y
+    loaded = list(range(1, num_bays))  # interior bottom nodes
+    return coords, np.array(edges), pinned, roller, loaded
+
+
+# ----------------------------------- preprocessing -----------------------------------
+coords, edges, pinned, roller, loaded = generate_arch_truss(NUM_BAYS, SPAN, RISE)
 
 lengths = np.zeros(len(edges))
 rotations = np.zeros(len(edges))
-for i, edge in enumerate(edges):  # SHOULD BE DIRECTED (NOT DOUBLED)
+for i, edge in enumerate(edges):
     dist = coords[edge[1]] - coords[edge[0]]
     lengths[i] = np.linalg.norm(dist)
-    if dist[0] != 0:
-        rotations[i] = np.atan(dist[1] / dist[0])
-    else:
-        rotations[i] = np.asin(np.sign(dist[1]))
+    rotations[i] = np.arctan2(dist[1], dist[0])
 
-# ------------------------------- physics --------------------------------
-EA = 1.
+# ----------------------------------- setup solver ------------------------------------
+K = global_stiffness_matrix(EA, edges, lengths, rotations, 2 * len(coords))
+F = np.zeros(2 * len(coords))
+for node in loaded:
+    F[2 * node + 1] = -LOAD
 
-# ----------------------------- setup solver -----------------------------
-tic = time.time()
-K = global_stiffness_matrix(EA, edges, lengths, rotations, 2*len(coords))
-F = np.zeros(2*len(coords))
-print(f'dofs: {2*len(coords):d}')
+# ------------------------------- boundary conditions ---------------------------------
+constrained = [2 * pinned, 2 * pinned + 1, 2 * roller + 1]
+for dof in constrained:
+    K[dof, :] = 0.0
+    K[:, dof] = 0.0
+    K[dof, dof] = 1.0
+    F[dof] = 0.0
 
-# ------------------------- boundary conditions --------------------------
-left_edge = edge_to_eft(np.array([i for i in range(num_nodes)]))
-right_edge = edge_to_eft(np.array([(num_nodes - 1) * num_nodes + i for i in range(num_nodes)]))
-bot_edge = edge_to_eft(np.array([i * num_nodes for i in range(num_nodes)]))
-top_edge = edge_to_eft(np.array([i * num_nodes + (num_nodes - 1) for i in range(num_nodes)]))
+# --------------------------------------- solve ---------------------------------------
+U = np.linalg.solve(K, F).reshape(-1, 2)
 
-left_bot_corner = left_edge[:2]
-
-K_full = K.copy()  # for reaction force
-F_full = F.copy()  # for reaction force
-
-w = 1e12
-# left right x
-strainxx = 1.
-K, F = multi_freedom_constraint(K, F, right_edge[0::2],
-                                left_edge[0::2], strainxx * 1., w)
-# left right y
-K, F = multi_freedom_constraint(K, F, left_edge[1::2],
-                                right_edge[1::2], 0., w)
-# bot top x
-K, F = multi_freedom_constraint(K, F, bot_edge[0::2],
-                                top_edge[0::2], 0., w)
-# bot top y
-K, F = multi_freedom_constraint(K, F, bot_edge[1::2],
-                                top_edge[1::2], 0., w)
-# constrain left bot corner
-K[left_bot_corner, :] = 0.
-K[:, left_bot_corner] = 0.
-K[left_bot_corner, left_bot_corner] = 1.
-F[left_bot_corner] = 0.
-
-toc = time.time()
-print(f'assembly time: {(toc - tic)*1e3:.2f}ms')
-
-# -------------------------------- solve ---------------------------------
-tic = time.time()
-U = np.linalg.solve(K, F)
-toc = time.time()
-print(f'solve time: {(toc - tic)*1e3:.2f}ms')
-
-R = K_full @ U - F_full
-F_eff = np.sum(R[right_edge[0::2]])
-E_eff = F_eff / strainxx  # assuming A = 1.
-print(f'effective stiffness E_x: {E_eff:.2f}')
-
-U = U.reshape(-1, 2)
-strains = get_strains(edges, U, coords, lengths)
-
-# ---------------------------- postprocessing ----------------------------
-scaling = 0.1
-deformedcoords = coords + U * scaling
+# ----------------------------------- postprocessing ----------------------------------
+deformedcoords = coords + U * SCALING
+disp_y = U[:, 1]
 
 fig, ax = plt.subplots(dpi=100)
-ax.plot(coords[:,0], coords[:,1], 'o', color='gray', markersize=4)
-ax.plot(deformedcoords[:,0], deformedcoords[:,1], 'ko', markersize=4)
+cmap = cm.turbo
+norm = colors.Normalize(vmin=disp_y.min(), vmax=disp_y.max())
+for edge in edges:
+    ax.plot(
+        [coords[edge[0], 0], coords[edge[1], 0]],
+        [coords[edge[0], 1], coords[edge[1], 1]],
+        color="k",
+        linewidth=1,
+        alpha=0.1,
+    )
+    ax.plot(
+        [deformedcoords[edge[0], 0], deformedcoords[edge[1], 0]],
+        [deformedcoords[edge[0], 1], deformedcoords[edge[1], 1]],
+        color=cmap(norm(disp_y[edge].mean())),
+        linewidth=2,
+    )
+ax.plot(deformedcoords[:, 0], deformedcoords[:, 1], "ko", markersize=4)
 
-cmap = matplotlib.colormaps['coolwarm']
-norm = colors.Normalize(vmin=-max(abs(strains)), vmax=max(abs(strains)))
-for strain, edge in zip(strains, edges):
-    # undeformed
-    ax.plot([coords[:,0][edge[0]], coords[:,0][edge[1]]],
-               [coords[:,1][edge[0]], coords[:,1][edge[1]]],
-               color='k', linewidth=1, alpha=0.1)
-    # deformed
-    ax.plot([deformedcoords[:,0][edge[0]], deformedcoords[:,0][edge[1]]],
-               [deformedcoords[:,1][edge[0]], deformedcoords[:,1][edge[1]]],
-               color=cmap(norm(strain)), linewidth=2)
-
-ax.set_aspect('equal')
+ax.set_aspect("equal")
+ax.axis("off")
+fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 plt.show()

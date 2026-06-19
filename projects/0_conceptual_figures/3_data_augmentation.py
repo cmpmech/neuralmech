@@ -10,8 +10,8 @@ from PIL import Image
 from postprocessing import show_image
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
-RESULTS_DIR = BASE_DIR / "../../results"
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -20,31 +20,35 @@ args = parser.parse_args()
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 
-# ------------------------------ load image ------------------------------
+# ------------------------------------- load image ------------------------------------
 img = Image.open(DATA_DIR / "images/pasta.jpg").convert("RGB")
 
-# ------------------------------- original -------------------------------
+# -------------------------------------- original -------------------------------------
 show_image(np.asarray(img), path=RESULTS_DIR / "augment_0.png", close=args.book)
 
-# ---------------------------- augmentations -----------------------------
+# ------------------------------------ augmentation -----------------------------------
 augment1 = T.RandomHorizontalFlip(p=1)
 show_image(
     np.asarray(augment1(img)), path=RESULTS_DIR / "augment_1.png", close=args.book
 )
+
 augment2 = T.ColorJitter(brightness=0.5, contrast=1.0, saturation=0.5, hue=0.2)
 show_image(
     np.asarray(augment2(img)), path=RESULTS_DIR / "augment_2.png", close=args.book
 )
+
 augment3 = T.CenterCrop(size=(img.size[1], img.size[1]))
 show_image(
     np.asarray(augment3(img)), path=RESULTS_DIR / "augment_3.png", close=args.book
 )
+
 augment4 = T.Compose(
     [T.RandomRotation(degrees=(90, 90)), T.CenterCrop((img.size[1], img.size[1]))]
 )
 show_image(
     np.asarray(augment4(img)), path=RESULTS_DIR / "augment_4.png", close=args.book
 )
+
 augment5 = T.GaussianBlur(kernel_size=15, sigma=15.0)
 show_image(
     np.asarray(augment5(img)), path=RESULTS_DIR / "augment_5.png", close=args.book

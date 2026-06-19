@@ -1,14 +1,13 @@
-from doctest import script_from_examples
 from pathlib import Path
 
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../data"
+DATA_DIR = (BASE_DIR / "../../data").resolve()
 
 rng = np.random.default_rng(2)
 
-# ------------------------- generation settings --------------------------
+# -------------------------------------- settings -------------------------------------
 RESOLUTIONS = [32, 64, 128, 256]
 
 SAMPLES = 128
@@ -21,7 +20,7 @@ shifts = rng.uniform(0, 1, SAMPLES)
 f = lambda x, shift: np.sin(2 * np.pi * (x + shift))
 df = lambda x, shift: 2 * np.pi * np.cos(2 * np.pi * (x + shift))
 
-# ---------------------------- generate data -----------------------------
+# ------------------------------------ create data ------------------------------------
 # sensor values are shared across resolutions (sensors are fixed by architecture)
 G = np.zeros((SAMPLES, SENSOR_SAMPLES))
 for i, shift in enumerate(shifts):

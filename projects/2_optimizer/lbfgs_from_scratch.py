@@ -1,4 +1,4 @@
-# adapated from https://doi.org/10.33774/coe-2021-qpq2j
+# adapted from https://doi.org/10.33774/coe-2021-qpq2j
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -11,10 +11,9 @@ class Lbfgs:
         self.y = np.zeros((size, k))
 
     def put(self, s, y):
-        # when less then k vector pairs are stored, we increase the index of stored pairs and add the new pair
+        # grow until full, then drop the oldest pair by rolling left and overwriting
         if self.i < self.k:
             self.i += 1
-        # otherwise we kick out the pair with the lowest index by rolling to the left and over-writing the last pair
         else:
             self.s = np.roll(self.s, -1, axis=1)
             self.y = np.roll(self.y, -1, axis=1)
@@ -23,28 +22,24 @@ class Lbfgs:
         self.y[:, self.i - 1] = y
 
     def iterate(self, q):
-
-# ----------------------------- iteration 1 ------------------------------
+        # backward pass over stored pairs
         alpha = np.zeros(self.i)
-
         for n in range(self.i - 1, -1, -1):
             rho = 1.0 / np.dot(self.y[:, n], self.s[:, n])
             alpha[n] = rho * np.dot(self.s[:, n], q)
             q = q - alpha[n] * self.y[:, n]
 
+        # forward pass building the descent direction
         r = q
-
-# ----------------------------- iteration 2 ------------------------------
         for n in range(0, self.i):
             rho = 1.0 / np.dot(self.y[:, n], self.s[:, n])
             beta = rho * np.dot(self.y[:, n], r)
             r = r + (alpha[n] - beta) * self.s[:, n]
 
-        # return the negative descent direction
         return r
 
 
-# ------------------------------ 1D example ------------------------------
+# ------------------------------------- 1D example ------------------------------------
 def f(x):
     return (x - 2) ** 4 + (x - 2) ** 2
 
@@ -78,7 +73,7 @@ for _ in range(EPOCHS):
 
 print(f"minimum at x={x[0]:.6f}, f(x)={f(x).item():.2e}")
 
-# ---------------------------- postprocessing ----------------------------
+# ----------------------------------- postprocessing ----------------------------------
 xs = np.linspace(-1, 8, 400)
 fig, ax = plt.subplots()
 ax.plot(xs, f(xs), "k", lw=1.5)
