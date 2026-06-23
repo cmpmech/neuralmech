@@ -71,15 +71,15 @@ class FPModule(nn.Module):
 class PointNetPP(nn.Module):
     def __init__(self, activation):
         super().__init__()
-        self.sa1 = SAModule(0.5, 0.2, MLP([3, 32, 32], [activation, activation]))
-        self.sa2 = SAModule(0.25, 0.4, MLP([32 + 3, 64, 64], [activation, activation]))
-        self.sa3 = GlobalSAModule(MLP([64 + 3, 128, 128], [activation, activation]))
+        self.sa1 = SAModule(0.5, 0.2, MLP([3, 32, 32], post_modules=[activation, activation]))
+        self.sa2 = SAModule(0.25, 0.4, MLP([32 + 3, 64, 64], post_modules=[activation, activation]))
+        self.sa3 = GlobalSAModule(MLP([64 + 3, 128, 128], post_modules=[activation, activation]))
 
-        self.fp3 = FPModule(3, MLP([128 + 64, 64], [activation]))
-        self.fp2 = FPModule(3, MLP([64 + 32, 32], [activation]))
-        self.fp1 = FPModule(3, MLP([32, 32], [activation]))
+        self.fp3 = FPModule(3, MLP([128 + 64, 64], post_modules=[activation]))
+        self.fp2 = FPModule(3, MLP([64 + 32, 32], post_modules=[activation]))
+        self.fp1 = FPModule(3, MLP([32, 32], post_modules=[activation]))
 
-        self.head = MLP([32, 64, 1], [activation, None])
+        self.head = MLP([32, 64, 1], post_modules=[activation, None])
 
     def forward(self, pos):
         batch = torch.zeros(pos.shape[0], dtype=torch.long, device=pos.device)

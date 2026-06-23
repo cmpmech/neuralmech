@@ -9,6 +9,7 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 import time
 from pathlib import Path
 
+import cmasher as cmr
 import matplotlib.pyplot as plt
 import mlhp
 import numpy as np
@@ -17,15 +18,12 @@ import scipy.sparse
 import torch
 from tqdm import tqdm
 
+from postprocessing import load_cmap
 from solvers.optimization import ComplexStructuredFEM
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
-ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_helmholtz_adamV2"
-
-torch.manual_seed(2)
-torch.backends.cudnn.deterministic = True
-device = torch.device("cpu")
+ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_helmholtz_adam"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -33,58 +31,55 @@ parser.add_argument("--animate", action="store_true")
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
-# ceiling acoustic topology optimization (Herrmann et al. 2024, Fig. 1 / Table 1),
-# unconstrained Adam variant: distribute aluminium in a ceiling band to suppress the
-# sound a harmonic point source radiates into a target box in the opposite corner. no
-# volume constraint -- the sound pressure is minimized directly with Adam
+# ceiling acoustic topology optimization
 
-# geometry (metres)
+# geometry & objective
 LENGTHS = [18.0, 9.0]
 SOURCE_CENTER = [2.0, 2.0]  # harmonic point source (bottom-left)
-SOURCE_WIDTH = 0.3  # Gaussian regularisation of the point source
-CEILING_HEIGHT = 2.0  # h_c: ceiling design band occupies the top of the domain
-TARGET_CENTER = [16.0, 2.0]  # Omega_s: quiet box (bottom-right)
+SOURCE_WIDTH = 0.3  # Gaussian emulation of the point source
+CEILING_HEIGHT = 1.0
+TARGET_CENTER = [16.0, 2.0]  # Omega_s: quiet box
 TARGET_SIZE = [2.0, 2.0]
-BAND_LO, BAND_HI = LENGTHS[1] - CEILING_HEIGHT, LENGTHS[1]
-TARGET_LO = [
+
+ceil_min, ceil_max = LENGTHS[1] - CEILING_HEIGHT, LENGTHS[1]
+target_min = [
     TARGET_CENTER[0] - TARGET_SIZE[0] / 2,
     TARGET_CENTER[1] - TARGET_SIZE[1] / 2,
 ]
-TARGET_HI = [
+target_max = [
     TARGET_CENTER[0] + TARGET_SIZE[0] / 2,
     TARGET_CENTER[1] + TARGET_SIZE[1] / 2,
 ]
 
 # discretization
-NX, NY = 144, 72  # 432, 216  # 144, 72  # 432, 216  # 144, 72  # 432, 216
+NX, NY = 432, 216  # 144, 72
 SUB_VOXELS = 4
-DEGREE = 2
-QUAD_ORDER = DEGREE + 1
+DEGREE = 2  # not sufficient
+QUAD_ORDER = DEGREE + 1  # integration
 
-# physics: linear interpolation of inverse mass density & bulk modulus (air <-> aluminium)
-RHO1, RHO2 = 1.204, 2643.0  # mass density [kg/m^3]: air, aluminium
-KAPPA1, KAPPA2 = 1.419e5, 6.87e10  # bulk modulus [N/m^2]: air, aluminium
+# physics
+RHO1, RHO2 = 1.204, 2643.0  # air, aluminium
+KAPPA1, KAPPA2 = 1.419e5, 6.87e10
 RHO_RATIO, KAPPA_RATIO = RHO1 / RHO2, KAPPA1 / KAPPA2
-FREQ = 69.43  # excitation frequency [Hz] (a domain resonance)
-OMEGA = 2.0 * np.pi * FREQ / np.sqrt(KAPPA1 / RHO1)  # normalised wavenumber omega-tilde
-DAMP = 0.01  # mass-proportional damping coefficient eta_d
-SOURCE_AMP = 10.0  # source amplitude s-hat [Pa/m^2]
-P0 = 2e-6  # reference pressure for the sound pressure level [Pa]
+# FREQ = 34.39
+FREQ = 69.43
+# FREQ = 95.37
+OMEGA = 2.0 * np.pi * FREQ / np.sqrt(KAPPA1 / RHO1)
+DAMP = 0.01
+SOURCE_AMP = 10.0
+P0 = 20e-6  # reference pressure
 RMIN = 2
 
-# post-processing
+# postprocessing
 THRESHOLD = 0.5
 
-# optimization with Adam and beta-continuation
+# optimization (Adam)
 MAX_ITER = 300
-LR = 5e-2  # Adam step size
-INITIAL_GUESS = (
-    0.6  # 0.5  # uniform start (the reference grid-searches this; we fix it)
-)
-ETA = 0.5  # single projection threshold (no robust min-max without a volume constraint)
-BETA0 = 1.0  # initial projection sharpness
-BETA_GROWTH = 1.02  # multiplicative beta growth applied every iteration (reference scheme)
-BETA_MAX = 75.0
+LR = 5e-2  # 1e-1
+INITIAL_GUESS = 1.0
+ETA = 0.5  # projection
+BETA_MAX = 200.0  # beta-continuation
+BETA_GROWTH = 1.02
 
 # ---------------------------------------- mesh ---------------------------------------
 assert NX % SUB_VOXELS == 0 and NY % SUB_VOXELS == 0, (
@@ -99,7 +94,7 @@ ndof = basis.ndof()
 efts = np.array(basis.locationMaps())
 
 # --------------------------- preintegrate reference element --------------------------
-# stiffness K_e = int(grad N . grad N) and mass M_e = int(N N), scaled independently
+# "hack" differing from how helmholtz2D.py handles helmholtz: using K, M directly
 mesh_local = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1, 1], lengths=elem_lengths))
 basis_local = mlhp.makeHpTensorSpace(mesh_local, degree=DEGREE, nfields=1)
 
@@ -122,7 +117,6 @@ M_locals = mlhp.integratePartitionMatrices(
 domain = mlhp.implicitCube([0.0, 0.0], LENGTHS)
 no_bc = mlhp.combineDirichletDofs([])
 
-# consistent load vector of the real point source: f = int(g N)
 r2 = f"((x - {SOURCE_CENTER[0]})**2 + (y - {SOURCE_CENTER[1]})**2)"
 gaussian = mlhp.scalarField(2, f"exp(-{r2} / (2 * {SOURCE_WIDTH}**2))")
 m = mlhp.allocateSparseMatrix(basis, no_bc[0])
@@ -136,8 +130,7 @@ mlhp.integrateOnDomain(
 )
 force = (SOURCE_AMP * np.asarray(v)).astype(np.complex128)
 
-# target mass matrix Q (objective is the mean square sound pressure over the box)
-target_box = mlhp.implicitCube(TARGET_LO, TARGET_HI)
+target_box = mlhp.implicitCube(target_min, target_max)
 mq = mlhp.allocateSparseMatrix(basis, no_bc[0])
 mlhp.integrateOnDomain(
     basis,
@@ -154,25 +147,19 @@ Q = scipy.sparse.csr_matrix(
     ),
     shape=tuple(mq.shape),
 )
-Q = Q / float(Q.sum())  # normalise so the objective is the mean square pressure
+Q = Q / float(Q.sum())
 
 # --------------------------- FEM assembly & solver helpers ---------------------------
-# homogeneous Neumann everywhere, so every dof is free; the system is assembled natively
-# as an N x N complex matrix (not a 2N x 2N real block) and its LU is reused for the
-# adjoint since S is complex-symmetric (S^H = conj(S))
 free = np.arange(ndof)
 fem = ComplexStructuredFEM(efts, free, ndof, K_locals, M_locals, (NX, NY), SUB_VOXELS)
 
-# complex system S = rho^-1 K - (i omega eta_d + omega^2) kappa^-1 M with rho^-1 and
-# kappa^-1 linearly interpolated in the design. dS/dzeta is constant, so it is
-# preintegrated once and contracted per voxel for the adjoint sensitivity
 MASS_COEFF = 1j * OMEGA * DAMP + OMEGA**2
 dS_local = (RHO_RATIO - 1.0) * K_locals - MASS_COEFF * (KAPPA_RATIO - 1.0) * M_locals
 
 
-def build_system(zeta):  # complex Helmholtz system matrix
-    rho_inv = 1.0 + zeta * (RHO_RATIO - 1.0)  # rho-tilde^-1 (stiffness coefficient)
-    kappa_inv = 1.0 + zeta * (KAPPA_RATIO - 1.0)  # kappa-tilde^-1 (mass coefficient)
+def build_system(zeta):
+    rho_inv = 1.0 + zeta * (RHO_RATIO - 1.0)
+    kappa_inv = 1.0 + zeta * (KAPPA_RATIO - 1.0)
     return fem.system(rho_inv, -MASS_COEFF * kappa_inv)
 
 
@@ -202,10 +189,8 @@ def dprojection(x_tilde, beta, eta):  # d(projection)/d(x_tilde)
 
 
 # ------------------------------------ design region ----------------------------------
-# material is confined to the ceiling band; everything else is passive air. the design
-# lives on the (NX, NY) voxel grid, so the band is built from voxel centroids
 voxel_y = (np.arange(NY) + 0.5) * LENGTHS[1] / NY  # y-centroid of each design-voxel row
-band = np.tile((voxel_y >= BAND_LO) & (voxel_y <= BAND_HI), (NX, 1)).astype(float)
+band = np.tile((voxel_y >= ceil_min) & (voxel_y <= ceil_max), (NX, 1)).astype(float)
 n_band = band.sum()
 active = np.flatnonzero(band.ravel())  # design variables live only inside the band
 
@@ -236,18 +221,15 @@ def sensitivity(zeta, x_tilde, beta, eta):  # phi and dphi/dx of one projected d
 
 
 # ------------------------------------ optimization -----------------------------------
-# Adam on the raw band design with the adjoint gradient set by hand (the complex sparse
-# solve is not autodifferentiable). no volume constraint -- the sound pressure is
-# minimized directly and the design is held in [0, 1] by clamping. a single projection
-# with beta-continuation sharpens it towards 0/1
 n = active.size
-x = torch.full(
-    (n,), INITIAL_GUESS, dtype=torch.float64, device=device, requires_grad=True
-)
+x = torch.full((n,), INITIAL_GUESS, dtype=torch.float64, requires_grad=True)
 optimizer = torch.optim.Adam([x], lr=LR)
 
-beta = BETA0
+beta = 1.0
 history = []
+
+phi0 = objective(physical(density_filter(expand(x.detach().numpy())), beta, ETA))[0]
+phi0 = phi0 if phi0 > 0.0 else 1.0
 
 ANIMATION_DIR.mkdir(parents=True, exist_ok=True) if args.animate else None
 tic = time.time()
@@ -258,7 +240,7 @@ for it in pbar:
 
     phi, grad = sensitivity(rho, x_tilde, beta, ETA)
     optimizer.zero_grad()
-    x.grad = torch.from_numpy(grad.ravel()[active])
+    x.grad = torch.from_numpy(grad.ravel()[active] / phi0)
     optimizer.step()
     with torch.no_grad():
         x.clamp_(0.0, 1.0)
@@ -280,7 +262,6 @@ for it in pbar:
         plt.savefig(ANIMATION_DIR / f"frame_{it:04d}.jpg")
         plt.close()
 
-    # beta-continuation: grow the projection sharpness continuously each iteration
     beta = min(BETA_GROWTH * beta, BETA_MAX)
 
 toc = time.time()
@@ -303,7 +284,6 @@ print(
     f"thresholded  L_p {sound_level(phi_thresh):.1f} dB  vol {rho_thresh.sum() / n_band:.3f}"
 )
 
-# sound pressure level field of the thresholded design: L_p = 10 log10(|p|^2 / p0^2)
 p_re, p_im = p_thresh.real, p_thresh.imag
 postmesh = mlhp.domainCellMesh(domain, [DEGREE + 1] * 2)
 pressure = mlhp.DataAccumulator()
@@ -317,18 +297,18 @@ mlhp.basisOutput(
     output=pressure,
 )
 re, im = np.array(pressure.data()[0]), np.array(pressure.data()[1])
-spl = 10.0 * np.log10((re**2 + im**2) / P0**2 + 1e-12)  # eps avoids log(0) at nodes
-levels = np.linspace(spl.max() - 80, spl.max(), 64)  # 80 dB dynamic range
+spl = 10.0 * np.log10((re**2 + im**2) / P0**2 + 1e-12)
+levels = np.linspace(spl.max() - 60, spl.max(), 64)  # 60 dB dynamic range
 
+pressure_cmap = cmr.get_sub_cmap(cmr.fusion_r, 0.5, 1.0)
 fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
 ax.tricontourf(
     pressure.triangulation(mpl=True),
     spl,
     levels=levels,
-    cmap="hot_r",
+    cmap=pressure_cmap,
     extend="min",
 )
-# overlay the thresholded design on top of the field (air masked out -> transparent)
 design = np.ma.masked_where(rho_thresh.T < 0.5, rho_thresh.T)
 ax.imshow(
     design,
@@ -336,8 +316,8 @@ ax.imshow(
     extent=[0.0, LENGTHS[0], 0.0, LENGTHS[1]],
     cmap="binary",
     vmin=0.0,
-    vmax=1.0,
-    zorder=2,  # AxesImage defaults below the contour collections, so lift it on top
+    vmax=2.5,
+    zorder=2,
 )
 ax.set_aspect("equal")
 ax.axis("off")
@@ -345,31 +325,9 @@ ax.set_rasterized(True)
 fig.tight_layout(pad=0)
 if args.book:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    plt.savefig(
-        RESULTS_DIR / "topopt_helmholtz_adamV2_field.pdf",
-        bbox_inches="tight",
-        pad_inches=0,
-    )
+    plt.savefig(RESULTS_DIR / "topopt_helmholtz.png")
     plt.close()
 elif not args.animate:
     plt.show()
 else:
     plt.close()
-
-for field, name in (
-    (x_int, "topopt_helmholtz_adamV2"),
-    (rho_thresh, "topopt_helmholtz_adamV2_thresh"),
-):
-    fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
-    ax.imshow(field.T, origin="lower", cmap="binary", vmin=0.0, vmax=1.0)
-    ax.set_aspect("equal")
-    ax.axis("off")
-    fig.tight_layout(pad=0)
-    if args.book:
-        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-        plt.savefig(RESULTS_DIR / f"{name}.png")
-        plt.close()
-    elif not args.animate:
-        plt.show()
-    else:
-        plt.close()

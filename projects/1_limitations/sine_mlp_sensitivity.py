@@ -66,7 +66,7 @@ val_loader = DataLoader(val_data, batch_size=len(val_data), shuffle=True)
 # ---------------------------------- single training ----------------------------------
 def train_run(seed, lr):
     torch.manual_seed(seed)  # only the init + shuffling stochasticity changes
-    model = MLP(LAYERS, ACTIVATIONS).to(device)
+    model = MLP(LAYERS, post_modules=ACTIVATIONS).to(device)
     init_weights(model, ACTIVATIONS[0])
     optimizer = torch.optim.AdamW(model.parameters(), lr, weight_decay=REGULARIZATION)
 

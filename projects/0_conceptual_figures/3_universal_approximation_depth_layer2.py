@@ -23,7 +23,7 @@ layers = [1, NEURONS, 1]
 activations = [torch.nn.ReLU(inplace=True)]
 
 # --------------------------------- instantiate model ---------------------------------
-model = MLP(layers, activations)
+model = MLP(layers, post_modules=activations)
 
 # initialize weights
 with torch.no_grad():

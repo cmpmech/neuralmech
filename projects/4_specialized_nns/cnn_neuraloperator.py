@@ -62,7 +62,7 @@ standardizex = Standardizer(X_train, dim=(0, 2))  # global (per channel)
 standardizey = Standardizer(Y_train, dim=(0, 2))  # global (per channel)
 
 # --------------------------- instantiate model & optimizer ---------------------------
-model = DCN(CHANNELS, ACTIVATIONS, KERNEL_SIZE, STRIDE, PADDING, dim=1)
+model = DCN(CHANNELS, post_modules=ACTIVATIONS, kernel_size=KERNEL_SIZE, stride=STRIDE, padding=PADDING, dim=1)
 model.to(device)
 init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(model.parameters(), LR)

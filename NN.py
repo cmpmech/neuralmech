@@ -1,5 +1,4 @@
 import math
-from modulefinder import test
 
 import torch
 import torch.nn.functional as F
@@ -25,38 +24,48 @@ def get_layer_param(param, i):
 class MLP(nn.Module):
     """Multi-layer perceptron (fully connected feedforward network).
 
+    Each linear map is wrapped with optional ``pre_modules`` (applied before it)
+    and ``post_modules`` (applied after it). Normalization, activation, dropout,
+    and any other layer are passed in as plain modules through these two slots,
+    so the network never needs to know what kind of module it is handling and
+    any ordering can be expressed (e.g. moving normalization + activation into
+    ``pre_modules`` gives a pre-activation block).
+
+    Suggested ordering:
+        pre_modules[i]   normalization -> activation   (pre-activation / pre-norm
+                         blocks only; usually omitted)
+        Linear(layers[i], layers[i + 1])
+        post_modules[i]  normalization -> activation -> dropout   (the common
+                         post-activation block; activations live here by default)
+
     Args:
-        layers: List of integers specifying the size of each layer.
-            Example: [784, 256, 128, 10] creates a network with input dim 784,
-            two hidden layers of size 256 and 128, and output dim 10.
-        activations: List of activation modules to apply after each linear layer.
-            Length should be len(layers) - 1 or fewer. Use None for no activation.
-            Example: [nn.ReLU(), nn.ReLU(), None] applies ReLU after first two
-            layers and no activation after the final layer.
-        normalizations: List of normalization modules to apply before each
-            activation.
+        layers: Sizes of each layer. Example: [784, 256, 10] builds
+            Linear(784, 256) then Linear(256, 10).
+        post_modules: Per-layer modules inserted after each linear map. Entry i
+            is None (skip), a single nn.Module, or a list of modules applied in
+            order. Lists shorter than the number of layers are padded with None.
+            Activations belong here unless a pre-activation block is wanted.
+        pre_modules: Per-layer modules inserted before each linear map, same
+            element format as post_modules. Typically left empty.
     """
 
     def __init__(
         self,
         layers: list[int],
-        activations: list[nn.Module | None] | None = None,
-        normalizations: list[nn.Module | None] | None = None,
-        dropouts: list[float | None] | None = None,
+        post_modules: list[nn.Module | list[nn.Module] | None] | None = None,
+        pre_modules: list[nn.Module | list[nn.Module] | None] | None = None,
     ) -> None:
         super().__init__()
+        pre_modules = pre_modules or []
+        post_modules = post_modules or []
         modules = []
         for i in range(len(layers) - 1):
-            modules.append(nn.Linear(layers[i], layers[i + 1]))
-            if normalizations and i < len(normalizations):
-                if normalizations[i]:
-                    modules.append(normalizations[i])
-            if activations and i < len(activations):
-                if activations[i]:
-                    modules.append(activations[i])
-            if dropouts and i < len(dropouts):
-                if dropouts[i]:
-                    modules.append(nn.Dropout(dropouts[i]))
+            pre = pre_modules[i] if i < len(pre_modules) else None
+            post = post_modules[i] if i < len(post_modules) else None
+            for slot in (pre, nn.Linear(layers[i], layers[i + 1]), post):
+                for module in slot if isinstance(slot, list) else [slot]:
+                    if module is not None:
+                        modules.append(module)
         self.model = nn.Sequential(*modules)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -66,60 +75,67 @@ class MLP(nn.Module):
 class DCN(nn.Module):
     """Deep convolutional network supporting 1D, 2D, or 3D convolutions.
 
+    Each convolution is wrapped with optional ``pre_modules`` (applied before
+    it) and ``post_modules`` (applied after it); see ``MLP`` for the slot
+    mechanism. Resampling, normalization, and activation are passed in as plain
+    modules, so any ordering can be expressed (e.g. normalize before the conv by
+    putting the norm in ``pre_modules``).
+
+    Suggested ordering:
+        pre_modules[i]   resampling (Upsample / pooling); or normalization ->
+                         activation for a pre-activation block
+        Conv(channels[i], channels[i + 1])
+        post_modules[i]  normalization -> activation -> dropout   (the common
+                         post-activation block; activations live here by default)
+
     Args:
-        channels: List of channel sizes for each layer.
-            Example: [3, 64, 128, 256] for RGB input with 3 conv layers.
-        activations: List of activation modules after each conv layer.
-            Use None for no activation at a given position.
-        kernel_size: Kernel size for all convolutional layers.
-        stride: Stride for all convolutional layers.
-        padding: Padding for all convolutional layers.
-        normalizations: List of normalization modules (e.g., BatchNorm) after conv.
-        resamplings: List of resampling modules (e.g., MaxPool, Upsample) before conv.
-        dilation: Dilation factor for convolutions.
+        channels: Channel sizes per layer. Example: [3, 64, 128] builds two
+            convs (3->64, 64->128).
+        post_modules: Per-layer modules inserted after each conv. Entry i is
+            None (skip), a single nn.Module, or a list applied in order. Lists
+            shorter than the number of layers are padded with None. Activations
+            belong here by default.
+        kernel_size, stride, padding, dilation: Conv geometry; a scalar applies
+            to every layer, or pass a per-layer list.
+        pre_modules: Per-layer modules inserted before each conv, same element
+            format as post_modules. Resampling goes here.
         dim: Spatial dimensionality (1, 2, or 3).
-        bias: Whether to include bias in convolutional layers.
+        bias: Whether convs carry a bias (scalar or per-layer list).
     """
 
     def __init__(
         self,
         channels: list[int],
-        activations: list[nn.Module | None],
-        kernel_size: int | list[int],
-        stride: int | list[int],
-        padding: int | list[int],
-        normalizations: list[nn.Module | None] | None = None,
-        resamplings: list[nn.Module | None] | None = None,
+        post_modules: list[nn.Module | list[nn.Module] | None] | None = None,
+        kernel_size: int | list[int] = 3,
+        stride: int | list[int] = 1,
+        padding: int | list[int] = 0,
+        pre_modules: list[nn.Module | list[nn.Module] | None] | None = None,
         dilation: int | list[int] = 1,
         dim: int = 2,
         bias: bool | list[bool] = False,
     ) -> None:
         super().__init__()
-        normalizations = normalizations or []
-        resamplings = resamplings or []
+        pre_modules = pre_modules or []
+        post_modules = post_modules or []
         conv = {1: nn.Conv1d, 2: nn.Conv2d, 3: nn.Conv3d}[dim]
         modules = []
         for i in range(len(channels) - 1):
-            if resamplings and i < len(resamplings):
-                if resamplings[i]:
-                    modules.append(resamplings[i])
-            modules.append(
-                conv(
-                    channels[i],
-                    channels[i + 1],
-                    get_layer_param(kernel_size, i),
-                    get_layer_param(stride, i),
-                    get_layer_param(padding, i),
-                    get_layer_param(dilation, i),
-                    bias=get_layer_param(bias, i),
-                )
+            core = conv(
+                channels[i],
+                channels[i + 1],
+                get_layer_param(kernel_size, i),
+                get_layer_param(stride, i),
+                get_layer_param(padding, i),
+                get_layer_param(dilation, i),
+                bias=get_layer_param(bias, i),
             )
-            if normalizations and i < len(normalizations):
-                if normalizations[i]:
-                    modules.append(normalizations[i])
-            if activations and i < len(activations):
-                if activations[i]:
-                    modules.append(activations[i])
+            pre = pre_modules[i] if i < len(pre_modules) else None
+            post = post_modules[i] if i < len(post_modules) else None
+            for slot in (pre, core, post):
+                for module in slot if isinstance(slot, list) else [slot]:
+                    if module is not None:
+                        modules.append(module)
         self.model = nn.Sequential(*modules)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -249,7 +265,7 @@ class DGIN(nn.Module):
         super().__init__()
         self.convs = nn.ModuleList()
         for i in range(len(mlp_layers)):
-            mlp = MLP(mlp_layers[i], mlp_activations[i])
+            mlp = MLP(mlp_layers[i], post_modules=mlp_activations[i])
             self.convs.append(GINConv(mlp, eps=eps, train_eps=train_eps))
 
     def forward(self, graph) -> torch.Tensor:
@@ -418,26 +434,36 @@ class BayesianLinear(nn.Module):
 class BayesianMLP(nn.Module):
     """Bayesian multi-layer perceptron using BayesianLinear layers.
 
+    Each BayesianLinear map is wrapped with optional ``pre_modules`` /
+    ``post_modules``; see ``MLP`` for the slot mechanism.
+
     Reference: https://arxiv.org/abs/1505.05424
 
     Args:
-        layers: List of integers specifying the size of each layer.
-            Example: [784, 256, 10] creates two Bayesian linear layers.
-        activations: List of activation modules to apply after each layer.
+        layers: Sizes of each layer. Example: [784, 256, 10] builds two
+            Bayesian linear layers.
+        post_modules: Per-layer modules inserted after each layer (None | Module
+            | list). Activations belong here by default.
+        pre_modules: Per-layer modules inserted before each layer.
     """
 
     def __init__(
         self,
         layers: list[int],
-        activations: list[nn.Module | None] | None = None,
+        post_modules: list[nn.Module | list[nn.Module] | None] | None = None,
+        pre_modules: list[nn.Module | list[nn.Module] | None] | None = None,
     ) -> None:
         super().__init__()
+        pre_modules = pre_modules or []
+        post_modules = post_modules or []
         modules = []
         for i in range(len(layers) - 1):
-            modules.append(BayesianLinear(layers[i], layers[i + 1]))
-            if activations and i < len(activations):
-                if activations[i]:
-                    modules.append(activations[i])
+            pre = pre_modules[i] if i < len(pre_modules) else None
+            post = post_modules[i] if i < len(post_modules) else None
+            for slot in (pre, BayesianLinear(layers[i], layers[i + 1]), post):
+                for module in slot if isinstance(slot, list) else [slot]:
+                    if module is not None:
+                        modules.append(module)
         self.model = nn.Sequential(*modules)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

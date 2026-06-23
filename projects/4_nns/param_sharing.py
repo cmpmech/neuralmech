@@ -80,11 +80,11 @@ standardizey = Standardizer(Y_train, dim=0)
 
 # --------------------------- instantiate model & optimizer ---------------------------
 if not USE_STRUCTURE:
-    model = MLP([2] + LAYERS[1:], ACTIVATIONS)
+    model = MLP([2] + LAYERS[1:], post_modules=ACTIVATIONS)
 elif not USE_SYMMETRY:
-    model = UnSymmetricMLP(MLP(LAYERS, ACTIVATIONS), MLP(LAYERS, ACTIVATIONS))
+    model = UnSymmetricMLP(MLP(LAYERS, post_modules=ACTIVATIONS), MLP(LAYERS, post_modules=ACTIVATIONS))
 else:
-    model = SymmetricMLP(MLP(LAYERS, ACTIVATIONS))
+    model = SymmetricMLP(MLP(LAYERS, post_modules=ACTIVATIONS))
 model.to(device)
 init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(model.parameters(), LR, weight_decay=REGULARIZATION)

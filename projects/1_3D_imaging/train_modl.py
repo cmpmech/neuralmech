@@ -106,12 +106,11 @@ act = nn.GELU
 downs = [
     DCN(
         [levels[i], levels[i + 1], levels[i + 1]],
-        [act(), act()],
+        [[nn.GroupNorm(1, levels[i + 1]), act()] for _ in range(2)],
         3,
         stride=[1, 2],
         padding=1,
         dim=2,
-        normalizations=[nn.GroupNorm(1, levels[i + 1]) for _ in range(2)],
     )
     for i in range(DEPTH)
 ]
@@ -119,18 +118,17 @@ downs = [
 ups = [
     DCN(
         [2 * levels[i + 1], levels[i + 1], levels[i] if i > 0 else 1],
-        [act(), act() if i > 0 else None],
+        [
+            [nn.GroupNorm(1, levels[i + 1]), act()],
+            [nn.GroupNorm(1, levels[i]), act()] if i > 0 else None,
+        ],
         3,
         stride=1,
         padding=1,
         dim=2,
-        resamplings=[
+        pre_modules=[
             nn.Upsample(scale_factor=2, mode="nearest"),
             None,
-        ],
-        normalizations=[
-            nn.GroupNorm(1, levels[i + 1]),
-            nn.GroupNorm(1, levels[i]) if i > 0 else None,
         ],
     )
     for i in reversed(range(DEPTH))

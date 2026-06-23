@@ -36,7 +36,7 @@ LAYERS = [1] + [NEURONS] * HIDDEN_LAYERS + [1]
 ACTIVATIONS = [ACTIVATION() for _ in range(len(LAYERS) - 2)]
 
 # --------------------------- instantiate model & optimizer ---------------------------
-base_model = MLP(LAYERS, ACTIVATIONS)
+base_model = MLP(LAYERS, post_modules=ACTIVATIONS)
 if not USE_SKIP:
     model = base_model
 else:

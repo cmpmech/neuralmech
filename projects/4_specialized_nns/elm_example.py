@@ -57,7 +57,7 @@ standardizex = Standardizer(X_train, dim=0)
 standardizey = Standardizer(Y_train, dim=0)
 
 # --------------------------- instantiate model & optimizer ---------------------------
-backbone = MLP(LAYERS, ACTIVATIONS)
+backbone = MLP(LAYERS, post_modules=ACTIVATIONS)
 backbone.to(device)
 init_weights(backbone, ACTIVATIONS[0])
 

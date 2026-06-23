@@ -74,24 +74,25 @@ upsamplings = [nn.Upsample(scale_factor=2, # alternative 'nearest'
 
 Encoder = nn.Sequential()
 Encoder.append(DCN(channels,
-                   [act for _ in range(len(channels) - 1)],
-                   kernel_size, stride=2, padding=1, dim=1,
-                   # normalizations=[nn.BatchNorm1d(channels[i]) for i in range(1, len(channels))]))
-                   normalizations = [nn.LayerNorm([channels[i], seq_len // 2**i]) for i in range(1, len(channels) - 1)]))
+                   # norm before activation after each conv; last conv has no norm (None pad)
+                   [[norm, act] for norm, act in zip(
+                       [nn.LayerNorm([channels[i], seq_len // 2**i]) for i in range(1, len(channels) - 1)] + [None],
+                       [act for _ in range(len(channels) - 1)])],
+                   kernel_size, stride=2, padding=1, dim=1))
 Encoder.append(nn.Flatten())
-Encoder.append(MLP(encoder_layers, [act for _ in range(len(encoder_layers) - 2)]))
+Encoder.append(MLP(encoder_layers, post_modules=[act for _ in range(len(encoder_layers) - 2)]))
 # alternative could be nn.LazyLinear to compute automatically
 
 Decoder = nn.Sequential()
 Decoder.append(MLP(decoder_layers[::-1],
-                   [act for _ in range(len(decoder_layers) - 1)]))
+                   post_modules=[act for _ in range(len(decoder_layers) - 1)]))
 Decoder.append(nn.Unflatten(1, (channels[-1], -1)))
 Decoder.append(DCN(channels[::-1],
-                   [act for _ in range(len(channels) - 2)],
+                   [[norm, act] for norm, act in zip(
+                       [None] + [nn.LayerNorm([channels[i], seq_len // 2 ** i]) for i in range(len(channels) - 3, 0, -1)],
+                       [act for _ in range(len(channels) - 2)])],
                    kernel_size, stride=1, padding=1, dim=1,
-                   resamplings=upsamplings,
-                   # normalizations=[nn.BatchNorm1d(channels[-i]) for i in range(2, len(channels))]))
-                   normalizations=[None] + [nn.LayerNorm([channels[i], seq_len // 2 ** i]) for i in range(len(channels) - 3, 0, -1)]))
+                   pre_modules=upsamplings))
 
 model = VAE(Encoder, Decoder).to(device)
 init_weights(model, act)

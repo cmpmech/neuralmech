@@ -69,12 +69,14 @@ Encoder = nn.Sequential()
 Encoder.append(
     DCN(
         channels,
-        [act() for _ in range(len(channels) - 1)],
+        [
+            [nn.GroupNorm(1, channel), act()]
+            for channel in channels[1:]
+        ],
         kernel_size,
         stride=strides,
         padding=kernel_size // 2,
         dim=2,
-        normalizations=[nn.GroupNorm(1, channel) for channel in channels[1:]],
     )
 )
 
@@ -88,13 +90,15 @@ Decoder = nn.Sequential()
 Decoder.append(
     DCN(
         channels[::-1],
-        [act() for _ in range(len(channels) - 2)],
+        [
+            [nn.GroupNorm(1, channel), act()]
+            for channel in channels[-2:0:-1]
+        ],
         kernel_size,
         stride=1,
         padding=kernel_size // 2,
         dim=2,
-        resamplings=upsamplings,
-        normalizations=[nn.GroupNorm(1, channel) for channel in channels[-2:0:-1]],
+        pre_modules=upsamplings,
     )
 )
 

@@ -65,8 +65,8 @@ standardizeg = Standardizer(G_train, dim=(0, 1))  # global per-channel
 standardizey = Standardizer(Y_train, dim=(0, 1))  # global per-channel
 
 # --------------------------- instantiate model & optimizer ---------------------------
-branch_model = MLP(BRANCH_LAYERS, BRANCH_ACTS)
-trunk_model = MLP(TRUNK_LAYERS, TRUNK_ACTS)
+branch_model = MLP(BRANCH_LAYERS, post_modules=BRANCH_ACTS)
+trunk_model = MLP(TRUNK_LAYERS, post_modules=TRUNK_ACTS)
 model = DeepONet(branch_model, trunk_model)
 model.to(device)
 optimizer = torch.optim.AdamW(model.parameters(), LR)

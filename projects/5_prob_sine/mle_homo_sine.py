@@ -63,7 +63,7 @@ standardizex = Standardizer(X_train, dim=0)
 standardizey = Standardizer(Y_train, dim=0)
 
 # --------------------------- instantiate model & optimizer ---------------------------
-model = MLP(LAYERS, ACTIVATIONS).to(device)
+model = MLP(LAYERS, post_modules=ACTIVATIONS).to(device)
 log_var = nn.Parameter(torch.tensor([-1.0], device=device))  # homoscedastic noise
 init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(

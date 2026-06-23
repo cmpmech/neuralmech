@@ -115,14 +115,14 @@ if ANSATZ == "dcn":  # convolutional generator: fixed latent image -> density fi
     resamplings = [nn.Upsample(scale_factor=2, mode="nearest")] * (n_blocks - 1)
     resamplings += [nn.Upsample(size=(int(NX), int(NY)), mode="nearest")]
 
+    # norm then activation after each conv; the last conv has no norm (-> None pad)
     model = DCN(
         channels,
-        activations,
+        [[norm, act] for norm, act in zip(normalizations + [None], activations)],
         KERNEL_SIZE,
         STRIDE,
         PADDING,
-        normalizations=normalizations,
-        resamplings=resamplings,
+        pre_modules=resamplings,
     )
     # shrink the last conv so both softmax channels start ~equal: near-uniform rho ~ 0.5.
     # the near-uniform start lets fine truss members emerge instead of coarse blobs.
@@ -142,7 +142,7 @@ elif ANSATZ == "mlp":  # coordinate network: (x, y) -> density (implicit field)
     activations = [nn.ReLU(inplace=True) for _ in range(len(layers) - 2)]
     activations += [nn.Sigmoid()]
 
-    model = MLP(layers, activations)
+    model = MLP(layers, post_modules=activations)
     init_weights(model, activations[0])
 
     xs = torch.linspace(-1.0, 1.0, NX)

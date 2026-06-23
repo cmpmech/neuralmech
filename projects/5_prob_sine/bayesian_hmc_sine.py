@@ -48,7 +48,7 @@ y_train = torch.sin(x_train) + torch.randn_like(x_train) * NOISE_STD
 x_train, y_train = x_train.to(device), y_train.to(device)
 
 # --------------------------------- instantiate model ---------------------------------
-model = MLP(LAYERS, ACTIVATIONS).to(device)
+model = MLP(LAYERS, post_modules=ACTIVATIONS).to(device)
 model.eval()
 
 tau_params = [torch.tensor(1.0 / PRIOR_STD**2).to(device)] * len(

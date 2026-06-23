@@ -41,6 +41,14 @@ void bindDimension( pybind11::module& m )
         "Damped Helmholtz integrand: laplacian(u) + (k^2 + i eta) u = -f. Returns an "
         "unsymmetric two-field (real, imaginary) system." );
 
+    m.def( "advectionDiffusionIntegrand", []( const spatial::VectorFunction<D>& velocity,
+                                              const bindings::ScalarFunctionWrapper<D>& diffusivity,
+                                              const bindings::ScalarFunctionWrapper<D>& source )
+        { return makeAdvectionDiffusionIntegrand<D>( velocity, diffusivity.get( ), source.get( ) ); },
+        pybind11::arg( "velocity" ), pybind11::arg( "diffusivity" ), pybind11::arg( "source" ),
+        "Steady advection-diffusion integrand: -div(kappa grad u) + v.grad u = f. "
+        "Surfaces mlhp core's makeAdvectionDiffusionIntegrand; returns an unsymmetric system." );
+
     m.def( "integratePartitionMatrices", []( const AbsBasis<D>& basis,
                                              const DomainIntegrand<D>& integrand,
                                              const AbsQuadrature<D>& quadrature,

@@ -44,7 +44,7 @@ y = torch.from_numpy(y).to(torch.float32).unsqueeze(1).to(device)
 x = torch.randn((RESOLUTION, LAYERS[0]), dtype=torch.float32).to(device)
 
 # --------------------------- instantiate model & optimizer ---------------------------
-model = MLP(LAYERS, ACTIVATIONS)
+model = MLP(LAYERS, post_modules=ACTIVATIONS)
 model.to(device)
 init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(model.parameters(), LR)

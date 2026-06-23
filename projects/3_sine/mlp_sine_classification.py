@@ -63,7 +63,7 @@ X_train = train_data.dataset.tensors[0][train_data.indices]
 standardizex = Standardizer(X_train, dim=0)
 
 # --------------------------- instantiate model & optimizer ---------------------------
-model = MLP(LAYERS, ACTIVATIONS)
+model = MLP(LAYERS, post_modules=ACTIVATIONS)
 model.to(device)
 init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(model.parameters(), LR, weight_decay=REGULARIZATION)

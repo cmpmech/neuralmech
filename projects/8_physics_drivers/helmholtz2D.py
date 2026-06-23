@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 
+import cmasher as cmr
 import matplotlib.pyplot as plt
 import mlhp
 import numpy as np
@@ -15,57 +16,57 @@ parser.add_argument("--book", action="store_true")
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
-D = 2
+DIM = 2
 
 # discretization
 DEGREE = 3
-NELEMENTS = [64] * D
+NELEMENTS = [64] * DIM
 ALPHAFCM = 1e-8
 
 # physics
 WAVENUMBER = 140.0  # k = omega / c
-DAMPING = 10.0  # 10.0  # 1.0  # eta in (k^2 + i eta)
+DAMPING = 10.0
+LENGTH = 1.0
 
 # -------------------------------------- geometry -------------------------------------
-origin, maximum = [0.0] * D, [1.0] * D
-cube = mlhp.implicitCube(origin, maximum)
+origin, max = [0.0] * DIM, [LENGTH] * DIM
+
+cube = mlhp.implicitCube(origin, max)
 hole = mlhp.implicitSphere([0.5, 0.5], 0.15)
 domain = mlhp.implicitSubtraction([cube, hole])
 
 # ------------------------------------ volume load ------------------------------------
-# narrow Gaussian as point source
+# narrow Gaussian as "point" source
 center, width, amplitude = [0.25, 0.25], 0.01, 1.0
 radius2 = f"((x - {center[0]})**2 + (y - {center[1]})**2)"
-source = mlhp.scalarField(D, f"{amplitude} * exp(-{radius2} / (2 * {width}**2))")
+source = mlhp.scalarField(DIM, f"{amplitude} * exp(-{radius2} / (2 * {width}**2))")
 
 # ---------------------------------------- mesh ---------------------------------------
-# fictitious-domain mesh: keep only cells that intersect the holed domain
-baseGrid = mlhp.makeGrid(NELEMENTS, [1.0] * D, origin)
-mesh = mlhp.makeRefinedGrid(
+lengths = [m - o for o, m in zip(origin, max)]
+
+baseGrid = mlhp.makeGrid(NELEMENTS, lengths, origin)
+
+grid = mlhp.makeRefinedGrid(
     mlhp.makeFilteredGrid(baseGrid, domain=domain, nseedpoints=DEGREE + 2)
 )
-basis = mlhp.makeHpTrunkSpace(mesh, degree=DEGREE, nfields=2)
+basis = mlhp.makeHpTrunkSpace(grid, degree=DEGREE, nfields=2)
 print(basis)
 
-integrand = mlhp.helmholtzIntegrand(
-    mlhp.scalarField(D, WAVENUMBER), mlhp.scalarField(D, DAMPING), source
-)
-
-# homogeneous Neumann boundary conditions
-dirichlet = mlhp.combineDirichletDofs([])  # TODO is this really needed?
+# -------------------------------- boundary conditions --------------------------------
+# homogeneous Neumann boundary conditions (nothing to impose)
 
 # -------------------------------------- assembly -------------------------------------
 matrix = mlhp.allocateSparseMatrix(basis)
 vector = mlhp.allocateRhsVector(matrix)
 
-# integrate over the cut domain (finite-cell quadrature around the hole)
-quadrature = mlhp.spaceTreeQuadrature(domain, depth=DEGREE + 1, epsilon=ALPHAFCM)
-mlhp.integrateOnDomain(
-    basis, integrand, [matrix, vector], quadrature=quadrature, dirichletDofs=dirichlet
+integrand = mlhp.helmholtzIntegrand(
+    mlhp.scalarField(DIM, WAVENUMBER), mlhp.scalarField(DIM, DAMPING), source
 )
 
-# solve directly (indefinite, ill-conditioned by the cut cells -> no iterative solver);
-# mkl pardiso is ~4x faster than superlu here and dominates the runtime over assembly
+quadrature = mlhp.spaceTreeQuadrature(domain, depth=DEGREE + 1, epsilon=ALPHAFCM)
+mlhp.integrateOnDomain(basis, integrand, [matrix, vector], quadrature=quadrature)
+
+# --------------------------------------- solve ---------------------------------------
 operator = sp.csr_matrix(
     (
         np.asarray(matrix.data_array),
@@ -74,23 +75,26 @@ operator = sp.csr_matrix(
     ),
     shape=tuple(matrix.shape),
 )
-interiorDofs = pypardiso.spsolve(operator, np.asarray(vector))
-allDofs = mlhp.inflateDofs(mlhp.DoubleVector(interiorDofs), dirichlet)
+internalDofs = pypardiso.spsolve(operator, np.asarray(vector))
+allDofs = mlhp.DoubleVector(internalDofs)
 
 # ----------------------------------- postprocessing ----------------------------------
-postmesh = mlhp.domainCellMesh(domain, [DEGREE + 2] * D)
 result = mlhp.DataAccumulator()
-mlhp.basisOutput(basis, postmesh, result, [mlhp.solutionProcessor(D, allDofs)])
+cellmesh = mlhp.domainCellMesh(domain, [DEGREE + 2] * DIM)
+processors = [mlhp.solutionProcessor(DIM, allDofs)]
+mlhp.basisOutput(basis, cellmesh, result, processors)
 
 data = np.array(result.data()[0])
 u_re, u_im = data[0::2], data[1::2]
-phase = np.arctan2(u_im, u_re)  # phase shift in (-pi, pi]
+amp = np.sqrt((u_re**2 + u_im**2))
+phase = np.arctan2(u_im, u_re)  # phase shift in ]-pi, pi]
 tri = result.triangulation()
 
-limit_re = np.max(np.abs(u_re))
-limit_im = np.max(np.abs(u_im))
+limit_amp = np.max(amp)
+amp_cmap = cmr.get_sub_cmap(cmr.fusion_r, 0.5, 1.0)  # red lobe of the wave colormap
+
 fig, ax = plt.subplots(figsize=(5, 5), dpi=200)
-ax.tricontourf(tri, u_re, cmap="seismic", levels=np.linspace(-limit_re, limit_re, 64))
+ax.tricontourf(tri, amp, cmap=amp_cmap, levels=np.linspace(0, limit_amp, 64))
 ax.set_aspect("equal")
 ax.axis("off")
 ax.set_rasterized(True)
@@ -102,7 +106,7 @@ else:
     plt.show()
 
 fig, ax = plt.subplots(figsize=(5, 5), dpi=200)
-ax.tricontourf(tri, u_im, cmap="seismic", levels=np.linspace(-limit_im, limit_im, 64))
+ax.tricontourf(tri, phase, cmap=cmr.infinity, levels=np.linspace(-np.pi, np.pi, 64))
 ax.set_aspect("equal")
 ax.axis("off")
 ax.set_rasterized(True)

@@ -60,8 +60,12 @@ standardizex = Standardizer(X_train, dim=0)
 standardizey = Standardizer(Y_train, dim=0)
 
 # --------------------------- instantiate model & optimizer ---------------------------
-dropouts = [DROPOUT] * (len(LAYERS) - 2) if DROPOUT else None
-model = MLP(LAYERS, ACTIVATIONS, dropouts=dropouts)
+# dropout after each hidden activation; the output layer has neither
+if DROPOUT:
+    post_modules = [[act, nn.Dropout(DROPOUT)] for act in ACTIVATIONS]
+else:
+    post_modules = ACTIVATIONS
+model = MLP(LAYERS, post_modules)
 model.to(device)
 init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(model.parameters(), LR, weight_decay=REGULARIZATION)

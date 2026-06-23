@@ -35,7 +35,7 @@ LENGTHS = [4.0, 1.0]
 NX, NY = np.array(LENGTHS).astype(int) * 150
 SUB_VOXELS = 6
 DEGREE = 3
-QUAD_ORDER = DEGREE + 1
+QUAD_ORDER = DEGREE + 1  # integration
 
 # physics
 VOLFRAC = 0.5
@@ -47,7 +47,7 @@ LOAD = -1.0
 # postprocessing
 THRESHOLD = 0.5
 
-# optimization
+# optimization (optimality criterion)
 MOVE = 0.2
 DAMPING = 0.5
 MAX_ITER = 500
@@ -127,7 +127,7 @@ history = []
 ANIMATION_DIR.mkdir(parents=True, exist_ok=True) if args.animate else None
 tic = time.time()
 pbar = tqdm(range(MAX_ITER))
-for iter in pbar:  # range(1, MAX_ITER + 1):
+for iter in pbar:
     u = np.zeros(ndof)
     u[free] = fem.solve(simp(rho), force_free)
     compliance = force @ u
@@ -136,7 +136,7 @@ for iter in pbar:  # range(1, MAX_ITER + 1):
     dc = -PENAL * rho ** (PENAL - 1) * (E0 - EMIN) * fem.element_energy(u)
     dc = filter_sensitivity(rho, dc)
 
-    # optimality-criterion update with bisection on the volume multiplier
+    # optimality criterion update with bisection on the volume multiplier
     l1, l2 = 0.0, 1e9
     while (l2 - l1) / (l1 + l2) > 1e-4:
         lmid = 0.5 * (l1 + l2)
@@ -187,20 +187,15 @@ u[free] = fem.solve(simp(rho_thresh), force_free)
 compliance_thresh = force @ u
 print(f"thresholded  c {compliance_thresh:.3e} vol {rho_thresh.mean():.3f}")
 
-for field, name in ((rho, "topopt_mbb"), (rho_thresh, "topopt_mbb_thresh")):
-    fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
-    ax.imshow(field.T, origin="lower", cmap="binary", vmin=0.0, vmax=1.0, alpha=field.T)
-    ax.set_aspect("equal")
-    ax.axis("off")
-    fig.tight_layout(pad=0)
-    if args.book:
-        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-        plt.savefig(RESULTS_DIR / f"{name}.png", transparent=True)
-        plt.close()
-    elif not args.animate:
+if not args.book and not args.animate:
+    for field, name in ((rho, "topopt_mbb"), (rho_thresh, "topopt_mbb_thresh")):
+        fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
+        ax.imshow(
+            field.T, origin="lower", cmap="binary", vmin=0.0, vmax=1.0, alpha=field.T
+        )
+        ax.axis("off")
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         plt.show()
-    else:
-        plt.close()
 
 # y-displacement evaluated on the thresholded structure (void left transparent)
 indicator_field = mlhp.scalarFieldFromVoxelData(

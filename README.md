@@ -101,4 +101,4 @@ git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
 
 ## Contact
 
-[leon.herrmann@uni-weimar.de](mailto:leon.herrmann@uni-weimar.de)
+[neuralmech@pm.me](mailto:neuralmech@pm.me)

@@ -70,12 +70,11 @@ levels = [2] + [channel_dim * base ** (i + 1) for i in range(depth)]  # 2: x_t +
 downs = [
     DCN(
         [levels[i], levels[i + 1], levels[i + 1]],
-        [act(), act()],
+        [[nn.GroupNorm(1, levels[i + 1]), act()] for _ in range(2)],
         kernel_size,
         stride=[1, 2],
         padding=kernel_size // 2,
         dim=2,
-        normalizations=[nn.GroupNorm(1, levels[i + 1]) for _ in range(2)],
     )
     for i in range(depth)
 ]
@@ -83,18 +82,17 @@ downs = [
 ups = [
     DCN(
         [2 * levels[i + 1], levels[i + 1], levels[i] if i > 0 else 1],
-        [act(), act() if i > 0 else None],
+        [
+            [nn.GroupNorm(1, levels[i + 1]), act()],
+            [nn.GroupNorm(1, levels[i]), act()] if i > 0 else None,
+        ],
         kernel_size,
         stride=1,
         padding=kernel_size // 2,
         dim=2,
-        resamplings=[
+        pre_modules=[
             nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
             None,
-        ],
-        normalizations=[
-            nn.GroupNorm(1, levels[i + 1]),
-            nn.GroupNorm(1, levels[i]) if i > 0 else None,
         ],
     )
     for i in reversed(range(depth))

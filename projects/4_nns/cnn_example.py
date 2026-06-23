@@ -58,12 +58,11 @@ x = torch.randn((1, CHANNELS[0], input_size, input_size), dtype=torch.float32).t
 # --------------------------- instantiate model & optimizer ---------------------------
 model = DCN(
     CHANNELS,
-    ACTIVATIONS,
+    [[norm, act] for norm, act in zip(NORMALIZATIONS, ACTIVATIONS)],
     KERNEL_SIZE,
     STRIDE,
     PADDING,
-    normalizations=NORMALIZATIONS,
-    resamplings=RESAMPLINGS,
+    pre_modules=RESAMPLINGS,
 )
 model.to(device)
 init_weights(model, ACTIVATIONS[0])

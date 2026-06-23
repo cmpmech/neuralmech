@@ -63,12 +63,12 @@ activations = [nn.GELU(approximate="tanh") for _ in range(len(CHANNELS) - 2)] + 
 
 model = DCN(
     CHANNELS,
-    activations,
+    post_modules=activations,
     kernel_size=KERNEL_SIZE,
     stride=1,
     padding=0,
     dilation=DILATIONS,
-    resamplings=resamplings,
+    pre_modules=resamplings,
     dim=1,
 )
 model.to(device)

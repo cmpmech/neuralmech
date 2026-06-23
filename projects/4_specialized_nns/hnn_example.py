@@ -72,7 +72,7 @@ train_data = create_dataset(TMAX_TRAIN, SAMPLES_TRAIN)
 val_data = create_dataset(TMAX_VAL, SAMPLES_VAL)
 
 # --------------------------- instantiate model & optimizer ---------------------------
-model = MLP(LAYERS, ACTIVATIONS)
+model = MLP(LAYERS, post_modules=ACTIVATIONS)
 init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(model.parameters(), LR, weight_decay=REGULARIZATION)
 train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)

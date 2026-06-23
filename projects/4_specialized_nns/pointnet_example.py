@@ -28,9 +28,9 @@ args = parser.parse_args()
 class PointNet(nn.Module):
     def __init__(self, point_layers, global_layers, head_layers, activation):
         super().__init__()
-        self.point_mlp = MLP(point_layers, [activation] * (len(point_layers) - 1))
-        self.global_mlp = MLP(global_layers, [activation] * (len(global_layers) - 1))
-        self.head_mlp = MLP(head_layers, [activation] * (len(head_layers) - 2))
+        self.point_mlp = MLP(point_layers, post_modules=[activation] * (len(point_layers) - 1))
+        self.global_mlp = MLP(global_layers, post_modules=[activation] * (len(global_layers) - 1))
+        self.head_mlp = MLP(head_layers, post_modules=[activation] * (len(head_layers) - 2))
 
     def forward(self, x):
         l = self.point_mlp(x)

@@ -68,16 +68,18 @@ Encoder = nn.Sequential()
 Encoder.append(
     DCN(
         channels,
-        [act() for _ in range(len(channels) - 1)],
+        [
+            [nn.GroupNorm(1, channel), act()]
+            for channel in channels[1:]
+        ],
         kernel_size,
         stride=strides,
         padding=kernel_size // 2,
         dim=2,
-        normalizations=[nn.GroupNorm(1, channel) for channel in channels[1:]],
     )
 )
 Encoder.append(nn.Flatten())
-Encoder.append(MLP(layers, [act() for _ in range(len(layers) - 1)]))
+Encoder.append(MLP(layers, post_modules=[act() for _ in range(len(layers) - 1)]))
 
 upsamplings = [
     nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
@@ -88,19 +90,21 @@ upsamplings = [
 
 
 Decoder = nn.Sequential()
-Decoder.append(MLP(layers[::-1], [act() for _ in range(len(layers) - 1)]))
+Decoder.append(MLP(layers[::-1], post_modules=[act() for _ in range(len(layers) - 1)]))
 # Decoder.append(MLP([latent_dim, red_domain_size**2 * channels[-1]], [act()]))
 Decoder.append(nn.Unflatten(1, (channels[-1], red_domain_size, red_domain_size)))
 Decoder.append(
     DCN(
         channels[::-1],
-        [act() for _ in range(len(channels) - 2)],
+        [
+            [nn.GroupNorm(1, channel), act()]
+            for channel in channels[-2:0:-1]
+        ],
         kernel_size,
         stride=1,
         padding=kernel_size // 2,
         dim=2,
-        resamplings=upsamplings,
-        normalizations=[nn.GroupNorm(1, channel) for channel in channels[-2:0:-1]],
+        pre_modules=upsamplings,
     )
 )
 

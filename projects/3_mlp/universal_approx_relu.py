@@ -32,7 +32,7 @@ x_train = torch.linspace(-1, 1, SAMPLES).unsqueeze(1)
 y_train = torch.sin(torch.pi * x_train)
 
 # --------------------------------- instantiate model ---------------------------------
-model = MLP(LAYERS, ACTIVATIONS)
+model = MLP(LAYERS, post_modules=ACTIVATIONS)
 model.to(device)
 
 # ---------------------------- custom weight initialization ---------------------------

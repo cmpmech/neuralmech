@@ -65,12 +65,12 @@ Encoder.append(DCN(channels,
                    [act for _ in range(len(channels) - 1)],
                    kernel_size, stride=2, padding=1, dim=1))
 Encoder.append(nn.Flatten())
-Encoder.append(MLP(layers, [act for _ in range(len(layers) - 1)]))
+Encoder.append(MLP(layers, post_modules=[act for _ in range(len(layers) - 1)]))
 # alternative could be nn.LazyLinear to compute automatically
 
 Decoder = nn.Sequential()
 Decoder.append(MLP(layers[::-1],
-                   [act for _ in range(len(layers) - 1)]))
+                   post_modules=[act for _ in range(len(layers) - 1)]))
 Decoder.append(nn.Unflatten(1, (channels[-1], -1)))
 # Decoder.append(DCN(channels[::-1],
 #                    [act for _ in range(len(channels) - 2)],
@@ -82,7 +82,7 @@ Decoder.append(nn.Unflatten(1, (channels[-1], -1)))
 Decoder.append(DCN(channels[::-1],
                    [act for _ in range(len(channels) - 2)],
                    kernel_size, stride=1, padding=1, dim=1,
-                   resamplings=upsamplings))
+                   pre_modules=upsamplings))
 
 model = AE(Encoder, Decoder).to(device)
 init_weights(model, act)

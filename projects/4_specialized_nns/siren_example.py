@@ -70,7 +70,7 @@ else:
     # activation = nn.GELU(approximate="tanh")
 
 activations = [activation for _ in range(len(LAYERS) - 2)] + [None]
-model = MLP(LAYERS, activations=activations)
+model = MLP(LAYERS, post_modules=activations)
 model.to(device)
 init_weights(model, activation)
 optimizer = torch.optim.AdamW(model.parameters(), lr=LR)

@@ -39,10 +39,10 @@ elif NORMALIZATION == "layernorm":
 # --------------------------- instantiate model & optimizer ---------------------------
 # the normalization layer adds a module per block, shifting the skip indices
 if USE_NORMALIZATION:
-    base_model = MLP(LAYERS, ACTIVATIONS, NORMALIZATIONS)
+    base_model = MLP(LAYERS, post_modules=[[norm, act] for norm, act in zip(NORMALIZATIONS, ACTIVATIONS)])
     skip_connections = [(3 * i + 3, 3 * i + 5) for i in range(HIDDEN_LAYERS - 1)]
 else:
-    base_model = MLP(LAYERS, ACTIVATIONS)
+    base_model = MLP(LAYERS, post_modules=ACTIVATIONS)
     skip_connections = [(2 * i + 2, 2 * i + 3) for i in range(HIDDEN_LAYERS - 1)]
 model = ResNet(base_model, skip_connections)
 model.to(device)

@@ -103,16 +103,12 @@ if ANSATZ == "dcn":  # convolutional generator: fixed latent image -> density fi
     KERNEL_SIZE, STRIDE, PADDING = 5, 1, 2
     SIGMA = 0.5
 
-    # the reference generator normalizes BEFORE each conv (on the input channels); DCN
-    # inserts its resampling module before the conv, so fold upsample + norm in there
-    resamplings = [
-        nn.Sequential(
-            nn.Upsample(scale_factor=2, mode="nearest"),
-            nn.BatchNorm2d(CHANNELS[i]),
-        )
+    # the reference generator normalizes BEFORE each conv (on the input channels):
+    # upsample then batchnorm both go in the pre-conv slot
+    pre_modules = [
+        [nn.Upsample(scale_factor=2, mode="nearest"), nn.BatchNorm2d(CHANNELS[i])]
         for i in range(len(CHANNELS) - 1)
     ]
-    # normalizations = [nn.BatchNorm2d(CHANNELS[i + 1]) for i in range(len(CHANNELS) - 1)]
     activations = [gaussian(SIGMA) for _ in range(len(CHANNELS) - 2)]
     activations += [nn.Softmax(dim=1)]  # two channels compete -> crisp binary density
 
@@ -122,8 +118,7 @@ if ANSATZ == "dcn":  # convolutional generator: fixed latent image -> density fi
         KERNEL_SIZE,
         STRIDE,
         PADDING,
-        resamplings=resamplings,
-        # normalizations=normalizations,
+        pre_modules=pre_modules,
         bias=True,
     ).to(device)
 
@@ -150,7 +145,9 @@ elif ANSATZ == "mlp":  # coordinate network: (x, y) -> density (implicit field)
     activations += [nn.Softmax(dim=1)]  # two channels compete -> crisp binary density
     normalizations = [nn.BatchNorm1d(NEURONS) for _ in range(len(layers) - 2)]
 
-    model = MLP(layers, activations, normalizations=normalizations).to(device)
+    # norm then activation after each layer; the last (softmax) layer has no norm
+    post_modules = [[norm, act] for norm, act in zip(normalizations + [None], activations)]
+    model = MLP(layers, post_modules).to(device)
     init_weights(model, activations[0])
     # near-uniform start: tiny last layer -> softmax ~ 0.5 ~ volfrac (no huge first step)
     last_linear = [m for m in model.modules() if isinstance(m, nn.Linear)][-1]

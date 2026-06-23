@@ -41,7 +41,7 @@ y = torch.from_numpy(y_).float().view(SAMPLES, 1, 1).to(device)  # (seq len, bat
 y0 = y[0].repeat((1, 2))  # inflate the initial condition to the augmented state
 
 # --------------------------- instantiate model & optimizer ---------------------------
-rhs_model = MLP(LAYERS, ACTIVATIONS)
+rhs_model = MLP(LAYERS, post_modules=ACTIVATIONS)
 model = NODE(rhs_model)
 model.to(device)
 init_weights(model, ACTIVATIONS[0])

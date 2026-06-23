@@ -85,11 +85,17 @@ def clear_grid(grid_v: wp.array(dtype=wp.vec2), grid_m: wp.array(dtype=float)):
 
 
 @wp.kernel
-def p2g(x: wp.array(dtype=wp.vec2), v: wp.array(dtype=wp.vec2),
-        F: wp.array(dtype=wp.mat22), C: wp.array(dtype=wp.mat22),
-        fluid: wp.array(dtype=int), mu_p: wp.array(dtype=float),
-        lam_p: wp.array(dtype=float), grid_v: wp.array(dtype=wp.vec2),
-        grid_m: wp.array(dtype=float)):
+def p2g(
+    x: wp.array(dtype=wp.vec2),
+    v: wp.array(dtype=wp.vec2),
+    F: wp.array(dtype=wp.mat22),
+    C: wp.array(dtype=wp.mat22),
+    fluid: wp.array(dtype=int),
+    mu_p: wp.array(dtype=float),
+    lam_p: wp.array(dtype=float),
+    grid_v: wp.array(dtype=wp.vec2),
+    grid_m: wp.array(dtype=float),
+):
     p = wp.tid()
     Xp = x[p] * INV_DX
     base_x = int(Xp[0] - 0.5)
@@ -141,8 +147,12 @@ def grid_op(grid_v: wp.array(dtype=wp.vec2), grid_m: wp.array(dtype=float)):
 
 
 @wp.kernel
-def g2p(x: wp.array(dtype=wp.vec2), v: wp.array(dtype=wp.vec2),
-        C: wp.array(dtype=wp.mat22), grid_v: wp.array(dtype=wp.vec2)):
+def g2p(
+    x: wp.array(dtype=wp.vec2),
+    v: wp.array(dtype=wp.vec2),
+    C: wp.array(dtype=wp.mat22),
+    grid_v: wp.array(dtype=wp.vec2),
+):
     p = wp.tid()
     Xp = x[p] * INV_DX
     base_x = int(Xp[0] - 0.5)
@@ -198,8 +208,9 @@ lam_np = np.where(material == SOLID, lam_s, lam_f).astype(np.float32)
 
 x = wp.array(x_np, dtype=wp.vec2, device=device)
 v = wp.zeros(n_p, dtype=wp.vec2, device=device)
-F = wp.array(np.tile(np.eye(2, dtype=np.float32), (n_p, 1, 1)),
-             dtype=wp.mat22, device=device)
+F = wp.array(
+    np.tile(np.eye(2, dtype=np.float32), (n_p, 1, 1)), dtype=wp.mat22, device=device
+)
 C = wp.zeros(n_p, dtype=wp.mat22, device=device)
 fluid_wp = wp.array(fluid.astype(np.int32), dtype=int, device=device)
 mu_p = wp.array(mu_np, dtype=float, device=device)
@@ -224,8 +235,12 @@ for s in range(n_steps):
         fig.savefig(ANIMATION_DIR / f"mpm_{s // anim_every:04d}.png", dpi=120)
         plt.close(fig)
     wp.launch(clear_grid, dim=n_grid * n_grid, inputs=[grid_v, grid_m], device=device)
-    wp.launch(p2g, dim=n_p,
-              inputs=[x, v, F, C, fluid_wp, mu_p, lam_p, grid_v, grid_m], device=device)
+    wp.launch(
+        p2g,
+        dim=n_p,
+        inputs=[x, v, F, C, fluid_wp, mu_p, lam_p, grid_v, grid_m],
+        device=device,
+    )
     wp.launch(grid_op, dim=n_grid * n_grid, inputs=[grid_v, grid_m], device=device)
     wp.launch(g2p, dim=n_p, inputs=[x, v, C, grid_v], device=device)
 wp.synchronize()

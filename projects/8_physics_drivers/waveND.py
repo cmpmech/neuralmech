@@ -3,6 +3,7 @@ import math
 import time
 from pathlib import Path
 
+import cmasher as cmr
 import cupy as cp
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,36 +12,39 @@ from solvers.wave import setup_simulation, setup_source, simulate
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+ANIMATION_DIR = (BASE_DIR / "../../results/animations/animation_frames").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
-parser.add_argument("--animate", action="store_true")  # TODO could be animated
+parser.add_argument("--animate", action="store_true")
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
 # implementation
-DIM = 2  # 1, 2 or 3 # TODO use DIM in other files as well
+DIM = 2
 FORMULATION = "scalar"  # "scalar" or "acoustic"
 PRECISION = "float32"  # "float32" or "float64"
 THREADS = (4, 128) if DIM == 2 else (4, 4, 64) if DIM == 3 else (128,)
 
 # physics
-LENGTH = 0.05
-WAVESPEED = 6000.0
-DENSITY = 2700.0
+LENGTH = 1
+WAVESPEED = 0.5
+DENSITY = 1
 AMPLITUDE = 1e8
-CYCLES = 3
-T = 1e-5
+CYCLES = 5
+T = 20
 
-# discretization (coarser in 3D to keep the toy run small)
-RESOLUTION = 500 if DIM == 2 else 100 if DIM == 3 else 2000
+RESOLUTION = 500 if DIM == 2 else 100 if DIM == 3 else 400
+SAVE_EVERY = 10
 
 # --------------------------------------- setup ---------------------------------------
 Nx = (RESOLUTION,) * DIM
 dx = tuple(LENGTH / (n - 3) for n in Nx)
 dt = 0.95 * min(dx) / WAVESPEED / math.sqrt(DIM)
-frequency = WAVESPEED / (20.0 * min(dx))
+frequency = 2  # bounded by WAVESPEED / (20.0 * min(dx))
 N = math.ceil(T / dt)
+
+print(frequency)
 
 sim = setup_simulation(
     Nx,
@@ -72,13 +76,20 @@ t_arr = np.linspace(0, (N - 1) * dt, N)
 signal_np = sineburst(t_arr, AMPLITUDE, frequency, CYCLES) / np.prod(dx)
 signal = cp.asarray(signal_np[:, None], dtype=sim.dtype)
 
-source_pos = cp.array([[n // 2] for n in Nx], dtype=cp.int32)
+source_pos = cp.array([[1] for n in Nx], dtype=cp.int32)
 source = setup_source(source_pos, signal)
 
 # --------------------------------------- solve ---------------------------------------
 cp.cuda.Stream.null.synchronize()
 tic = time.time()
-u = simulate(sim, source, indicator)
+if args.book and DIM == 1:
+    record_every = 4
+elif args.animate and DIM in (1, 2):
+    record_every = SAVE_EVERY
+else:
+    record_every = None
+result = simulate(sim, source, indicator, record_every=record_every)
+u, snaps = result if record_every is not None else (result, None)
 cp.cuda.Stream.null.synchronize()
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s  ({(toc - tic) / N * 1e3:.4f} ms/step)")
@@ -99,3 +110,39 @@ if not args.book and not args.animate:
         ax.set_aspect("equal")
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.show()
+# -------------------------------- book postprocessing --------------------------------
+if args.book:
+    if DIM == 1:
+        fig, ax = plt.subplots(figsize=(5, 5), dpi=100)
+        ax.pcolormesh(snaps, cmap=cmr.fusion, vmin=-0.75 * scale, vmax=0.75 * scale)
+        ax.axis("off")
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        plt.savefig(RESULTS_DIR / "wave1D.png")
+        plt.close()
+# ----------------------------------- animate export ----------------------------------
+if args.animate and DIM in (1, 2):
+    frame_dir = ANIMATION_DIR / f"wave{DIM}D"
+    frame_dir.mkdir(parents=True, exist_ok=True)
+    anim_scale = float(np.max(np.abs(snaps)))
+    if DIM == 1:
+        x = np.linspace(0, LENGTH, Nx[0])
+        for i, snap in enumerate(snaps):
+            fig, ax = plt.subplots(figsize=(5, 3))
+            ax.plot(x, snap, "k")
+            ax.set_ylim(-anim_scale, anim_scale)
+            fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+            plt.savefig(frame_dir / f"frame_{i}.jpg")
+            plt.close()
+    else:
+        for i, snap in enumerate(snaps):
+            fig, ax = plt.subplots(figsize=(5, 5))
+            ax.imshow(
+                snap.T,
+                cmap=cmr.fusion,
+                vmin=-0.6 * anim_scale,
+                vmax=0.6 * anim_scale,
+                origin="lower",
+            )
+            fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+            plt.savefig(frame_dir / f"frame_{i}.jpg")
+            plt.close()

@@ -67,7 +67,7 @@ standardizex = Standardizer(X_train, dim=0)
 standardizey = Standardizer(Y_train, dim=0)
 
 # --------------------------- instantiate model & optimizer ---------------------------
-model = MLP(LAYERS, ACTIVATIONS).to(device)
+model = MLP(LAYERS, post_modules=ACTIVATIONS).to(device)
 init_weights(model, ACTIVATIONS[0])
 optimizer = torch.optim.AdamW(model.parameters(), LR, weight_decay=REGULARIZATION)
 

@@ -94,7 +94,7 @@ x, y = torch.meshgrid(x, y, indexing="ij")
 mlp_input = torch.stack([x.flatten(), y.flatten()], dim=1).to(device)
 
 # --------------------------- instantiate model & optimizer ---------------------------
-model = MLP(layers, activations)
+model = MLP(layers, post_modules=activations)
 model.apply(init_weights)
 model.to(device)
 

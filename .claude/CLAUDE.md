@@ -64,7 +64,7 @@ For the full ruleset, driver style, and scaffolding, invoke `neuralmech-style`.
 
 ## Key library conventions
 
-- All networks are `nn.Module` subclasses; take `layers`, `activations`, `normalizations` lists — length-matched to layer count.
+- All networks are `nn.Module` subclasses. The Sequential-family builders (`MLP`, `DCN`, `BayesianMLP`) take `layers`/`channels` plus per-layer `post_modules` (applied after each core layer; activations live here by default) and optional `pre_modules` (applied before; resampling/pre-norm). Each entry is `None`, a module, or a list of modules; `None` entries are skipped. `post_modules` is the 2nd positional arg, so `MLP(LAYERS, ACTIVATIONS)` still reads correctly.
 - Graph networks: input is a PyG `Data` object (`graph.x`, `graph.edge_index`).
 - `Standardizer` (`DL.py`): call `.inverse()` to undo normalization.
 - `ELM` (`NN.py`): use `.fit(x, y, regularization)` before forward pass.

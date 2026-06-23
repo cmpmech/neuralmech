@@ -61,7 +61,7 @@ x_test = torch.linspace(-1.3, 1.3, 200).unsqueeze(1)
 y_preds = []
 for _ in tqdm(range(ENSEMBLE_SAMPLES), desc="ensemble"):
 # --------------------------- instantiate model & optimizer ---------------------------
-    model = MLP(LAYERS, ACTIVATIONS)
+    model = MLP(LAYERS, post_modules=ACTIVATIONS)
     model.to(device)
     init_weights(model, ACTIVATIONS[0])
     optimizer = torch.optim.AdamW(model.parameters(), LR, weight_decay=REGULARIZATION)

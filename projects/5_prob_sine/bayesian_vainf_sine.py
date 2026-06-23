@@ -57,7 +57,7 @@ y_train = torch.sin(x_train) + torch.randn_like(x_train) * NOISE_STD
 x_train, y_train = x_train.to(device), y_train.to(device)
 
 # --------------------------- instantiate model & optimizer ---------------------------
-model = BayesianMLP(LAYERS, ACTIVATIONS).to(device)
+model = BayesianMLP(LAYERS, post_modules=ACTIVATIONS).to(device)
 optimizer = torch.optim.Adam(model.parameters(), LR)
 
 # -------------------------------------- training -------------------------------------
