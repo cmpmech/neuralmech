@@ -194,6 +194,11 @@ class _StructuredFEM:
             [[0], np.cumsum(np.bincount(rj[first], minlength=free.size))]
         ).astype(np.int32)
 
+        # data positions of the diagonal, for optional nodal springs (compliant
+        # mechanisms): every free dof self-couples, so each diagonal entry exists
+        cols = np.repeat(np.arange(self.nfree), np.diff(self._indptr))
+        self._diag_idx = np.flatnonzero(self._indices == cols)
+
     def grid_to_elements(self, field):  # grid -> (n_elems, n_sub)
         interleaved = np.empty(2 * self.dim, dtype=int)
         interleaved[0::2] = self.nel
@@ -251,8 +256,11 @@ class StructuredFEM(_StructuredFEM):
         )
         self._factor = cvxopt.cholmod.symbolic(self._A)
 
-    def solve(self, material, rhs_free):  # solve K(material) u = rhs over free dofs
-        self._A.V = self._cvxopt.matrix(self.assemble(material, self.K_locals).data)
+    def solve(self, material, rhs_free, spring_diag=None):  # K(material) u = rhs, free dofs
+        data = self.assemble(material, self.K_locals).data
+        if spring_diag is not None:  # add nodal springs onto the diagonal (mechanisms)
+            data[self._diag_idx] += spring_diag
+        self._A.V = self._cvxopt.matrix(data)
         self._cholmod.numeric(self._A, self._factor)
         b = self._cvxopt.matrix(np.asarray(rhs_free, dtype=float))
         self._cholmod.solve(self._factor, b)
