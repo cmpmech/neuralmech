@@ -5,11 +5,11 @@
 // wrapper ("from pymlhpcore import *") and therefore `import mlhp` expose everything
 // through one module / one import.
 //
-// The four mlhp::bindings::bind* functions are declared here exactly as mlhp's own
+// The mlhp::bindings::bind* functions are declared here exactly as mlhp's own
 // src/python/main.cpp declares them (external-linkage free functions defined across
 // its binding translation units).  We compile those translation units except main.cpp
 // into this module and supply our own PYBIND11_MODULE, so the pinned mlhp submodule
-// source is never modified.
+// source is never modified.  Keep this list in sync with mlhp/src/python/main.cpp.
 
 #include "pybind11/pybind11.h"
 
@@ -18,6 +18,7 @@ namespace mlhp::bindings
 void bindSpatial( pybind11::module& m );
 void bindDiscretization( pybind11::module& m );
 void bindAssembly( pybind11::module& m );
+void bindMeshFunctions( pybind11::module& m );
 void bindPostprocessing( pybind11::module& m );
 } // namespace mlhp::bindings
 
@@ -33,6 +34,7 @@ PYBIND11_MODULE( pymlhpcore, m )
     mlhp::bindings::bindSpatial( m );
     mlhp::bindings::bindDiscretization( m );
     mlhp::bindings::bindAssembly( m );
+    mlhp::bindings::bindMeshFunctions( m );
     mlhp::bindings::bindPostprocessing( m );
     mlhp::helpers::bindHelpers( m );
 }

@@ -456,6 +456,50 @@ makeHelmholtzIntegrand(const spatial::ScalarFunction<D> &wavenumber,
   return DomainIntegrand<D>(types, DiffOrders::FirstDerivatives, evaluate);
 }
 
+template <size_t D>
+DomainIntegrand<D>
+makeAdvectionDiffusionIntegrand(const spatial::VectorFunction<D, D> &velocity,
+                               const spatial::ScalarFunction<D> &diffusivity,
+                               const spatial::ScalarFunction<D> &source) {
+  auto evaluate = [=](const BasisFunctionEvaluation<D> &shapes,
+                      AlignedDoubleVectors &targets, double weightDetJ) {
+    auto xyz = shapes.xyz();
+
+    auto v = velocity(xyz);
+    auto kappa = diffusivity(xyz);
+    auto f = source(xyz);
+
+    auto ndof = shapes.ndof();
+    auto nblocks = shapes.nblocks();
+    auto ndofpadded = shapes.ndofpadded();
+
+    auto N = shapes.noalias(0, 0);
+    auto dN = shapes.noalias(0, 1);
+
+    linalg::unsymmetricElementLhs(
+        targets[0].data(), ndof, nblocks, [&](size_t i, size_t j) {
+          double advection = 0.0;
+          double diffusion = 0.0;
+
+          for (size_t axis = 0; axis < D; ++axis) {
+            advection += N[i] * v[axis] * dN[axis * ndofpadded + j];
+            diffusion += dN[axis * ndofpadded + i] * kappa *
+                         dN[axis * ndofpadded + j];
+          }
+
+          return (advection + diffusion) * weightDetJ;
+        });
+
+    linalg::elementRhs(targets[1].data(), ndof, nblocks,
+                       [&](size_t i) { return N[i] * f * weightDetJ; });
+  };
+
+  auto types =
+      AssemblyTypeVector{AssemblyType::UnsymmetricMatrix, AssemblyType::Vector};
+
+  return DomainIntegrand<D>(types, DiffOrders::FirstDerivatives, evaluate);
+}
+
 #define MLHP_INSTANTIATE_DIM(D)                                                \
   template DomainIntegrand<D> makeHelmholtzIntegrand(                          \
       const spatial::ScalarFunction<D> &wavenumber,                            \
@@ -465,6 +509,10 @@ makeHelmholtzIntegrand(const spatial::ScalarFunction<D> &wavenumber,
       const spatial::ScalarFunction<D> &damping,                               \
       const spatial::ScalarFunction<D> &sourceReal,                            \
       const spatial::ScalarFunction<D> &sourceImag);                           \
+  template DomainIntegrand<D> makeAdvectionDiffusionIntegrand(                  \
+      const spatial::VectorFunction<D, D> &velocity,                           \
+      const spatial::ScalarFunction<D> &diffusivity,                           \
+      const spatial::ScalarFunction<D> &source);                               \
   template std::vector<double> integratePartitionMatrices(                     \
       const AbsBasis<D> &basis, const DomainIntegrand<D> &integrand,           \
       const AbsQuadrature<D> &quadrature,                                      \

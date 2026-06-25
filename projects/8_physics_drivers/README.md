@@ -37,8 +37,23 @@ the result.
 `elastic2D_example.py`
     Linear elasticity on a 2D mlhp finite-element mesh.
 
+`plasticity2D.py`
+    Small-strain J2 plasticity around a hole in a stretched plate, load-stepped
+    with a Newton solve. The return mapping is a C user-material subroutine
+    (solvers/material_subroutines/j2.py) compiled at runtime and passed to mlhp
+    through its constitutive-equation C-interface.
+
 `helmholtz2D_example.py`
     Time-harmonic acoustics (Helmholtz) on a 2D mlhp finite-element mesh.
+
+`acoustic_scatter2D.py`
+    Forward acoustic scattering off an airplane silhouette: a ring of point sources
+    insonifies the obstacle and a ring of receivers records the scattered field,
+    writing the synthetic measurements to results/acoustic_scatter2D.npz.
+
+`acoustic_inversion2D.py`
+    Recovers the airplane silhouette from the recorded scattered field by adjoint-based
+    density optimization on a coarser mesh. _needs acoustic_scatter2D.npz_
 
 `waveND_example.py`
     Scalar wave equation via the finite-difference CuPy wave solver.

@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import mlhp
 import numpy as np
 import scipy.ndimage
+from matplotlib.tri import Triangulation
 from tqdm import tqdm
 
 from solvers.optimization import MMA, StructuredFEM
@@ -20,6 +21,7 @@ from solvers.optimization import MMA, StructuredFEM
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_mechanism"
+DEFORM_DIR = RESULTS_DIR / "animations/animation_frames/topopt_mechanism_deform"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -42,7 +44,7 @@ QUAD_ORDER = DEGREE + 1  # integration
 
 # physics
 VOLFRAC = 0.3
-RMIN = 3  # 5  # TODO quite large
+RMIN = 3  # 3  # 5  # TODO quite large
 E0, EMIN, NU = 1.0, 1e-9, 0.3
 F_IN = 1.0  # input actuation force (+x at the input port)
 K_IN = 1.0  # input-port spring (stiff actuator)
@@ -264,9 +266,11 @@ acc = mlhp.DataAccumulator()
 mlhp.basisOutput(basis, postmesh, acc, processors)
 
 ux = np.array(acc.data()[0])[0::2]
+uy = np.array(acc.data()[0])[1::2]
 indicator = np.array(acc.data()[1])
 tri = acc.triangulation()
-tri.set_mask(indicator[tri.triangles].mean(axis=1) < 0.5)
+mask = indicator[tri.triangles].mean(axis=1) < 0.5
+tri.set_mask(mask)
 
 fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
 ax.tricontourf(tri, ux, cmap="turbo", levels=64)
@@ -281,3 +285,31 @@ elif not args.animate:
     plt.show()
 else:
     plt.close()
+
+# ------------------- deformation animation (linear load 0 -> full scale) -------------
+# the response is linear, so a growing load just scales u and its x-contour together
+if args.animate:
+    DEFORM_DIR.mkdir(parents=True, exist_ok=True)
+    N_FRAMES = 60
+    solid = indicator > 0.5  # ignore the near-rigid-body drift of void nodes
+    scale = 0.2 * LENGTHS[0] / np.sqrt(ux**2 + uy**2)[solid].max()
+    levels = np.linspace((scale * ux)[solid].min(), (scale * ux)[solid].max(), 64)
+    # bound both the undeformed (frame 0) and full-load configurations, plus a margin
+    xs = np.concatenate([tri.x[solid], (tri.x + scale * ux)[solid]])
+    ys = np.concatenate([tri.y[solid], (tri.y + scale * uy)[solid]])
+    pad = 0.03 * LENGTHS[0]
+    xlim = [xs.min() - pad, xs.max() + pad]
+    ylim = [ys.min() - pad, ys.max() + pad]
+    for f, frac in enumerate(np.linspace(0.0, 1.0, N_FRAMES)):
+        s = frac * scale
+        tri_f = Triangulation(tri.x + s * ux, tri.y + s * uy, tri.triangles)
+        tri_f.set_mask(mask)
+        fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
+        ax.tricontourf(tri_f, s * ux, levels=levels, cmap="turbo", extend="both")
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        ax.set_aspect("equal")
+        ax.axis("off")
+        fig.tight_layout(pad=0)
+        plt.savefig(DEFORM_DIR / f"frame_{f:d}.jpg")
+        plt.close()

@@ -3,6 +3,7 @@ import math
 import torch
 import torch.nn.functional as F
 from efficient_kan import KAN
+from escnn import nn as enn
 from neuralop.models import FNO
 from torch import nn
 from torch_geometric.nn import GATConv, GCNConv, GINConv, SAGEConv
@@ -140,6 +141,78 @@ class DCN(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.model(x)
+
+
+class EquivariantCNN(nn.Module):
+    """E(2)-steerable convolutional network (escnn), the equivariant ``DCN``.
+
+    Builds a stack of steerable convolutions over the symmetry group carried by
+    ``gspace`` (e.g. ``gspaces.rot2dOnR2(N=8)`` for discrete C8 rotations). Output
+    feature maps transform consistently when the input is rotated, so a single
+    training sample teaches the whole orbit of rotated inputs.
+
+    Channels are given as field copies per layer, like ``DCN`` channels: the
+    interior layers carry regular-representation fields, while the input and output
+    representations are ``in_repr`` / ``out_repr`` (both scalar by default, the
+    standard scalar-in / scalar-out arrangement). Pass ``gspace.irrep(1)`` for a 2D
+    vector field, so e.g. a scalar-in / vector-out network learns an equivariant
+    operator like the gradient.
+
+    Unlike ``DCN``, the activation is passed as a factory rather than a plain
+    module, because a steerable nonlinearity must know the field type it acts on;
+    ``activation`` is called once per hidden layer as ``activation(field_type)``.
+
+    The forward pass takes and returns plain tensors (shape (B, C, H, W)); the
+    escnn ``GeometricTensor`` wrapping is handled internally, so the model is used
+    like any other ``nn.Module``.
+
+    Args:
+        gspace: escnn GSpace defining the symmetry group acting on R^2.
+        channels: field copies per layer. Endpoints carry in_repr / out_repr,
+            interior layers are regular-representation fields. Example: [1, 8, 8, 1].
+        activation: factory mapping a FieldType to an equivariant activation
+            module, applied after every hidden conv (e.g. ``enn.LeakyReLU``).
+        kernel_size, padding: conv geometry; a scalar applies to every layer, or
+            pass a per-layer list.
+        bias: whether convs carry a bias (scalar or per-layer list).
+        in_repr, out_repr: input/output representations; default to the scalar
+            (trivial) representation. Pass ``gspace.irrep(1)`` for a vector field.
+    """
+
+    def __init__(
+        self,
+        gspace,
+        channels: list[int],
+        activation=enn.LeakyReLU,
+        kernel_size: int | list[int] = 3,
+        padding: int | list[int] = 0,
+        bias: bool | list[bool] = False,
+        in_repr=None,
+        out_repr=None,
+    ) -> None:
+        super().__init__()
+        in_repr = in_repr if in_repr is not None else gspace.trivial_repr
+        out_repr = out_repr if out_repr is not None else gspace.trivial_repr
+        reps = [in_repr, *[gspace.regular_repr] * (len(channels) - 2), out_repr]
+        types = [enn.FieldType(gspace, [rep] * c) for rep, c in zip(reps, channels)]
+        modules = []
+        for i in range(len(channels) - 1):
+            modules.append(
+                enn.R2Conv(
+                    types[i],
+                    types[i + 1],
+                    get_layer_param(kernel_size, i),
+                    padding=get_layer_param(padding, i),
+                    bias=get_layer_param(bias, i),
+                )
+            )
+            if i < len(channels) - 2:
+                modules.append(activation(types[i + 1]))
+        self.in_type = types[0]
+        self.model = enn.SequentialModule(*modules)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.model(enn.GeometricTensor(x, self.in_type)).tensor
 
 
 class DGCN(nn.Module):

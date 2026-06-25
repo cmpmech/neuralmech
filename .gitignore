@@ -20,3 +20,4 @@ tmp/*
 .logs/
 neuralmech.egg-info/
 __pycache__/
+/solvers/material_subroutines/_build

@@ -34,7 +34,8 @@ args = parser.parse_args()
 # ceiling acoustic topology optimization
 
 # geometry & objective
-LENGTHS = [18.0, 9.0]
+# LENGTHS = [18.0, 9.0]
+LENGTHS = [18.0, 18.0]
 SOURCE_CENTER = [2.0, 2.0]  # harmonic point source (bottom-left)
 SOURCE_WIDTH = 0.3  # Gaussian emulation of the point source
 CEILING_HEIGHT = 1.0
@@ -52,7 +53,7 @@ target_max = [
 ]
 
 # discretization
-NX, NY = 432, 216  # 144, 72
+NX, NY = np.array(LENGTHS).astype(int) * 24
 SUB_VOXELS = 4
 DEGREE = 2  # not sufficient
 QUAD_ORDER = DEGREE + 1  # integration
@@ -61,9 +62,7 @@ QUAD_ORDER = DEGREE + 1  # integration
 RHO1, RHO2 = 1.204, 2643.0  # air, aluminium
 KAPPA1, KAPPA2 = 1.419e5, 6.87e10
 RHO_RATIO, KAPPA_RATIO = RHO1 / RHO2, KAPPA1 / KAPPA2
-# FREQ = 34.39
-FREQ = 69.43
-# FREQ = 95.37
+FREQ = 67.43  # computed with f = lambda n, m : c/2*math.sqrt((n/L)**2 + (m/L)**2)
 OMEGA = 2.0 * np.pi * FREQ / np.sqrt(KAPPA1 / RHO1)
 DAMP = 0.01
 SOURCE_AMP = 10.0
@@ -76,7 +75,7 @@ THRESHOLD = 0.5
 # optimization (Adam)
 MAX_ITER = 300
 LR = 5e-2  # 1e-1
-INITIAL_GUESS = 1.0
+INITIAL_GUESS = 0.5  # 1.0
 ETA = 0.5  # projection
 BETA_MAX = 200.0  # beta-continuation
 BETA_GROWTH = 1.02

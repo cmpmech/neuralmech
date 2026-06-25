@@ -103,6 +103,27 @@ DomainIntegrand<D> makeHelmholtzIntegrand( const spatial::ScalarFunction<D>& wav
                                            const spatial::ScalarFunction<D>& sourceReal,
                                            const spatial::ScalarFunction<D>& sourceImag );
 
+//! Steady advection-diffusion equation
+//!
+//!     v . grad(u) - div( kappa grad(u) ) = f      in Omega
+//!
+//! with advection velocity v(x), diffusivity kappa(x) and source f(x). The weak
+//! form gives the (non-symmetric, because of the advection term) element system
+//!
+//!     ( A + K ) u = F
+//!
+//! with advection A_ij = int N_i ( v . grad(N_j) ) dOmega, diffusion
+//! K_ij = int kappa grad(N_i) . grad(N_j) dOmega and load F_i = int N_i f dOmega.
+//!
+//! This mirrors the implementation mlhp core carried before its 0698db6 integrand
+//! API rework dropped it (it was an unused core orphan, never bound in upstream
+//! python); the driver in projects/8_physics_drivers depends on it, so the
+//! integrand now lives here as a NeuralMech helper.
+template<size_t D>
+DomainIntegrand<D> makeAdvectionDiffusionIntegrand( const spatial::VectorFunction<D, D>& velocity,
+                                                    const spatial::ScalarFunction<D>& diffusivity,
+                                                    const spatial::ScalarFunction<D>& source );
+
 } // namespace mlhp::helpers
 
 #endif // MLHP_HELPERS_INTEGRAND_HPP
