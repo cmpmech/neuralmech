@@ -2,6 +2,7 @@
 # 
 from functools import partial
 from pathlib import Path
+import os
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,22 +21,23 @@ torch.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 
 # -------------------------- training settings ---------------------------
-epochs = 66
-lr = 2e-2  # change over ae
-weight_decay = 1e-4    ### ??
-batch_size = 64
+# allow quick overrides via environment for experiment runs
+epochs = int(os.getenv("EPOCHS", "77"))
+lr = float(os.getenv("LR", "1e-2"))  # change over ae
+weight_decay = float(os.getenv("WEIGHT_DECAY", "1e-4"))
+batch_size = int(os.getenv("BATCH_SIZE", "64"))
 
 # beta = 0. # good reconstruction
-beta = 0.2
-# beta = 0.13
-# beta = 0.2 # good latent
+# allow override
+beta = float(os.getenv("BETA", str(0.2)))
 
 # define loss
 recon_loss = nn.MSELoss(reduction="mean")
 
 
 # prevent posterior collapsing for any latent dimension by enforcing a minimum KL divergence
-free_bits = 5.0  # nats per latent dimension
+free_bits = float(os.getenv("FREE_BITS", str(1.0)))  # nats per latent dimension
+
 def kl_div(mean_pred, logvar_pred):
     var_pred = torch.exp(logvar_pred)
     kl_per_dim = 0.5 * (var_pred + mean_pred**2 - logvar_pred - 1)  # shape: (B, latent_dim)
@@ -70,7 +72,9 @@ encoder_lr_factor = 0.1  # smaller lr for encoder to prevent posterior collapse
 # ----------------------------- prepare data -----------------------------
 domain_size = 256
 data = []
-data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_{domain_size}.npy") ) )
+# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_anomaly_1_256_400.npy") ) )
+data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_3max_400.npy") ) )
+# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_1sq_2tot_400.np.npy") ) )
 
 ## Add squares to dataset
 num_circles = 10
@@ -97,10 +101,15 @@ standardizex = Standardizer(X_train, dim=(0, 2, 3))
 ## details on this??
 channels, strides = build_ae_cnn_config(depth, conv_layers, channel_dim, base)
 channels[0] = 1  # true input size (in case channel_dim != 1)
+n_c = len(channels)
 
 ## vae
 red_domain_size = domain_size // 2**depth
 layers = [red_domain_size**2 * channels[-1], latent_dim]
+
+########################
+print("layers\n", layers)
+print("channels\n", channels)
 
 Encoder = nn.Sequential()
 Encoder.append(
@@ -146,8 +155,13 @@ Decoder.append(
 
 model = VAE(Encoder, Decoder).to(device)
 init_weights(model, act())
-summary(model, (1, 1, domain_size, domain_size), depth=4)
 
+# write summary to file
+s=summary(model, (1, 1, domain_size, domain_size), depth=4)
+summary_file = Path.resolve( BASE_DIR / f"../../tmp/fiber_vae_summary.txt" )
+with open(summary_file, "w") as f:
+    f.write(str(s))
+print("wrote summary to:\n", summary_file)
 
 # ------------------------ instantiate optimizer -------------------------
 
@@ -196,16 +210,17 @@ for epoch in pbar:
 
 # ----------------------------- export model -----------------------------
 model.standardizer = standardizex  # just for saving
-torch.save(
-    model, BASE_DIR / f"../../models/fiber_vae_depth{depth}_latent{latent_dim}_beta{beta}_{domain_size}.pt2"
-)
+save_path =  BASE_DIR / f"../../models/fiber_vae_depth{depth}_latent{latent_dim}_beta{beta}_{domain_size}.pt2"
+torch.save(model, save_path)
 
 # ---------------------------- postprocessing ----------------------------
 fig, ax = plt.subplots()
-ax.plot(train_cost, "k")
-ax.plot(val_cost, "r")
+
+ax.plot(train_cost, "k", label="train")
+ax.plot(val_cost, "r", label="val")
 ax.set_yscale("log")
 ax.set_title(f"training history beta={beta}, latent_dim={latent_dim}")
+ax.legend()
 plt.savefig(BASE_DIR / f"../../tmp/b{beta}_l{latent_dim}_history.png")
 plt.show()
 
@@ -222,7 +237,7 @@ with torch.no_grad():
 
 fig2, ax2 = plt.subplots(2, 2, figsize=(6, 6), dpi=domain_size)
 ax2[0, 0].imshow(x_orig, cmap="binary", vmin=0, vmax=1)
-ax2[0, 0].set_title("original")
+ax2[0, 0].set_title("original (val)")
 ax2[0, 1].imshow(x_recon, cmap="binary", vmin=0, vmax=1)
 ax2[0, 1].set_title(f"reconstruction (latent {latent_dim})")
 
@@ -255,3 +270,12 @@ plt.plot( mean_pred[sample_ind].cpu(), 'o', label="mean")
 plt.plot( logvar_pred[sample_ind].cpu(), 'o', label="logvar")
 plt.legend()
 plt.title(f"VAE latent_dim = {latent_dim}")
+
+# print the 5 dimensions with maximum KL divergence
+var_pred = torch.exp(logvar_pred)
+kl_per_dim = 0.5 * (var_pred + mean_pred**2 - logvar_pred - 1)  # shape: (B, latent_dim)
+sorted_kl, sorted_idx_kl = kl_per_dim[sample_ind].cpu().sort(descending=True)
+print("Top latent dimensions for KL divergence:")
+for i in range(5):
+    idx = sorted_idx_kl[i].item()
+    print(f"dim {idx}: KL={kl_per_dim[sample_ind, idx]:.3f}, mean={mean_pred[sample_ind, idx]:.3f}, logvar={logvar_pred[sample_ind, idx]:.3f}")
