@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-np.random.seed(45)
+seed = 45
 
 
 # -------------------------------- helper --------------------------------
@@ -46,21 +46,25 @@ def generate_squares(N, num_circles, num_squares, half_width=0.1, domain_length=
         domain[mask] = 1
     return domain
 
-
+np.random.seed(seed)
 # ------------------------------- settings -------------------------------
-N = 256
+N = 256     # image size N x N
+min_circles, max_circles = 1, 3
 
 # ------------------------- generate normal data -------------------------
-samples = 500
+samples = 400
 
 domains = np.zeros((samples, N, N))
 for i in range(samples):
-    num_circles = np.random.randint(5, 10)
-    radius = np.random.uniform(0.05, 0.1)
-    domains[i] = generate_circles(N, num_circles, radius)
+    num_total = np.random.randint(min_circles+1, max_circles + 1)
+    radius = np.random.uniform(0.065, 0.11)
+    domains[i] = generate_circles(N, num_total, radius)
 
 # -------------------------------- export --------------------------------
-np.save(f"../../data/fibers_{N}.npy", domains)
+fpathstart = f"../../data/t"
+fpath = f"{fpathstart}_circ{min_circles}min_{max_circles}max_{samples}.npy"
+np.save(fpath, domains)
+print(f"saved {samples} samples of fibers to {fpath}")
 
 # ---------------------------- postprocessing ----------------------------
 fig, ax = plt.subplots(figsize=(1, 1), dpi=N)
@@ -72,29 +76,29 @@ plt.savefig(f"../../results/fibers.pdf", bbox_inches="tight", pad_inches=0)
 plt.show()
 
 
+np.random.seed(seed)
 # -------------------------- generate anomalies --------------------------
-samples = 50
-num_circles = 10
+# samples = 50
+# num_circles = 10
+num_total=2
 
-
-for num_squares in range(num_circles + 1):
-    domains = np.zeros((samples, N, N))
-    for i in range(samples):
-        # radius = np.random.uniform(0.02, 0.2)
-        radius = np.random.uniform(0.05, 0.1)
-        radius = 0.08
-        domains[i] = generate_squares(N, num_circles - num_squares, num_squares, radius)
+# for num_squares in range(num_circles + 1):
+num_squares = 1
+domains = np.zeros((samples, N, N))
+for i in range(samples):
+    # radius = np.random.uniform(0.02, 0.2)
+    radius = np.random.uniform(0.04, 0.08)
+    # radius = 0.08
+    domains[i] = generate_squares(N, num_total - num_squares, num_squares, radius)
 
 # -------------------------------- export --------------------------------
-    np.save(f"../../data/fibers_anomaly_{num_squares}_{N}.npy", domains)
+fpath = f"{fpathstart}_{num_squares}sq_{num_total}tot_{samples}.npy"
+np.save(fpath, domains)
 
+print(f"saved {samples} samples of fibers with {num_squares} squares to {fpath}")
 # ---------------------------- postprocessing ----------------------------
-    if num_squares == 1:
-        fig, ax = plt.subplots(figsize=(1, 1), dpi=N)
-        ax.imshow(domains[0], cmap="binary")
-        ax.axis("off")
-        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-        plt.savefig(
-            f"../../results/fibers_anomaly.pdf", bbox_inches="tight", pad_inches=0
-        )
-        plt.show()
+    # if num_squares == 1:
+fig, ax = plt.subplots(figsize=(1, 1), dpi=N)
+ax.imshow(domains[4], cmap="binary")
+ax.axis("off")
+plt.show()
