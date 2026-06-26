@@ -72,7 +72,7 @@ mask = torch.from_numpy(r2 <= 1.0).to(device)
 gspace = gspaces.rot2dOnR2(N=ROTATIONS)
 # the 2D vector lives in the frequency-1 irrep; only C_N with N > 2 carries it, so the
 # standard CNN (ROTATIONS=1) treats the two components as independent scalars
-if ROTATIONS > 2:
+if ROTATIONS > 1:
     vector_repr = gspace.irrep(1)
 else:
     vector_repr = gspace.trivial_repr + gspace.trivial_repr

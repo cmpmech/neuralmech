@@ -15,7 +15,7 @@ torch.backends.cudnn.deterministic = True
 # -------------------------------- helper --------------------------------
 
 
-def get_layer_param(param, i):
+def get_layer_param(param, i):  # in case param is a list
     return param[i] if isinstance(param, list) else param
 
 

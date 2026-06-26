@@ -38,6 +38,9 @@ the Stanford bunny point cloud.
   Lagrangian neural network learning the Lagrangian of the same system
 - `mlp_dynamics_example.py`
   plain MLP baseline predicting the same dynamics directly
+- `dmn_example.py`
+  deep material network: a laminate-tree topology fit to a Mori-Tanaka effective
+  stiffness, then nonlinear (hyperelastic) prediction with no retraining
 - `pointnet_example.py` _needs `bunny_pointcloud.npz`_
   PointNet regressing a scalar field on the Stanford bunny point cloud
 - `pointnetpp_example.py` _needs `bunny_pointcloud.npz`_
