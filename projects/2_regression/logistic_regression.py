@@ -9,6 +9,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 rng = np.random.default_rng(2)
 
@@ -58,12 +59,12 @@ if not args.book:
 # -------------------------------- book postprocessing --------------------------------
 else:
     save_csv(
-        RESULTS_DIR / "logistic_regression_train0.csv",
+        CSV_DIR / "logistic_regression_train0.csv",
         x1=x_train[y_train == 0, 0],
         x2=x_train[y_train == 0, 1],
     )
     save_csv(
-        RESULTS_DIR / "logistic_regression_train1.csv",
+        CSV_DIR / "logistic_regression_train1.csv",
         x1=x_train[y_train == 1, 0],
         x2=x_train[y_train == 1, 1],
     )

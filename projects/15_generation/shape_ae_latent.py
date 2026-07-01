@@ -85,7 +85,7 @@ plt.show()
 # ------------------------- book postprocessing --------------------------
 for label, latent in zip(labels, latents):
     save_csv(
-        BASE_DIR / f"../../results/shapes_ae_latent_{label}.csv",
+        BASE_DIR / f"../../results/data/shapes_ae_latent_{label}.csv",
         x=latent[:, 0],
         y=latent[:, 1],
     )
@@ -101,7 +101,7 @@ for i in range(samplesx):
         ax.set_rasterized(True)
         fig.tight_layout(pad=0)
         plt.savefig(
-            BASE_DIR / f"../../results/genshapes_ae_{i}{j}_{box}.pdf",
+            BASE_DIR / f"../../results/rgb_pdf/genshapes_ae_{i}{j}_{box}.pdf",
             bbox_inches="tight",
             pad_inches=0,
         )

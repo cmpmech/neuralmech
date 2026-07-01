@@ -15,6 +15,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -146,10 +147,10 @@ if not args.book:
 # -------------------------------- book postprocessing --------------------------------
 else:
     save_csv(
-        RESULTS_DIR / "mle_hetero.csv",
+        CSV_DIR / "mle_hetero.csv",
         x=x_test.squeeze().cpu().numpy(),
         y=y_test.squeeze().cpu().numpy(),
         mean=mean_test.squeeze(),
         std=std_test.squeeze(),
     )
-    save_csv(RESULTS_DIR / "mle_hetero_train.csv", x=x_train_arr, y=y_train_arr)
+    save_csv(CSV_DIR / "mle_hetero_train.csv", x=x_train_arr, y=y_train_arr)

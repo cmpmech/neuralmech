@@ -29,4 +29,4 @@ clean_view(renderView1)
 view_from_x(renderView1)
 Render()
 
-save_png(BASE_DIR / f"../../results/3D/renders/{NAME}.png", renderView1, RESOLUTION)
+save_png(BASE_DIR / f"../../results/rgb_png/rocks_{NAME}.png", renderView1, RESOLUTION)

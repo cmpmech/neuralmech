@@ -13,6 +13,7 @@ from NN import MLP
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -86,14 +87,14 @@ else:
     ax.plot(x_, y_pred.detach().cpu(), "k", linewidth=1.5)
     ax.axis("off")
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    plt.savefig(RESULTS_DIR / "MLP_prediction.pdf")
+    plt.savefig(RGB_PDF_DIR / "MLP_prediction.pdf")
     plt.close()
 
     fig, ax = plt.subplots(figsize=(5, 4), dpi=100)
     ax.plot(x_, y.detach().cpu(), "k", linewidth=1.5)
     ax.axis("off")
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    plt.savefig(RESULTS_DIR / "MLP_target.pdf")
+    plt.savefig(RGB_PDF_DIR / "MLP_target.pdf")
     plt.close()
 
     # stacked random-noise input channels
@@ -102,5 +103,5 @@ else:
         ax.plot(x_ + 0.1 * i, x[:, i].detach().cpu() - 3 * i, "k", linewidth=1.5)
     ax.axis("off")
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    plt.savefig(RESULTS_DIR / "MLP_input.pdf")
+    plt.savefig(RGB_PDF_DIR / "MLP_input.pdf")
     plt.close()

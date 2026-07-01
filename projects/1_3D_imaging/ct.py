@@ -9,6 +9,8 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -58,13 +60,13 @@ ax.imshow(phantom.T, origin="lower", cmap="binary")
 ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-plt.savefig(RESULTS_DIR / "ct_original.png")
+plt.savefig(RGB_PDF_DIR / "ct_original.pdf")
 plt.show()
 
 angle = 60
 measurement = radon(phantom, theta=[angle])[:, 0]
 save_csv(
-    RESULTS_DIR / "ct_signal.csv",
+    CSV_DIR / "ct_signal.csv",
     x=s,
     y=measurement,
 )
@@ -74,7 +76,7 @@ ax.imshow(sinogram, aspect="auto", cmap="binary_r")
 ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-plt.savefig(RESULTS_DIR / "ct_sinogram.png")
+plt.savefig(RGB_PDF_DIR / "ct_sinogram.pdf")
 plt.show()
 
 fig, ax = plt.subplots(figsize=(N / 10, N / 10), dpi=100)
@@ -82,5 +84,5 @@ ax.imshow(reconstruction.T, origin="lower", cmap="binary")
 ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-plt.savefig(RESULTS_DIR / "ct_prediction.png")
+plt.savefig(RGB_PDF_DIR / "ct_prediction.pdf")
 plt.show()

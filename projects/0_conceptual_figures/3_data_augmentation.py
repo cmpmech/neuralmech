@@ -12,6 +12,7 @@ from postprocessing import show_image
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -24,34 +25,34 @@ torch.backends.cudnn.deterministic = True
 img = Image.open(DATA_DIR / "images/pasta.jpg").convert("RGB")
 
 # -------------------------------------- original -------------------------------------
-show_image(np.asarray(img), path=RESULTS_DIR / "augment_0.png", close=args.book)
+show_image(np.asarray(img), path=RGB_PDF_DIR / "augment_0.pdf", close=args.book)
 
 # ------------------------------------ augmentation -----------------------------------
 augment1 = T.RandomHorizontalFlip(p=1)
 show_image(
-    np.asarray(augment1(img)), path=RESULTS_DIR / "augment_1.png", close=args.book
+    np.asarray(augment1(img)), path=RGB_PDF_DIR / "augment_1.pdf", close=args.book
 )
 
 augment2 = T.ColorJitter(brightness=0.5, contrast=1.0, saturation=0.5, hue=0.2)
 show_image(
-    np.asarray(augment2(img)), path=RESULTS_DIR / "augment_2.png", close=args.book
+    np.asarray(augment2(img)), path=RGB_PDF_DIR / "augment_2.pdf", close=args.book
 )
 
 augment3 = T.CenterCrop(size=(img.size[1], img.size[1]))
 show_image(
-    np.asarray(augment3(img)), path=RESULTS_DIR / "augment_3.png", close=args.book
+    np.asarray(augment3(img)), path=RGB_PDF_DIR / "augment_3.pdf", close=args.book
 )
 
 augment4 = T.Compose(
     [T.RandomRotation(degrees=(90, 90)), T.CenterCrop((img.size[1], img.size[1]))]
 )
 show_image(
-    np.asarray(augment4(img)), path=RESULTS_DIR / "augment_4.png", close=args.book
+    np.asarray(augment4(img)), path=RGB_PDF_DIR / "augment_4.pdf", close=args.book
 )
 
 augment5 = T.GaussianBlur(kernel_size=15, sigma=15.0)
 show_image(
-    np.asarray(augment5(img)), path=RESULTS_DIR / "augment_5.png", close=args.book
+    np.asarray(augment5(img)), path=RGB_PDF_DIR / "augment_5.pdf", close=args.book
 )
 
 
@@ -63,7 +64,7 @@ def augment6(img):
 
 
 show_image(
-    np.asarray(augment6(img)), path=RESULTS_DIR / "augment_6.png", close=args.book
+    np.asarray(augment6(img)), path=RGB_PDF_DIR / "augment_6.pdf", close=args.book
 )
 
 
@@ -89,5 +90,5 @@ def augment7(img, strength=0.2, radius=0.7, ripples=20):
 
 
 show_image(
-    np.asarray(augment7(img)), path=RESULTS_DIR / "augment_7.png", close=args.book
+    np.asarray(augment7(img)), path=RGB_PDF_DIR / "augment_7.pdf", close=args.book
 )

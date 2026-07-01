@@ -63,7 +63,7 @@ ax.imshow(
 ax.axis("off")
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 plt.savefig(
-    f"../../results/fibers_detection_true_{anomaly_deg}.pdf",
+    f"../../results/rgb_pdf/fibers_detection_true_{anomaly_deg}.pdf",
     bbox_inches="tight",
     pad_inches=0,
 )
@@ -80,7 +80,7 @@ ax.imshow(
 ax.axis("off")
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 plt.savefig(
-    f"../../results/fibers_detection_pred_{anomaly_deg}.pdf",
+    f"../../results/rgb_pdf/fibers_detection_pred_{anomaly_deg}.pdf",
     bbox_inches="tight",
     pad_inches=0,
 )
@@ -96,7 +96,7 @@ ax.imshow(
 ax.axis("off")
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 plt.savefig(
-    f"../../results/fibers_detection_error_{anomaly_deg}.pdf",
+    f"../../results/rgb_pdf/fibers_detection_error_{anomaly_deg}.pdf",
     bbox_inches="tight",
     pad_inches=0,
 )
@@ -105,7 +105,7 @@ plt.show()
 # -------------------------------- export --------------------------------
 for i, error in enumerate(errors):
     save_csv(
-        f"../../results/fibers_mean_error_{i}.csv",
+        f"../../results/data/fibers_mean_error_{i}.csv",
         x=torch.arange(1, error.shape[0] + 1),
         y=torch.mean(error, dim=(1, 2, 3)),
     )

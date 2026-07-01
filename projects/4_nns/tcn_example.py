@@ -14,6 +14,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -109,7 +110,7 @@ if not args.book:
 # -------------------------------- book postprocessing --------------------------------
 else:
     save_csv(
-        RESULTS_DIR / f"tcn_sine_{RECEPTIVE_FIELD}.csv",
+        CSV_DIR / f"tcn_sine_{RECEPTIVE_FIELD}.csv",
         i=np.arange(RESOLUTION) + 1,
         z=x_,
         y=y[0, 0].detach().cpu(),

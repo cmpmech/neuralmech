@@ -9,6 +9,8 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -75,7 +77,7 @@ else:
     ax.axis("off")
     ax.set_rasterized(True)
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    plt.savefig(RESULTS_DIR / f"pixelized_gaussian_{RESOLUTION}.png")
+    plt.savefig(RGB_PDF_DIR / f"pixelized_gaussian_{RESOLUTION}.pdf")
     plt.close()
 
     fig, ax = plt.subplots(figsize=(RESOLUTION / 100, RESOLUTION / 100), dpi=100)
@@ -83,7 +85,7 @@ else:
     ax.axis("off")
     ax.set_rasterized(True)
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    plt.savefig(RESULTS_DIR / f"pixelized_gaussian_rot_{RESOLUTION}.png")
+    plt.savefig(RGB_PDF_DIR / f"pixelized_gaussian_rot_{RESOLUTION}.pdf")
     plt.close()
 
-    save_csv(RESULTS_DIR / "pixelized_gaussian_mae.csv", x=resolutions, y=maes)
+    save_csv(CSV_DIR / "pixelized_gaussian_mae.csv", x=resolutions, y=maes)

@@ -89,7 +89,7 @@ for version in range(0, 2): # 0 is standard, 1 is mixed
     # -------------------------------- export --------------------------------
     df = pd.DataFrame({'x': dofs,
                        'y': timings})
-    df.to_csv(f'../../results/wave_scaling_{version}.csv', sep=' ', index=False)
+    df.to_csv(f'../../results/data/wave_scaling_{version}.csv', sep=' ', index=False)
 
     # --------------------------- post-processing ----------------------------
     print(np.max(np.array(dofs) / np.array(timings))/1e9)

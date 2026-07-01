@@ -9,6 +9,7 @@ from optimization_config import rosenbrock as objective
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
@@ -98,11 +99,11 @@ def plot(xr, yr, filename, final_markers=False):
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
     if args.book:
-        fig.savefig(RESULTS_DIR / filename)
+        fig.savefig(RGB_PDF_DIR / filename)
     else:
         plt.show()
     plt.close(fig)
 
 
-plot(xrange, yrange, "rosenbrock.png")
-plot((0.8, 1.2), (0.8, 1.2), "rosenbrock_zoomed.png", final_markers=True)
+plot(xrange, yrange, "rosenbrock.pdf")
+plot((0.8, 1.2), (0.8, 1.2), "rosenbrock_zoomed.pdf", final_markers=True)

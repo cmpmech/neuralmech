@@ -120,8 +120,13 @@ its keep. The old separate `training settings` / `model settings` /
 - `BASE_DIR = Path(__file__).parent` (never `os.getcwd()` or absolute paths).
 - Directory constants are **resolved**: `RESULTS_DIR = (BASE_DIR / "../../results").resolve()`;
   likewise `DATA_DIR`, `ANIMATION_DIR`.
-- Naming: `*_DIR` for directories, plain names for files. Specialized subdirs
-  (e.g. per-case animation-frame folders) must be ensured to exist:
+- Book outputs go to fixed subfolders, never the `results/` root: figures to
+  `RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()` (`savefig(RGB_PDF_DIR / ...)`),
+  plot data to `CSV_DIR = (RESULTS_DIR / "data").resolve()` (`save_csv`/`savetxt`).
+  These two folders are committed (`.gitkeep`) and **assumed to exist** — do not
+  `mkdir` them.
+- Naming: `*_DIR` for directories, plain names for files. Specialized subdirs that are
+  *not* committed (e.g. per-case animation-frame folders) must be ensured to exist:
   `dir.mkdir(parents=True, exist_ok=True)`.
 
 ## Constants
@@ -199,12 +204,16 @@ if PATIENCE is not None and best_state is not None:
 
 - Use `fig.subplots_adjust(left=0, right=1, top=1, bottom=0)` — never
   `fig.tight_layout()` or bbox tricks inside `savefig`.
-- File formats: `.png` is the book default; `.jpg` for animation frames.
+- File formats: book figures export `.pdf` (vector plots stay vector; raster fields
+  carry `set_rasterized(True)` so the pdf embeds an image — `imshow` needs no flag, it
+  is always an embedded image), saved into `RGB_PDF_DIR`. `.jpg` for animation frames.
+  `projects/0_cmyk_export/figures_to_cmyk.py` then derives the CMYK print set the book
+  imports from `rgb_pdf/`/`rgb_png/` (see that project's README).
 - **No legends.** Never `ax.legend()` or `label=` — the book renders legends in
   TikZ. Keep the color convention instead (`"k"` train/true, `"r"` val/uncertainty,
   `"b"` reference/alt).
-- `--book` writes figure data/CSVs to `RESULTS_DIR` under a `book postprocessing`
-  banner; no flag → interactive `plt.show()`. Typical shape:
+- `--book` writes figures to `RGB_PDF_DIR` and data/CSVs to `CSV_DIR` under a
+  `book postprocessing` banner; no flag → interactive `plt.show()`. Typical shape:
 
   ```python
   # ----------------------------------- postprocessing ----------------------------------
@@ -214,7 +223,8 @@ if PATIENCE is not None and best_state is not None:
       ...plt.show() previews...
   # -------------------------------- book postprocessing --------------------------------
   else:
-      save_csv(RESULTS_DIR / "name.csv", ...)
+      plt.savefig(RGB_PDF_DIR / "name.pdf")
+      save_csv(CSV_DIR / "name.csv", ...)
   ```
 
 - Colormaps (fixed per domain): concepts `cividis`; diverging concepts `Spectral`;
@@ -411,7 +421,7 @@ are settled:
 - **`settings` sub-comments**: `# hyperparameters`, `# define loss`,
   `# model settings` (see above).
 - **f-strings without placeholders**: drop the `f` prefix —
-  `RESULTS_DIR / "name.csv"`, not `RESULTS_DIR / f"name.csv"`. Keep `f` only when
+  `CSV_DIR / "name.csv"`, not `CSV_DIR / f"name.csv"`. Keep `f` only when
   the path actually interpolates (`f"name_{EPOCHS}.csv"`).
 - **`None` comparisons**: `x is None` / `x is not None`, never `== None`.
 - **Index names**: `idx` (single index) / `ids` (collection), not `indices` or
@@ -428,8 +438,8 @@ projects/3_mlp") rather than edit: read every `.py` in `projects/<N>_*/` (skip
 **Do not auto-edit**; surfacing the list is the deliverable. Cover at least: paths
 & seeds, model loading, import grouping, the 10-step order, aligned `=`,
 `ALL_CAPS` constants, banners (87-char, vocabulary, none on scaffolding), argparse
-flags, the training-loop checklist, plotting (palette, no legends, `.pdf` for
-line/contour vs `.png` for raster, `:.2e`/`:.2f`), comments/docstrings, `__main__`
+flags, the training-loop checklist, plotting (palette, no legends, book figures save
+`.pdf` with `set_rasterized` on raster fields, `:.2e`/`:.2f`), comments/docstrings, `__main__`
 guard, `init_weights` order, and `save_csv` usage. This is style enforcement, not
 code review — don't critique comment wording or variable choices beyond the
 registries.

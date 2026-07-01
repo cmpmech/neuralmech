@@ -14,6 +14,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -93,8 +94,8 @@ if not args.book:
 # -------------------------------- book postprocessing --------------------------------
 else:
     save_csv(
-        RESULTS_DIR / "node_sine_test.csv",
+        CSV_DIR / "node_sine_test.csv",
         x=x.squeeze().cpu(),
         y=y_pred.squeeze().detach().cpu(),
     )
-    save_csv(RESULTS_DIR / "node_sine_train.csv", x=x_, y=y_)
+    save_csv(CSV_DIR / "node_sine_train.csv", x=x_, y=y_)

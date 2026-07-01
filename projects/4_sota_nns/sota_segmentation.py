@@ -12,6 +12,7 @@ from postprocessing import show_image
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
@@ -37,7 +38,7 @@ preprocess = weights.transforms()  # center crop, rescale & normalization
 # ------------------------------------- load image ------------------------------------
 raw_img = decode_image(str(DATA_DIR / "images" / IMAGE))  # (channels, h, w)
 img_max, img_min = raw_img.max(), raw_img.min()
-path = str(RESULTS_DIR / "segmentation1.jpg") if args.book else None
+path = str(RGB_PDF_DIR / "segmentation1.pdf") if args.book else None
 show_image(raw_img.permute(1, 2, 0).numpy(), path=path, close=args.book)
 
 x = preprocess(raw_img).unsqueeze(0).to(device)
@@ -69,6 +70,6 @@ ax.axis("off")
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
 if args.book:
-    plt.savefig(RESULTS_DIR / "segmentation2.jpg")
+    plt.savefig(RGB_PDF_DIR / "segmentation2.pdf")
 else:
     plt.show()

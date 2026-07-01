@@ -9,6 +9,7 @@ from sklearn.tree import DecisionTreeClassifier
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -63,9 +64,10 @@ for n_trees in N_TREES:
     ax.scatter(X[id0, 0], X[id0, 1], c="r", s=10)
     ax.scatter(X[id1, 0], X[id1, 1], c="b", s=10, marker="s")
     ax.axis("off")
+    ax.set_rasterized(True)  # vectorized pdf too large at this mesh density
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     if args.book:
-        fig.savefig(RESULTS_DIR / f"random_forest_{n_trees}.png")
+        fig.savefig(RGB_PDF_DIR / f"random_forest_{n_trees}.pdf")
         plt.close()
     else:
         plt.show()

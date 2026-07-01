@@ -15,6 +15,7 @@ from NN import MLP
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -127,5 +128,5 @@ if not args.book:
     plt.show()
 # -------------------------------- book postprocessing --------------------------------
 else:
-    fig.savefig(RESULTS_DIR / "robustness_sine.png")
+    fig.savefig(RGB_PDF_DIR / "robustness_sine.pdf")
 plt.close()

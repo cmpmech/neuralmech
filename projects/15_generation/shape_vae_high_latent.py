@@ -6,6 +6,7 @@ import torch
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = BASE_DIR / "../../results"
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames"
 
 parser = argparse.ArgumentParser()
@@ -58,7 +59,7 @@ if args.book:
         ax.axis("off")
         fig.tight_layout(pad=0)
         plt.savefig(
-            RESULTS_DIR / f"genshapes_vae_high_{LATENT_DIM}_{i}.png",
+            RGB_PDF_DIR / f"genshapes_vae_high_{LATENT_DIM}_{i}.pdf",
             bbox_inches="tight",
             pad_inches=0,
         )

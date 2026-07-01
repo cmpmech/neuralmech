@@ -10,6 +10,7 @@ import scipy.sparse as sp
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -89,6 +90,9 @@ u_re, u_im = data[0::2], data[1::2]
 amp = np.sqrt((u_re**2 + u_im**2))
 phase = np.arctan2(u_im, u_re)  # phase shift in ]-pi, pi]
 tri = result.triangulation()
+# mask FCM cut-cell triangles inside the hole
+cx, cy = tri.x[tri.triangles].mean(1), tri.y[tri.triangles].mean(1)
+tri.set_mask((cx - 0.5)**2 + (cy - 0.5)**2 < 0.15**2)
 
 limit_amp = np.max(amp)
 amp_cmap = cmr.get_sub_cmap(cmr.fusion_r, 0.5, 1.0)  # red lobe of the wave colormap
@@ -100,7 +104,7 @@ ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    plt.savefig(RESULTS_DIR / "helmholtz2D_amp.png")
+    plt.savefig(RGB_PDF_DIR / "helmholtz2D_amp.pdf", transparent=True)
     plt.close()
 else:
     plt.show()
@@ -112,7 +116,7 @@ ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    plt.savefig(RESULTS_DIR / "helmholtz2D_phase.png")
+    plt.savefig(RGB_PDF_DIR / "helmholtz2D_phase.pdf", transparent=True)
     plt.close()
 else:
     plt.show()

@@ -11,6 +11,9 @@ the Stanford bunny point cloud.
   noisy sine and its derivative sampled on grids of several resolutions
 - `deeponet_sine_gen.py` -> `data/deeponet_sine_{32,64,128,256}.npz`
   shifted sines with a fixed sensor sampling and random query coordinates
+- `dmn_data.py` -> `data/dmn_dataset.npz`
+  finite-cell homogenized effective stiffness of a two-phase circular-inclusion cell
+  for many sampled phase moduli (uses `solvers/homogenization.py`)
 
 ## Drivers
 
@@ -38,9 +41,10 @@ the Stanford bunny point cloud.
   Lagrangian neural network learning the Lagrangian of the same system
 - `mlp_dynamics_example.py`
   plain MLP baseline predicting the same dynamics directly
-- `dmn_example.py`
-  deep material network: a laminate-tree topology fit to a Mori-Tanaka effective
-  stiffness, then nonlinear (hyperelastic) prediction with no retraining
+- `dmn_example.py` _needs `dmn_dataset.npz`_
+  deep material network: a laminate-tree topology fit to the finite-cell effective
+  stiffness, then nonlinear-elastic prediction with no retraining, checked against a
+  finite-cell reference solved with the same material law
 - `pointnet_example.py` _needs `bunny_pointcloud.npz`_
   PointNet regressing a scalar field on the Stanford bunny point cloud
 - `pointnetpp_example.py` _needs `bunny_pointcloud.npz`_

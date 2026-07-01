@@ -8,6 +8,8 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -118,13 +120,13 @@ if not args.book:
 
 # -------------------------------- book postprocessing --------------------------------
 else:
-    plt.savefig(RESULTS_DIR / f"gabor_landscape_{BATCH_SIZE}.pdf")
+    plt.savefig(RGB_PDF_DIR / f"gabor_landscape_{BATCH_SIZE}.pdf")
     plt.close()
 
-    save_csv(RESULTS_DIR / "gabor_data.csv", x=x.squeeze(), y=y.squeeze())
+    save_csv(CSV_DIR / "gabor_data.csv", x=x.squeeze(), y=y.squeeze())
 
     if BATCH_SIZE == 16:
         x_test = np.linspace(-30, 30, 400)
         for i, (a, b) in enumerate(history0[:500:40]):
             y_pred = gabor(a, b)(x_test)
-            save_csv(RESULTS_DIR / f"gabor_prediction_{i}.csv", x=x_test, y=y_pred)
+            save_csv(CSV_DIR / f"gabor_prediction_{i}.csv", x=x_test, y=y_pred)

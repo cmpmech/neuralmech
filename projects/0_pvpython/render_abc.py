@@ -7,8 +7,7 @@ from pvpython_helper import clean_view, save_png, view_from_x
 BASE_DIR = Path(__file__).parent
 STL_DIR = (BASE_DIR / "../../data/abc/geometry/stl").resolve()
 VOXEL_DIR = (BASE_DIR / "../../results/abc/geometry").resolve()
-RENDER_DIR = (BASE_DIR / "../../results/abc/renders").resolve()
-RENDER_DIR.mkdir(parents=True, exist_ok=True)
+RENDER_DIR = (BASE_DIR / "../../results/rgb_png").resolve()
 
 # ----------------------------------- settings ----------------------------------------
 RESOLUTION = [1000, 1000]

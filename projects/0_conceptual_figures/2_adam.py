@@ -8,6 +8,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -54,7 +55,7 @@ if not args.book:
     plt.show()
 
 if args.book:
-    save_csv(RESULTS_DIR / "momentum.csv", x=x_gd, y=f(x_gd), xm=x_gdm, ym=f(x_gdm))
+    save_csv(CSV_DIR / "momentum.csv", x=x_gd, y=f(x_gd), xm=x_gdm, ym=f(x_gdm))
 
 # -------------------------------------- adagrad --------------------------------------
 x_data = np.array([-1, 0, 1])
@@ -109,7 +110,7 @@ if not args.book:
 
 if args.book:
     save_csv(
-        RESULTS_DIR / "adagrad.csv",
+        CSV_DIR / "adagrad.csv",
         xs=x_gds,
         ys=f(x_gds),
         xl=x_gdl,

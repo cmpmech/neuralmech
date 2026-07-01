@@ -9,6 +9,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -66,7 +67,7 @@ if not args.book:
 
 if args.book:
     save_csv(
-        RESULTS_DIR / "universal_approx_depth_comb.csv",
+        CSV_DIR / "universal_approx_depth_comb.csv",
         x=x_test.squeeze(),
         ypred=y_pred.squeeze(),
     )

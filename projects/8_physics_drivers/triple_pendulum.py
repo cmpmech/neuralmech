@@ -9,6 +9,7 @@ from solvers.multibody import PlanarMultibody
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames"
 
 parser = argparse.ArgumentParser()
@@ -75,7 +76,7 @@ if args.book:
     ax.set_xlim(xlims[0], xlims[1])
     ax.set_ylim(ylims[0], ylims[1])
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    plt.savefig(RESULTS_DIR / "triple_pendulum.png", transparent=True)
+    plt.savefig(RGB_PDF_DIR / "triple_pendulum.pdf", transparent=True)
     plt.close()
 
     print(

@@ -11,6 +11,7 @@ from postprocessing import show_image
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
@@ -35,7 +36,7 @@ preprocess = weights.transforms()  # crop, rescale & normalization
 # ----------------------------------- classification ----------------------------------
 for image in IMAGES:
     raw_img = decode_image(str(DATA_DIR / "images" / image))  # (channels, h, w)
-    path = str(RESULTS_DIR / f"classification_{image}") if args.book else None
+    path = str(RGB_PDF_DIR / f"classification_{Path(image).stem}.pdf") if args.book else None
     show_image(raw_img.permute(1, 2, 0).numpy(), path=path, close=args.book)
 
     x = preprocess(raw_img).unsqueeze(0).to(device)  # (1, 3, s, s)

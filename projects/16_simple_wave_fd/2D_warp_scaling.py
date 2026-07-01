@@ -106,7 +106,7 @@ for n in nlist:
     # -------------------------------- export --------------------------------
     df = pd.DataFrame({'x': dofs,
                        'y': timings})
-    df.to_csv(f'../../results/warp_scaling.csv', sep=' ', index=False)
+    df.to_csv(f'../../results/data/warp_scaling.csv', sep=' ', index=False)
 
 # ---------------------------- postprocessing ----------------------------
 print(np.max(np.array(dofs) / np.array(timings))/1e9)

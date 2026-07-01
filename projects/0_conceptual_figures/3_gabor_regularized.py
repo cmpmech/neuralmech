@@ -7,6 +7,7 @@ import scipy.ndimage as ndimage
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = BASE_DIR / "../../results"
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -108,7 +109,7 @@ ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    plt.savefig(RESULTS_DIR / "gabor_landscape_standard.png")
+    plt.savefig(RGB_PDF_DIR / "gabor_landscape_standard.pdf")
     plt.close()
 else:
     plt.show()
@@ -122,7 +123,7 @@ ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    plt.savefig(RESULTS_DIR / "regularization_landscape.png")
+    plt.savefig(RGB_PDF_DIR / "regularization_landscape.pdf")
     plt.close()
 else:
     plt.show()
@@ -138,7 +139,7 @@ ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    plt.savefig(RESULTS_DIR / "regularized_gabor_landscape.png")
+    plt.savefig(RGB_PDF_DIR / "regularized_gabor_landscape.pdf")
     plt.close()
 else:
     plt.show()

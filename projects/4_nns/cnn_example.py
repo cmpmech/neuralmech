@@ -13,6 +13,7 @@ from NN import DCN
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -111,8 +112,8 @@ else:
         plt.savefig(path)
         plt.close()
 
-    save_field(y_pred[0, 0].detach().cpu(), RESULTS_DIR / "CNN_prediction.png")
-    save_field(y[0, 0].detach().cpu(), RESULTS_DIR / "CNN_target.png")
+    save_field(y_pred[0, 0].detach().cpu(), RGB_PDF_DIR / "CNN_prediction.pdf")
+    save_field(y[0, 0].detach().cpu(), RGB_PDF_DIR / "CNN_target.pdf")
     for i in range(CHANNELS[0]):
         fig, ax = plt.subplots(figsize=(input_size / 50, input_size / 50), dpi=100)
         ax.imshow(
@@ -121,5 +122,5 @@ else:
         ax.axis("off")
         ax.set_rasterized(True)
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-        plt.savefig(RESULTS_DIR / f"CNN_input_{i}.png")
+        plt.savefig(RGB_PDF_DIR / f"CNN_input_{i}.pdf")
         plt.close()

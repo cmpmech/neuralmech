@@ -9,6 +9,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 rng = np.random.default_rng(2)
 
@@ -54,5 +55,5 @@ if not args.book:
     plt.show()
 # -------------------------------- book postprocessing --------------------------------
 else:
-    save_csv(RESULTS_DIR / "linear_regression_outlier_train.csv", x=x_train, y=y_train)
-    save_csv(RESULTS_DIR / "linear_regression_outlier_val.csv", x=x_val, y=y_val)
+    save_csv(CSV_DIR / "linear_regression_outlier_train.csv", x=x_train, y=y_train)
+    save_csv(CSV_DIR / "linear_regression_outlier_val.csv", x=x_val, y=y_val)

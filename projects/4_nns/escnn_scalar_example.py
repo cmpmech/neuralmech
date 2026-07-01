@@ -15,6 +15,7 @@ from NN import EquivariantCNN
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -119,5 +120,5 @@ else:
             ax.axis("off")
             ax.set_rasterized(True)
             fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-            plt.savefig(RESULTS_DIR / f"ESCNN_{name}_{angle}_{ROTATIONS}.png")
+            plt.savefig(RGB_PDF_DIR / f"ESCNN_{name}_{angle}_{ROTATIONS}.pdf")
             plt.close()

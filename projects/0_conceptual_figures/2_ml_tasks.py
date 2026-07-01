@@ -8,6 +8,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -25,7 +26,7 @@ if not args.book:
     plt.show()
 
 if args.book:
-    save_csv(RESULTS_DIR / "ml_tasks_reg.csv", x=x, y=y)
+    save_csv(CSV_DIR / "ml_tasks_reg.csv", x=x, y=y)
 
 # ----------------------------------- classification ----------------------------------
 x1 = np.random.uniform(0, 2, 30)
@@ -43,7 +44,7 @@ if not args.book:
     plt.show()
 
 if args.book:
-    save_csv(RESULTS_DIR / "ml_tasks_clas.csv", x1=x1, y1=y1, x2=x2, y2=y2)
+    save_csv(CSV_DIR / "ml_tasks_clas.csv", x1=x1, y1=y1, x2=x2, y2=y2)
 
 # ------------------------------ representation learning ------------------------------
 x1 = np.random.uniform(0, 1, 30)
@@ -58,7 +59,7 @@ if not args.book:
     plt.show()
 
 if args.book:
-    save_csv(RESULTS_DIR / "ml_tasks_rep.csv", x1=x1, y1=y1, x2=x2, y2=y2)
+    save_csv(CSV_DIR / "ml_tasks_rep.csv", x1=x1, y1=y1, x2=x2, y2=y2)
 
 # -------------------------------- generative modeling --------------------------------
 x1 = np.random.uniform(0, 1, 60)
@@ -73,5 +74,5 @@ if not args.book:
     plt.show()
 
 if args.book:
-    save_csv(RESULTS_DIR / "ml_tasks_gen1.csv", x=x1, y=y1)
-    save_csv(RESULTS_DIR / "ml_tasks_gen2.csv", x=x2, y=y2)
+    save_csv(CSV_DIR / "ml_tasks_gen1.csv", x=x1, y=y1)
+    save_csv(CSV_DIR / "ml_tasks_gen2.csv", x=x2, y=y2)

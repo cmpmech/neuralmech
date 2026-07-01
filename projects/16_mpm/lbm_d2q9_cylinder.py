@@ -8,6 +8,7 @@ import numpy as np
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = BASE_DIR / "../../results"
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames"
 
 np.random.seed(0)
@@ -116,10 +117,9 @@ print(f"grid {nx}x{ny}, iters {max_iter}, ms/iter {(toc - tic) / max_iter * 1e3:
 _, u = macroscopic(f)
 
 if args.book:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(6, 2))
     plot_vorticity(ax, u)
-    fig.savefig(RESULTS_DIR / "lbm_d2q9_cylinder.png", dpi=200, bbox_inches="tight")
+    fig.savefig(RGB_PDF_DIR / "lbm_d2q9_cylinder.pdf", dpi=200, bbox_inches="tight")
     plt.close(fig)
 elif args.animate:
     pass

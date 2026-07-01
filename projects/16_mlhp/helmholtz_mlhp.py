@@ -13,6 +13,7 @@ except ImportError:
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = BASE_DIR / "../../results"
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -101,10 +102,10 @@ for ax, field in zip(axes, (u_re_h, u_im_h)):
     fig.colorbar(cb, ax=ax)
     ax.set_aspect("equal")
     ax.axis("off")
+    ax.set_rasterized(True)  # vectorized pdf too large at this mesh density
 fig.tight_layout(pad=0)
 
 if args.book:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    fig.savefig(RESULTS_DIR / "helmholtz_mlhp.pdf")
+    fig.savefig(RGB_PDF_DIR / "helmholtz_mlhp.pdf")
 else:
     plt.show()

@@ -10,6 +10,7 @@ from postprocessing import show_colorbar
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = BASE_DIR / "../../results"
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -31,16 +32,17 @@ z = np.exp(x) / (np.exp(x) + np.exp(y))
 fig, ax = plt.subplots(figsize=(3, 3), dpi=100)
 cb = ax.contourf(x, y, z, cmap="cividis", levels=64)
 ax.axis("off")
+ax.set_rasterized(True)  # vectorized pdf too large at this mesh density
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    plt.savefig(RESULTS_DIR / "softmax.png")
+    plt.savefig(RGB_PDF_DIR / "softmax.pdf")
     plt.close()
 else:
     plt.show()
 
 show_colorbar(
     cb,
-    path=RESULTS_DIR / "softmax_colorbar.png" if args.book else None,
+    path=RGB_PDF_DIR / "softmax_colorbar.pdf" if args.book else None,
     close=args.book,
     orientation="vertical",
 )

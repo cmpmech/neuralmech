@@ -9,6 +9,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = BASE_DIR / "../../results"
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -58,11 +59,11 @@ if not args.book:
 else:
 # ----------------------- postprocessing for book ------------------------
     save_csv(
-        RESULTS_DIR / f"polynomial_overfitting_{CASE}.csv",
+        CSV_DIR / f"polynomial_overfitting_{CASE}.csv",
         x=x_pred,
         ypred=y_pred,
         y=y_true(x_pred),
     )
     save_csv(
-        RESULTS_DIR / f"polynomial_overfitting_train_{CASE}.csv", x=x_train, y=y_train
+        CSV_DIR / f"polynomial_overfitting_train_{CASE}.csv", x=x_train, y=y_train
     )

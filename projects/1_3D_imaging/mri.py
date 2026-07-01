@@ -9,6 +9,7 @@ from skimage.transform import resize
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -54,7 +55,7 @@ ax.imshow(x_true.T, origin="lower", cmap="binary", vmin=0, vmax=1)
 ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-plt.savefig(RESULTS_DIR / "mri_original.png")
+plt.savefig(RGB_PDF_DIR / "mri_original.pdf")
 plt.show()
 
 fig, ax = plt.subplots(figsize=(RESOLUTION / 100, RESOLUTION / 100), dpi=100)
@@ -64,7 +65,7 @@ ax.imshow(
 ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-plt.savefig(RESULTS_DIR / "mri_measurement.png")
+plt.savefig(RGB_PDF_DIR / "mri_measurement.pdf")
 plt.show()
 
 fig, ax = plt.subplots(figsize=(RESOLUTION / 100, RESOLUTION / 100), dpi=100)
@@ -72,5 +73,5 @@ ax.imshow(x_cs.T, origin="lower", cmap="binary", vmin=0, vmax=1)
 ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-plt.savefig(RESULTS_DIR / "mri_prediction.png")
+plt.savefig(RGB_PDF_DIR / "mri_prediction.pdf")
 plt.show()

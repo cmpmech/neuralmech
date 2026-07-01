@@ -20,6 +20,7 @@ from solvers.optimization import MMA, StructuredFEM
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_mechanism"
 DEFORM_DIR = RESULTS_DIR / "animations/animation_frames/topopt_mechanism_deform"
 
@@ -276,10 +277,10 @@ fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
 ax.tricontourf(tri, ux, cmap="turbo", levels=64)
 ax.set_aspect("equal")
 ax.axis("off")
+ax.set_rasterized(True)  # vectorized pdf too large at this mesh density
 fig.tight_layout(pad=0)
 if args.book:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    plt.savefig(RESULTS_DIR / "topopt_mechanism_ux.png", transparent=True)
+    plt.savefig(RGB_PDF_DIR / "topopt_mechanism_ux.pdf", transparent=True)
     plt.close()
 elif not args.animate:
     plt.show()

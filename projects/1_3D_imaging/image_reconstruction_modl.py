@@ -7,6 +7,7 @@ import torch
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(42)
@@ -54,5 +55,5 @@ for i in range(EXAMPLES):
     ax.axis("off")
     ax.set_rasterized(True)
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    plt.savefig(RESULTS_DIR / f"img_prediction_modl_{i}.png")
+    plt.savefig(RGB_PDF_DIR / f"img_prediction_modl_{i}.pdf")
     plt.close()

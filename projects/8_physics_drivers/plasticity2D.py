@@ -10,6 +10,7 @@ from solvers.material_subroutines.j2 import ABI, NHISTORY, build
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 CMAP_DIR = (BASE_DIR / "../../.cmap").resolve()
 rainbow = load_cmap(CMAP_DIR / "rainbow_desaturated.cmap")
 
@@ -177,6 +178,9 @@ processors = [
 mlhp.basisOutput(basis, cellmesh=cellmesh, processors=processors, output=result)
 
 tri = result.triangulation(mpl=True)
+# mask FCM cut-cell triangles inside the hole
+cx, cy = tri.x[tri.triangles].mean(1), tri.y[tri.triangles].mean(1)
+tri.set_mask((cx > 0.3) & (cx < 0.7) & (cy > 0.3) & (cy < 0.7))
 data = result.data()
 disp = np.array(data[0]).reshape(-1, DIM)  # vector field: D components per node
 vonMises = np.array(data[1])  # scalar: one value per node
@@ -194,7 +198,7 @@ ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    plt.savefig(RESULTS_DIR / "plasticity2D.png")
+    plt.savefig(RGB_PDF_DIR / "plasticity2D.pdf", transparent=True)
     plt.close()
 else:
     plt.show()

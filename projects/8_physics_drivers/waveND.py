@@ -12,6 +12,7 @@ from solvers.wave import setup_simulation, setup_source, simulate
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 ANIMATION_DIR = (BASE_DIR / "../../results/animations/animation_frames").resolve()
 
 parser = argparse.ArgumentParser()
@@ -106,7 +107,7 @@ if not args.book and not args.animate:
     else:
         field = u_np if DIM == 2 else u_np[Nx[0] // 2]
         fig, ax = plt.subplots(figsize=(5, 5))
-        ax.pcolormesh(field.T, cmap="seismic", vmin=-scale, vmax=scale)
+        # ax.pcolormesh(field.T, cmap=cmr.fusion, vmin=-scale, vmax=scale)
         ax.set_aspect("equal")
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.show()
@@ -116,8 +117,9 @@ if args.book:
         fig, ax = plt.subplots(figsize=(5, 5), dpi=100)
         ax.pcolormesh(snaps, cmap=cmr.fusion, vmin=-0.75 * scale, vmax=0.75 * scale)
         ax.axis("off")
+        ax.set_rasterized(True)  # vectorized pdf too large at this grid resolution
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-        plt.savefig(RESULTS_DIR / "wave1D.png")
+        plt.savefig(RGB_PDF_DIR / "wave1D.pdf")
         plt.close()
 # ----------------------------------- animate export ----------------------------------
 if args.animate and DIM in (1, 2):

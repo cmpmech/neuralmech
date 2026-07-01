@@ -15,6 +15,8 @@ warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -89,9 +91,9 @@ if not args.book:
     plt.show()
 # -------------------------------- book postprocessing --------------------------------
 else:
-    fig.savefig(RESULTS_DIR / "bo.png")
+    fig.savefig(RGB_PDF_DIR / "bo.pdf")
     save_csv(
-        RESULTS_DIR / "bo_history.csv",
+        CSV_DIR / "bo_history.csv",
         x=np.arange(1, N_INIT + N_ITER + 1),
         y=cost_history,
     )

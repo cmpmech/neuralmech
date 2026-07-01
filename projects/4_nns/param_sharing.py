@@ -13,6 +13,7 @@ from NN import MLP
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -162,5 +163,5 @@ else:
         plt.savefig(path)
         plt.close()
 
-    save_field(y, RESULTS_DIR / f"paramsharing_{USE_SYMMETRY}_{USE_STRUCTURE}.png")
-    save_field(y.T, RESULTS_DIR / f"paramsharingT_{USE_SYMMETRY}_{USE_STRUCTURE}.png")
+    save_field(y, RGB_PDF_DIR / f"paramsharing_{USE_SYMMETRY}_{USE_STRUCTURE}.pdf")
+    save_field(y.T, RGB_PDF_DIR / f"paramsharingT_{USE_SYMMETRY}_{USE_STRUCTURE}.pdf")

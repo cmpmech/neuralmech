@@ -16,6 +16,7 @@ from postprocessing import save_csv
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -132,10 +133,10 @@ if not args.book:
 # -------------------------------- book postprocessing --------------------------------
 else:
     save_csv(
-        RESULTS_DIR / "mlp_discrete_sine_test.csv",
+        CSV_DIR / "mlp_discrete_sine_test.csv",
         x=x_test[:, 0],
         y=y_test,
         ypred=y_pred_test,
     )
-    save_csv(RESULTS_DIR / "mlp_discrete_sine_train.csv", x=X_train[:, 0], y=Y_train)
-    save_csv(RESULTS_DIR / "mlp_discrete_sine_val.csv", x=X_val[:, 0], y=Y_val)
+    save_csv(CSV_DIR / "mlp_discrete_sine_train.csv", x=X_train[:, 0], y=Y_train)
+    save_csv(CSV_DIR / "mlp_discrete_sine_val.csv", x=X_val[:, 0], y=Y_val)

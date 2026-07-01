@@ -143,6 +143,6 @@ if __name__ == "__main__":
         ax.set_rasterized(True)
         fig.tight_layout(pad=0)
         plt.savefig(
-            f"../../results/shapes_{label}.pdf", bbox_inches="tight", pad_inches=0
+            f"../../results/rgb_pdf/shapes_{label}.pdf", bbox_inches="tight", pad_inches=0
         )
         plt.close()

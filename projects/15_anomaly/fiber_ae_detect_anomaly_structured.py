@@ -45,7 +45,7 @@ ax.imshow(data[0, 0].T.cpu(), origin="lower", cmap="binary", vmin=0, vmax=1)
 ax.axis("off")
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 plt.savefig(
-    f"../../results/fibers_detection_true_structured.pdf",
+    f"../../results/rgb_pdf/fibers_detection_true_structured.pdf",
     bbox_inches="tight",
     pad_inches=0,
 )
@@ -62,7 +62,7 @@ ax.imshow(
 ax.axis("off")
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 plt.savefig(
-    f"../../results/fibers_detection_pred_structured.pdf",
+    f"../../results/rgb_pdf/fibers_detection_pred_structured.pdf",
     bbox_inches="tight",
     pad_inches=0,
 )
@@ -78,7 +78,7 @@ ax.imshow(
 ax.axis("off")
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 plt.savefig(
-    f"../../results/fibers_detection_error_structured.pdf",
+    f"../../results/rgb_pdf/fibers_detection_error_structured.pdf",
     bbox_inches="tight",
     pad_inches=0,
 )

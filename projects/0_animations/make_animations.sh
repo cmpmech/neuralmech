@@ -6,7 +6,7 @@ python3 frames_to_animation.py --frames_dir ../../results/animations/animation_f
 python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/learning_image_1 --output ../../results/animations/learning_image_1.mp4
 
 # CHAPTER 8
-python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/balls --output ../../results/animations/balls.mp4 --pattern "frame_%d.png"
+python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/balls --output ../../results/animations/balls.mp4 --pattern "frame_%d.jpg"
 python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/topopt_mbb --output ../../results/animations/topopt_mbb.mp4 --pattern "frame_%d.jpg"
 python3 frames_to_animation.py --frames_dir ../../results/animations/animation_frames/topopt_heat --output ../../results/animations/topopt_heat.mp4 --pattern "frame_%d.jpg"
 

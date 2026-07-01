@@ -10,6 +10,7 @@ from postprocessing import show_image
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 ANIMATION_DIR = (RESULTS_DIR / "animations/animation_frames").resolve()
 
 parser = argparse.ArgumentParser()
@@ -94,7 +95,7 @@ if not args.animate:
         show_image(z_pred.numpy())
 # -------------------------------- book postprocessing --------------------------------
     else:
-        path = RESULTS_DIR / f"expressivity_{ACTIVATION_ID}_{HIDDEN_LAYERS}_{NEURONS}.png"
+        path = RGB_PDF_DIR / f"expressivity_{ACTIVATION_ID}_{HIDDEN_LAYERS}_{NEURONS}.pdf"
         show_image(z_pred.numpy(), path=path, close=True)
 
 # ---------------------------- interpolation for animation ----------------------------

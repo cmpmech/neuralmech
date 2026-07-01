@@ -9,6 +9,8 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -86,6 +88,6 @@ if not args.book:
     plt.show()
 # -------------------------------- book postprocessing --------------------------------
 else:
-    fig.savefig(RESULTS_DIR / "pso.png")
-    save_csv(RESULTS_DIR / "pso_history.csv", x=np.arange(0, G + 1), y=cost_history)
+    fig.savefig(RGB_PDF_DIR / "pso.pdf")
+    save_csv(CSV_DIR / "pso_history.csv", x=np.arange(0, G + 1), y=cost_history)
 plt.close("all")

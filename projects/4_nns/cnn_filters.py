@@ -11,6 +11,7 @@ from postprocessing import show_image
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -59,6 +60,6 @@ for i, (name, kernel) in enumerate(KERNELS):
         show_image(
             y[0, 0].numpy(),
             grayscale=True,
-            path=RESULTS_DIR / f"filter_example_{i}.jpg",
+            path=RGB_PDF_DIR / f"filter_example_{i}.pdf",
             close=True,
         )

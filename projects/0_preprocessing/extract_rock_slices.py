@@ -8,6 +8,7 @@ from pyevtk.hl import gridToVTK
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 ANIMATION_DIR = (RESULTS_DIR / "animations/animation_frames").resolve()
 EXT_DATA_DIR = (BASE_DIR / "../../external_data").resolve()
 
@@ -85,7 +86,7 @@ for name in ROCKS:
     ax.imshow(domains[ids, :, :].T, cmap="binary", origin="lower", vmin=0, vmax=1)
     ax.axis("off")
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    plt.savefig(RESULTS_DIR / f"rocks_{name}.png")
+    plt.savefig(RGB_PDF_DIR / f"rocks_{name}.pdf")
     plt.close()
 
     del data, domains

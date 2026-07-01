@@ -22,6 +22,7 @@ from NN import MLP
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -126,7 +127,7 @@ fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
 # -------------------------------- book postprocessing --------------------------------
 if args.book:
-    fig.savefig(RESULTS_DIR / f"NN_landscape_{HIDDEN_LAYERS}_{DATA_HALF}.pdf")
+    fig.savefig(RGB_PDF_DIR / f"NN_landscape_{HIDDEN_LAYERS}_{DATA_HALF}.pdf")
 else:
     plt.show()
 plt.close(fig)

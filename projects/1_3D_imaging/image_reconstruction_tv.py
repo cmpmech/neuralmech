@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -113,7 +114,7 @@ for i in range(EXAMPLES):
     ax.axis("off")
     ax.set_rasterized(True)
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    plt.savefig(RESULTS_DIR / f"img_measurement_{i}.png")
+    plt.savefig(RGB_PDF_DIR / f"img_measurement_{i}.pdf")
     plt.close()
 
     fig, ax = plt.subplots(figsize=(RESOLUTION / 100, RESOLUTION / 100), dpi=100)
@@ -121,7 +122,7 @@ for i in range(EXAMPLES):
     ax.axis("off")
     ax.set_rasterized(True)
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    plt.savefig(RESULTS_DIR / f"img_groundtruth_{i}.png")
+    plt.savefig(RGB_PDF_DIR / f"img_groundtruth_{i}.pdf")
     plt.close()
 
     fig, ax = plt.subplots(figsize=(RESOLUTION / 100, RESOLUTION / 100), dpi=100)
@@ -129,5 +130,5 @@ for i in range(EXAMPLES):
     ax.axis("off")
     ax.set_rasterized(True)
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    plt.savefig(RESULTS_DIR / f"img_prediction_tv_{i}_{USE_TV}.png")
+    plt.savefig(RGB_PDF_DIR / f"img_prediction_tv_{i}_{USE_TV}.pdf")
     plt.close()

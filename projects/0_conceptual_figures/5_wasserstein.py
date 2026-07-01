@@ -9,6 +9,8 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -51,7 +53,7 @@ ax.imshow(Gamma.T, cmap="binary", origin="lower")
 ax.axis("off")
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    fig.savefig(RESULTS_DIR / f"wasserstein_transport.png")
+    fig.savefig(RGB_PDF_DIR / f"wasserstein_transport.pdf")
 else:
     plt.show()
 plt.close()
@@ -61,7 +63,7 @@ ax.imshow(D.T, cmap="binary", origin="lower")
 ax.axis("off")
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    fig.savefig(RESULTS_DIR / f"wasserstein_distance.png")
+    fig.savefig(RGB_PDF_DIR / f"wasserstein_distance.pdf")
 else:
     plt.show()
 plt.close()
@@ -69,7 +71,7 @@ plt.close()
 if args.book:
     # normalized for visualization
     save_csv(
-        RESULTS_DIR / "wasserstein_distributions.csv", p=p / p.max(), q=q / q.max()
+        CSV_DIR / "wasserstein_distributions.csv", p=p / p.max(), q=q / q.max()
     )
 else:
     fig, ax = plt.subplots()

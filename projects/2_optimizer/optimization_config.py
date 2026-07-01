@@ -8,6 +8,7 @@ import numpy as np
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 
 @dataclass(frozen=True)
@@ -55,7 +56,7 @@ def plot(problem: Problem, name: str, book: bool, resolution: int = 800):
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
     if book:
-        fig.savefig(RESULTS_DIR / f"{name}.png")
+        fig.savefig(RGB_PDF_DIR / f"{name}.pdf")
     else:
         plt.show()
     plt.close(fig)

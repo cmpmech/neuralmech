@@ -7,6 +7,7 @@ from sklearn.tree import DecisionTreeRegressor
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -47,14 +48,13 @@ if not args.book:
 
 # -------------------------------- book postprocessing --------------------------------
 else:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(RESOLUTION / 100, RESOLUTION / 100), dpi=200)
     ax.imshow(y, vmin=-1, vmax=1, cmap="Spectral")
     ax.axis("off")
     ax.set_rasterized(True)
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    fig.savefig(RESULTS_DIR / "decision_tree_groundtruth.png")
+    fig.savefig(RGB_PDF_DIR / "decision_tree_groundtruth.pdf")
     plt.close(fig)
 
     for depth in DEPTHS:
@@ -63,5 +63,5 @@ else:
         ax.axis("off")
         ax.set_rasterized(True)
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-        fig.savefig(RESULTS_DIR / f"decision_tree_{depth}.png")
+        fig.savefig(RGB_PDF_DIR / f"decision_tree_{depth}.pdf")
         plt.close(fig)

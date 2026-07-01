@@ -17,6 +17,7 @@ from postprocessing import save_csv
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -127,16 +128,16 @@ if not args.book:
 # -------------------------------- book postprocessing --------------------------------
 else:
     save_csv(
-        RESULTS_DIR / f"mlp_sine_test_{EPOCHS}.csv",
+        CSV_DIR / f"mlp_sine_test_{EPOCHS}.csv",
         x=x_test[:, 0],
         y=y_test[:, 0],
         ypred=y_pred_test[:, 0],
     )
-    save_csv(RESULTS_DIR / "mlp_sine_train.csv", x=X_train[:, 0], y=Y_train[:, 0])
-    save_csv(RESULTS_DIR / "mlp_sine_val.csv", x=X_val[:, 0], y=Y_val[:, 0])
+    save_csv(CSV_DIR / "mlp_sine_train.csv", x=X_train[:, 0], y=Y_train[:, 0])
+    save_csv(CSV_DIR / "mlp_sine_val.csv", x=X_val[:, 0], y=Y_val[:, 0])
     if EPOCHS == 4000:
         save_csv(
-            RESULTS_DIR / "mlp_sine_cost_history.csv",
+            CSV_DIR / "mlp_sine_cost_history.csv",
             train=np.array(train_cost) / train_cost[0],
             val=np.array(val_cost) / val_cost[0],
         )
@@ -159,7 +160,7 @@ if args.book:
 
     if EPOCHS == 400:
         save_csv(
-            RESULTS_DIR / "mlp_sine_grad.csv",
+            CSV_DIR / "mlp_sine_grad.csv",
             x=x_test.detach()[:, 0],
             y=y_pred.detach()[:, 0],
             dy=dy_pred.detach()[:, 0] / 2 / np.pi,

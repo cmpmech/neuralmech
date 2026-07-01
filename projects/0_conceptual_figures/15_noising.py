@@ -9,6 +9,7 @@ from postprocessing import show_image
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data/images").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -36,6 +37,6 @@ for t in [1, 10, 15, 100]:
 # ----------------------------------- postprocessing ----------------------------------
     show_image(
         (noisy_img + 1) / 2,
-        path=RESULTS_DIR / f"diffusion_step_{t}.png",
+        path=RGB_PDF_DIR / f"diffusion_step_{t}.pdf",
         close=args.book,
     )

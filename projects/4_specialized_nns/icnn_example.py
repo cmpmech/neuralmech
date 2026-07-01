@@ -11,6 +11,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 device = torch.device("cpu")
 torch.manual_seed(0)
@@ -80,13 +81,13 @@ if not args.book:
 # -------------------------------- book postprocessing --------------------------------
 else:
     save_csv(
-        RESULTS_DIR / f"icnn_parabola_test_{USE_NONNEG}.csv",
+        CSV_DIR / f"icnn_parabola_test_{USE_NONNEG}.csv",
         x=x_test[:, 0].cpu(),
         y=y_test[:, 0].cpu(),
         ypred=y_test_pred[:, 0].cpu(),
     )
     save_csv(
-        RESULTS_DIR / "icnn_parabola_train.csv",
+        CSV_DIR / "icnn_parabola_train.csv",
         x=x_train[:, 0].cpu(),
         y=y_train[:, 0].cpu(),
     )

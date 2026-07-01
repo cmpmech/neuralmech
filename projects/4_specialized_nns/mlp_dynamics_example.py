@@ -16,6 +16,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -155,7 +156,7 @@ if not args.book:
 # -------------------------------- book postprocessing --------------------------------
 else:
     save_csv(
-        RESULTS_DIR / f"mlp_dynamics_{EPOCHS}.csv",
+        CSV_DIR / f"mlp_dynamics_{EPOCHS}.csv",
         t=t,
         u=u,
         p=p,
@@ -166,7 +167,7 @@ else:
         dudttrue=dudt_fun(torch.from_numpy(t)),
     )
     save_csv(
-        RESULTS_DIR / "mlp_dynamics_train.csv",
+        CSV_DIR / "mlp_dynamics_train.csv",
         t=t_train,
         u=u_train,
         p=p_train,

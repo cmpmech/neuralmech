@@ -9,6 +9,7 @@ from postprocessing import load_cmap
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 CMAP_DIR = (BASE_DIR / "../../.cmap").resolve()
 rainbow = load_cmap(CMAP_DIR / "rainbow_desaturated.cmap")
 
@@ -98,6 +99,9 @@ mlhp.basisOutput(basis, cellmesh=cellmesh, processors=processors, output=result)
 
 # data preparation numpy
 tri = result.triangulation(mpl=True)
+# mask FCM cut-cell triangles inside the hole
+cx, cy = tri.x[tri.triangles].mean(1), tri.y[tri.triangles].mean(1)
+tri.set_mask((cx > 0.2) & (cx < 0.4) & (cy > 0.2) & (cy < 0.4))
 data = result.data()
 disp = np.array(data[0]).reshape(-1, DIM)  # vector field: D components per node
 stress = np.array(data[1])  # von Mises is a scalar field: one value per node
@@ -112,7 +116,7 @@ ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    plt.savefig(RESULTS_DIR / "platewithahole.png")
+    plt.savefig(RGB_PDF_DIR / "platewithahole.pdf", transparent=True)
     plt.close()
 else:
     plt.show()

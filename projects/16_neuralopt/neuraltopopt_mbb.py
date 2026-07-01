@@ -25,6 +25,7 @@ from NN import DCN, MLP
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/neuraltopopt_mbb"
 
 parser = argparse.ArgumentParser()
@@ -353,8 +354,7 @@ for field, name in ((rho, "topopt_mbb"), (rho_thresh, "topopt_mbb_thresh")):
     ax.axis("off")
     fig.tight_layout(pad=0)
     if args.book:
-        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-        plt.savefig(RESULTS_DIR / f"{name}.png", transparent=True)
+        plt.savefig(RGB_PDF_DIR / f"{name}.pdf", transparent=True)
         plt.close()
     elif not args.animate:
         plt.show()

@@ -10,6 +10,7 @@ import scipy.sparse as sp
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -101,7 +102,7 @@ ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    plt.savefig(RESULTS_DIR / "advectiondiffusion.png")
+    plt.savefig(RGB_PDF_DIR / "advectiondiffusion.pdf")
     plt.close()
 else:
     plt.show()

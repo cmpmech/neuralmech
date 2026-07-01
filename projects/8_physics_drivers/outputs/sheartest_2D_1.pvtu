@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<VTKFile byte_order="LittleEndian" type="PUnstructuredGrid" version="0.1">
+<PUnstructuredGrid GhostLevel="0">
+<PPointData>
+<PDataArray Name="Displacement" NumberOfComponents="2" type="Float64"/>
+<PDataArray Name="PhaseField" type="Float64"/>
+<PDataArray Name="History" type="Float64"/>
+<PDataArray Name="VonMisesStress" type="Float64"/>
+</PPointData>
+<PCellData>
+</PCellData>
+<PPoints>
+<PDataArray NumberOfComponents="3" type="Float64"/>
+</PPoints>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_0.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_1.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_2.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_3.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_4.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_5.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_6.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_7.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_8.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_9.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_10.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_11.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_12.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_13.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_14.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_15.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_16.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_17.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_18.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_19.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_20.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_21.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_22.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_23.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_24.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_25.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_26.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_27.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_28.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_29.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_30.vtu"/>
+<Piece Source="sheartest_2D_1/sheartest_2D_1_31.vtu"/>
+</PUnstructuredGrid>
+</VTKFile>

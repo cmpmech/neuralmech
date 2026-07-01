@@ -16,6 +16,7 @@ from postprocessing import show_image
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames"
 
 parser = argparse.ArgumentParser()
@@ -134,7 +135,7 @@ for epoch in pbar:
 # ----------------------------------- postprocessing ----------------------------------
     if epoch in save_at:
         if args.book:
-            path = RESULTS_DIR / f"learning_image_{INITIALIZATION}_{epoch}.png"
+            path = RGB_PDF_DIR / f"learning_image_{INITIALIZATION}_{epoch}.pdf"
         elif args.animate:
             path = ANIMATION_DIR / f"{folder}/frame_{epoch // SAVE_EVERY}.jpg"
         else:
@@ -160,6 +161,6 @@ if not args.book and not args.animate:
 if not args.animate:
     show_image(
         normalize_output(target.detach().cpu()).numpy(),
-        path=RESULTS_DIR / "memphis_target.png",
+        path=RGB_PDF_DIR / "memphis_target.pdf",
         close=close,
     )

@@ -77,16 +77,19 @@ cellmesh = mlhp.domainCellMesh(domain, [5] * DIM)
 processors = [mlhp.solutionProcessor(DIM, allDofs, "Temperature")]
 mlhp.basisOutput(basis, cellmesh=cellmesh, processors=processors, output=result)
 
+tri = result.triangulation(mpl=True)
+# mask FCM cut-cell triangles inside the hole
+cx, cy = tri.x[tri.triangles].mean(1), tri.y[tri.triangles].mean(1)
+tri.set_mask((cx - 0.4)**2 + (cy - 0.3)**2 < 0.15**2)
+
 fig, ax = plt.subplots(figsize=(5, 5), dpi=400)
-cb = plt.tricontourf(
-    result.triangulation(mpl=True), result.data()[0], levels=64, cmap=cmr.torch
-)
+cb = plt.tricontourf(tri, result.data()[0], levels=64, cmap=cmr.torch)
 ax.set_aspect("equal")
 ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    plt.savefig("../../results/poissonplate.png")
+    plt.savefig("../../results/rgb_pdf/poissonplate.pdf", transparent=True)
     plt.close()
 else:
     plt.show()

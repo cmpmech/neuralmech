@@ -61,7 +61,7 @@ plt.show()
 # ----------------------------- book export ------------------------------
 # second quadrant
 save_csv(
-    "../../results/signal_f.csv",
+    "../../results/data/signal_f.csv",
     x=t[: N // 4],
     y1=data[i, j, 0, N // 4 : N // 2],
     y2=data[i, j, 1, N // 4 : N // 2],

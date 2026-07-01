@@ -17,6 +17,7 @@ warnings.filterwarnings(
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -119,14 +120,14 @@ if not args.book:
 # -------------------------------- book postprocessing --------------------------------
 else:
     save_csv(
-        RESULTS_DIR / "hmc.csv",
+        CSV_DIR / "hmc.csv",
         x=x_test.squeeze().cpu().numpy(),
         mean=mean.numpy(),
         std=std.numpy(),
         std_total=total_std.numpy(),
     )
     save_csv(
-        RESULTS_DIR / "hmc_train.csv",
+        CSV_DIR / "hmc_train.csv",
         x=x_train.squeeze().cpu().numpy(),
         y=y_train.squeeze().cpu().numpy(),
     )

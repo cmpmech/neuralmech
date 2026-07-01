@@ -8,6 +8,7 @@ from scipy.stats import qmc
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -76,18 +77,18 @@ if not args.book:
 
 # -------------------------------- book postprocessing --------------------------------
 if args.book:
-    np.savetxt(RESULTS_DIR / "graph_concept_nodes.txt", points, fmt="%.6f %.6f")
-    np.savetxt(RESULTS_DIR / "graph_concept_edges.txt", edges, fmt="%d %d")
-    np.savetxt(RESULTS_DIR / "graph_concept_nodes0.txt", point0, fmt="%.6f %.6f")
-    np.savetxt(RESULTS_DIR / "graph_concept_nodes1.txt", point1, fmt="%.6f %.6f")
-    np.savetxt(RESULTS_DIR / "graph_concept_nodes2.txt", point2, fmt="%.6f %.6f")
+    np.savetxt(CSV_DIR / "graph_concept_nodes.txt", points, fmt="%.6f %.6f")
+    np.savetxt(CSV_DIR / "graph_concept_edges.txt", edges, fmt="%d %d")
+    np.savetxt(CSV_DIR / "graph_concept_nodes0.txt", point0, fmt="%.6f %.6f")
+    np.savetxt(CSV_DIR / "graph_concept_nodes1.txt", point1, fmt="%.6f %.6f")
+    np.savetxt(CSV_DIR / "graph_concept_nodes2.txt", point2, fmt="%.6f %.6f")
     np.savetxt(
-        RESULTS_DIR / "graph_concept_edges12_a.txt",
+        CSV_DIR / "graph_concept_edges12_a.txt",
         np.array(edges12)[:, 0],
         fmt="%.6f %.6f",
     )
     np.savetxt(
-        RESULTS_DIR / "graph_concept_edges12_b.txt",
+        CSV_DIR / "graph_concept_edges12_b.txt",
         np.array(edges12)[:, 1],
         fmt="%.6f %.6f",
     )

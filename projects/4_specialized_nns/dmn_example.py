@@ -1,216 +1,220 @@
 import argparse
+import time
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from torch import nn
 from tqdm import tqdm
 
+from NN import DMN, LaminateBlock, laminate_rotation
 from postprocessing import save_csv
+from solvers.homogenization import nonlinear_uniaxial_response
+from solvers.material_subroutines.nonlinear_elastic import ABI, build
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
+DATA_DIR = (BASE_DIR / "../../data").resolve()
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
+torch.set_default_dtype(torch.float64)  # phase stiffnesses span orders of magnitude
+torch.set_num_threads(1)  # tiny 3x3 matrices: threading is pure overhead
 device = torch.device("cpu")  # faster on cpu, because matrices are small
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
-parser.add_argument("--animate", action="store_true")  # TODO could be animated
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
 # hyperparameters
-EPOCHS = 4000
+DEPTH = 4
 LR = 5e-3
+EPOCHS = 4000
 
-# microstructure: two isotropic phases, plane strain, fixed inclusion fraction
-NU = 0.3
-E_MATRIX = 1.0
-CI = 0.3  # inclusion volume fraction targeted by Mori-Tanaka
-DEPTH = 3  # binary tree depth -> 2**DEPTH leaves alternating phase
+# define loss: scale-invariant fit error (a plain MSE lets the stiff samples dominate)
+def cost_fun(pred, target):
+    return (torch.linalg.matrix_norm(pred - target) / torch.linalg.matrix_norm(target)).mean()
 
-# training contrasts: stiff inclusion sampled over a range of stiffness ratios
-SAMPLES = 24
-E_INCL_MIN, E_INCL_MAX = 3.0, 100.0
 
-# online nonlinear prediction (no retraining)
-E_INCL_ONLINE = 50.0
-ALPHA = 40.0  # matrix stiffening strength in the hyperelastic potential
-EPS_MAX = 0.05
-STEPS = 40
-NEWTON_ITERS = 30
-NEWTON_TOL = 1e-10
+# online nonlinear-elastic law sigma = C0 eps + c (eps.eps) eps applied to the frozen
+# tree; phase 1 is a stiffening matrix, phase 2 a soft inclusion. The same parameters
+# [E, nu, c] drive the finite-cell reference through the C subroutine.
+MATRIX = [1.0, 0.3, 50.0]
+INCLUSION = [0.2, 0.3, 0.0]
+EPS_MAX = 0.08
+NSTEPS = 50
 
-# select rows {xx, xy} of a Voigt vector (the laminate continuity components)
-P = torch.tensor([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
-# place the jump amplitudes (a_xx, a_xy) back into a full Voigt strain jump
-Q = P.t()
-
-# --------------------------------------- helper --------------------------------------
-def iso_stiffness(E, nu):
-    lam = E * nu / ((1 + nu) * (1 - 2 * nu))
-    mu = E / (2 * (1 + nu))
-    return torch.tensor(
-        [[lam + 2 * mu, lam, 0.0], [lam, lam + 2 * mu, 0.0], [0.0, 0.0, mu]]
+# ------------------------------------- helper ----------------------------------------
+def isotropic_stiffness(E, nu):
+    return E / (1 - nu**2) * torch.tensor(
+        [[1, nu, 0], [nu, 1, 0], [0, 0, (1 - nu) / 2]]
     )
 
 
-def voigt_rotation(theta):
-    c, s = torch.cos(theta), torch.sin(theta)
-    return torch.stack(
-        [
-            torch.stack([c * c, s * s, 2 * s * c]),
-            torch.stack([s * s, c * c, -2 * s * c]),
-            torch.stack([-s * c, s * c, c * c - s * s]),
+def phase_law(eps, C0, c):
+    ee = eps @ eps
+    sigma = C0 @ eps + c * ee * eps
+    tangent = C0 + c * ee * torch.eye(3) + 2 * c * torch.outer(eps, eps)
+    return sigma, tangent
+
+
+# batched laminate homogenization over all samples at once (fast training path)
+def block_homogenize(v1, alpha, C1, C2):
+    v2 = 1 - v1
+    A1, B1, D1 = C1[:, 0, 0], C1[:, 0, 1:], C1[:, 1:, 1:]
+    A2, B2, D2 = C2[:, 0, 0], C2[:, 0, 1:], C2[:, 1:, 1:]
+    D1i, D2i = torch.linalg.inv(D1), torch.linalg.inv(D2)
+    Dti = torch.linalg.inv(v1 * D1i + v2 * D2i)
+    P = v1 * torch.einsum("nij,nj->ni", D1i, B1) + v2 * torch.einsum("nij,nj->ni", D2i, B2)
+    A_bar = (
+        v1 * (A1 - torch.einsum("ni,nij,nj->n", B1, D1i, B1))
+        + v2 * (A2 - torch.einsum("ni,nij,nj->n", B2, D2i, B2))
+        + torch.einsum("ni,nij,nj->n", P, Dti, P)
+    )
+    B_bar = torch.einsum("nij,nj->ni", Dti, P)
+    C_bar = torch.zeros_like(C1)
+    C_bar[:, 0, 0], C_bar[:, 0, 1:], C_bar[:, 1:, 0], C_bar[:, 1:, 1:] = A_bar, B_bar, B_bar, Dti
+    return (laminate_rotation(alpha) @ C_bar) @ laminate_rotation(-alpha)
+
+
+def effective_stiffness(model, C1, C2):
+    leaves = [C1 if n % 2 == 0 else C2 for n in range(2**model.depth)]
+    for layer in model.layers:
+        leaves = [
+            block_homogenize(b.v1, b.alpha, leaves[2 * i], leaves[2 * i + 1])
+            for i, b in enumerate(layer)
         ]
-    )
+    return leaves[0]
 
 
-def homogenize(C1, C2, f1):
-    # rank-1 laminate with normal e1: traction (xx, xy) continuous, eps_yy continuous
-    f2 = 1 - f1
-    G = f2 * C1 + f1 * C2
-    J = -Q @ torch.linalg.solve(P @ G @ Q, P @ (C1 - C2))
-    return (f1 * C1 + f2 * C2) + f1 * f2 * (C1 - C2) @ J
+# per-leaf-tangent tree pass for the online step: bottom-up stiffness, top-down strain
+def dmn_tree(model, tangents, deps):
+    caches, stiffness = [], tangents
+    for layer in model.layers:
+        homogenized, layer_cache = [], []
+        for i, block in enumerate(layer):
+            C, cache = block.homogenize_stiffness(stiffness[2 * i], stiffness[2 * i + 1])
+            homogenized.append(C)
+            layer_cache.append(cache)
+        caches.append(layer_cache)
+        stiffness = homogenized
 
-
-def mori_tanaka(Ci, Cm, ci, nu):
-    d = 8 * (1 - nu)
-    S = np.array(
-        [
-            [(5 - 4 * nu) / d, (4 * nu - 1) / d, 0.0],
-            [(4 * nu - 1) / d, (5 - 4 * nu) / d, 0.0],
-            [0.0, 0.0, 2 * (3 - 4 * nu) / d],
+    strains = [deps]
+    for layer, layer_cache in zip(reversed(model.layers), reversed(caches)):
+        strains = [
+            child
+            for block, cache, d in zip(layer, layer_cache, strains)
+            for child in block.recover_strains(d, cache)
         ]
-    )
-    I = np.eye(3)
-    A = np.linalg.inv(I + S @ np.linalg.inv(Cm) @ (Ci - Cm))
-    A_mt = A @ np.linalg.inv((1 - ci) * I + ci * A)
-    return Cm + ci * (Ci - Cm) @ A_mt
+    return strains
 
 
-def stiff_law(e, C):
-    return C @ e, C
+# explicit incremental drive of a uniaxial macro-strain path through the frozen tree
+def dmn_online(model):
+    C0 = [isotropic_stiffness(*MATRIX[:2]), isotropic_stiffness(*INCLUSION[:2])]
+    c = [MATRIX[2], INCLUSION[2]]
+    leaf_eps = [torch.zeros(3) for _ in range(2**model.depth)]
+    deps = torch.tensor([EPS_MAX / NSTEPS, 0.0, 0.0])
+
+    eps_macro, sig_macro, curve = torch.zeros(3), torch.zeros(3), []
+    for _ in range(NSTEPS):
+        tangents = [phase_law(leaf_eps[n], C0[n % 2], c[n % 2])[1] for n in range(len(leaf_eps))]
+        leaf_deps = dmn_tree(model, tangents, deps)
+
+        leaf_dsig = []
+        for n, dn in enumerate(leaf_deps):
+            sig0 = phase_law(leaf_eps[n], C0[n % 2], c[n % 2])[0]
+            leaf_eps[n] = leaf_eps[n] + dn
+            sig1 = phase_law(leaf_eps[n], C0[n % 2], c[n % 2])[0]
+            leaf_dsig.append(sig1 - sig0)
+
+        eps_macro = eps_macro + deps
+        sig_macro = sig_macro + model.homogenize_stress(leaf_dsig)
+        curve.append((eps_macro[0].item(), sig_macro[0].item()))
+    return np.array(curve)
 
 
-def soft_law(e, K, mu, alpha):
-    # small-strain hyperelastic potential W = 0.5 K tr^2 + mu p (1 + alpha p)
-    tr = e[0] + e[1]
-    grad_p = torch.stack([e[0] - e[1], e[1] - e[0], e[2]])  # dp/de, p = deviatoric norm
-    p = 0.5 * (grad_p[0] * (e[0] - e[1]) + e[2] * e[2])
-    vol = torch.tensor([1.0, 1.0, 0.0])
-    stress = K * tr * vol + (mu + 2 * mu * alpha * p) * grad_p
-    H_dev = torch.tensor([[1.0, -1.0, 0.0], [-1.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
-    tangent = (
-        K * torch.outer(vol, vol)
-        + (mu + 2 * mu * alpha * p) * H_dev
-        + 2 * mu * alpha * torch.outer(grad_p, grad_p)
-    )
-    return stress, tangent
+# --------------------------------------- load data -----------------------------------
+data = np.load(DATA_DIR / "dmn_dataset.npz")
+C1 = torch.tensor(data["C1"])
+C2 = torch.tensor(data["C2"])
+C_eff = torch.tensor(data["C_eff"])
 
+# homogenization is degree-1 in the phase stiffnesses, so normalize each sample by |C1|
+# to weight the fit uniformly across contrast levels
+scale = torch.linalg.matrix_norm(C1)[:, None, None]
+C1, C2, C_eff = C1 / scale, C2 / scale, C_eff / scale
 
-def tree_stiffness(node):
-    # linear homogenization: returns the macroscopic stiffness of the subtree
-    if node >= 2**DEPTH:
-        return C_PHASE[(node - 2**DEPTH) % 2]
-    R = voigt_rotation(ANGLES[node - 1])
-    f1 = torch.sigmoid(FRAC_LOGITS[node - 1])
-    C = homogenize(tree_stiffness(2 * node), tree_stiffness(2 * node + 1), f1)
-    return R @ C @ R.t()
-
-
-def tree_response(node, e):
-    # nonlinear propagation: returns (stress, tangent) given the subtree's strain
-    if node >= 2**DEPTH:
-        return LEAF_LAW[(node - 2**DEPTH) % 2](e)
-    R = voigt_rotation(ANGLES[node - 1])
-    f1 = torch.sigmoid(FRAC_LOGITS[node - 1])
-    e_local = R.t() @ e
-    a = torch.zeros(2)
-    for _ in range(NEWTON_ITERS):
-        s1, T1 = tree_response(2 * node, e_local + (1 - f1) * (Q @ a))
-        s2, T2 = tree_response(2 * node + 1, e_local - f1 * (Q @ a))
-        residual = P @ (s1 - s2)
-        if residual.norm() < NEWTON_TOL:
-            break
-        a = a - torch.linalg.solve(P @ ((1 - f1) * T1 + f1 * T2) @ Q, residual)
-    dj = -Q @ torch.linalg.solve(P @ ((1 - f1) * T1 + f1 * T2) @ Q, P @ (T1 - T2))
-    s_local = f1 * s1 + (1 - f1) * s2
-    T_local = (f1 * T1 + (1 - f1) * T2) + f1 * (1 - f1) * (T1 - T2) @ dj
-    return R @ s_local, R @ T_local @ R.t()
-
-
-# ------------------------------------ create data ------------------------------------
-Cm = iso_stiffness(E_MATRIX, NU)
-E_incl = torch.logspace(np.log10(E_INCL_MIN), np.log10(E_INCL_MAX), SAMPLES)
-C_incl = [iso_stiffness(E, NU) for E in E_incl]
-C_target = [
-    torch.from_numpy(mori_tanaka(Ci.numpy(), Cm.numpy(), CI, NU)).float() for Ci in C_incl
-]
+ntrain = int(0.8 * len(C1))
+C1_train, C2_train, C_eff_train = C1[:ntrain], C2[:ntrain], C_eff[:ntrain]
+C1_val, C2_val, C_eff_val = C1[ntrain:], C2[ntrain:], C_eff[ntrain:]
 
 # --------------------------- instantiate model & optimizer ---------------------------
-N_INTERNAL = 2**DEPTH - 1
-ANGLES = torch.nn.Parameter(torch.rand(N_INTERNAL) * np.pi)
-FRAC_LOGITS = torch.nn.Parameter(torch.zeros(N_INTERNAL))
-optimizer = torch.optim.AdamW([ANGLES, FRAC_LOGITS], lr=LR)
+model = DMN(DEPTH)
+model.to(device)
+# break the volume-fraction symmetry of the default all-equal init so the tree does
+# not collapse to a single laminate chain
+for block in model.modules():
+    if isinstance(block, LaminateBlock):
+        nn.init.normal_(block.v1_logit, std=0.5)
+optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
-# -------------------------------------- training -------------------------------------
-train_cost = [0.0] * EPOCHS
+# ---------------------------------------- training -----------------------------------
+train_cost = [0] * EPOCHS
+val_cost = [0] * EPOCHS
+tic = time.time()
 pbar = tqdm(range(EPOCHS))
 for epoch in pbar:
+    model.train()
     optimizer.zero_grad()
-    cost = torch.zeros(())
-    for Ci, Ct in zip(C_incl, C_target):
-        C_PHASE = [Ci, Cm]
-        cost = cost + ((tree_stiffness(1) - Ct) ** 2).sum() / (Ct**2).sum()
-    cost = cost / SAMPLES
+    cost = cost_fun(effective_stiffness(model, C1_train, C2_train), C_eff_train)
     cost.backward()
     optimizer.step()
     train_cost[epoch] = cost.item()
-    if epoch % 100 == 0:
-        pbar.set_postfix({"train": f"{cost.item():.2e}"})
+
+    model.eval()
+    with torch.no_grad():
+        val_cost[epoch] = cost_fun(effective_stiffness(model, C1_val, C2_val), C_eff_val).item()
+
+    if epoch % 50 == 0:
+        pbar.set_postfix({"train": f"{train_cost[epoch]:.2e}", "val": f"{val_cost[epoch]:.2e}"})
+toc = time.time()
+print(f"elapsed time {toc - tic:.2f} s")
+
+torch.save(model, BASE_DIR / f"../../models/dmn_{DEPTH}.pt2")
 
 # ----------------------------------- postprocessing ----------------------------------
-# online: stiff inclusion stays linear, matrix becomes hyperelastic, no retraining
-C_stiff = iso_stiffness(E_INCL_ONLINE, NU)
-lam = E_MATRIX * NU / ((1 + NU) * (1 - 2 * NU))
-mu = E_MATRIX / (2 * (1 + NU))
-LEAF_LAW = [
-    lambda e: stiff_law(e, C_stiff),
-    lambda e: soft_law(e, lam + mu, mu, ALPHA),
-]
-
-C_PHASE = [C_stiff, Cm]
-C_linear = tree_stiffness(1).detach()
-
-eps = torch.linspace(0, EPS_MAX, STEPS)
-sigma_nonlinear = torch.zeros(STEPS)
-sigma_linear = torch.zeros(STEPS)
+model.eval()
 with torch.no_grad():
-    for i, e in enumerate(eps):
-        ebar = torch.stack([e, torch.zeros(()), torch.zeros(())])
-        sigma_nonlinear[i] = tree_response(1, ebar)[0][0]
-        sigma_linear[i] = (C_linear @ ebar)[0]
+    C_dmn = effective_stiffness(model, C1_val, C2_val)
+rel_err = (torch.linalg.matrix_norm(C_dmn - C_eff_val) / torch.linalg.matrix_norm(C_eff_val)).mean()
+print(f"validation effective-stiffness relative error {rel_err:.2e}")
+
+with torch.no_grad():
+    dmn_curve = dmn_online(model)
+fe_curve = nonlinear_uniaxial_response(
+    build().material_address, MATRIX, INCLUSION, ABI, eps_max=EPS_MAX, nsteps=NSTEPS
+)
+
+triu = np.triu_indices(3)
+fe_entries = C_eff_val[:, triu[0], triu[1]].flatten().numpy()
+dmn_entries = C_dmn[:, triu[0], triu[1]].flatten().numpy()
 
 if not args.book:
-    fig, ax = plt.subplots(1, 2)
-    ax[0].set_yscale("log")
-    ax[0].plot(train_cost, "k")
-    ax[1].plot(eps, sigma_nonlinear, "k")
-    ax[1].plot(eps, sigma_linear, "b")
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9, 4))
+    ax1.plot([fe_entries.min(), fe_entries.max()], [fe_entries.min(), fe_entries.max()], "k")
+    ax1.plot(fe_entries, dmn_entries, "r.")
+    ax1.set_xlabel("FE effective stiffness")
+    ax1.set_ylabel("DMN effective stiffness")
+    ax2.plot(fe_curve[:, 0], fe_curve[:, 1], "k")
+    ax2.plot(dmn_curve[:, 0], dmn_curve[:, 1], "r")
+    ax2.set_xlabel("macro strain e11")
+    ax2.set_ylabel("macro stress s11")
     plt.show()
 # -------------------------------- book postprocessing --------------------------------
 else:
-    save_csv(
-        RESULTS_DIR / "dmn_loss.csv",
-        epoch=np.arange(EPOCHS),
-        cost=np.array(train_cost),
-    )
-    save_csv(
-        RESULTS_DIR / "dmn_stress_strain.csv",
-        eps=eps.numpy(),
-        nonlinear=sigma_nonlinear.numpy(),
-        linear=sigma_linear.numpy(),
-    )
+    save_csv(CSV_DIR / "dmn_parity.csv", fe=fe_entries, dmn=dmn_entries)
+    save_csv(CSV_DIR / "dmn_nonlinear.csv", eps=fe_curve[:, 0], fe=fe_curve[:, 1], dmn=dmn_curve[:, 1])

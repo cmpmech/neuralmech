@@ -39,5 +39,5 @@ np.save(f"../../data/normal_3dof_{N}.npy", data)
 
 # ----------------------------- book export ------------------------------
 save_csv(
-    "../../results/signal_normal.csv", x=t, y1=data[0, 0], y2=data[0, 1], y3=data[0, 2]
+    "../../results/data/signal_normal.csv", x=t, y1=data[0, 0], y2=data[0, 1], y3=data[0, 2]
 )

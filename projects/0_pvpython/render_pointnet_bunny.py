@@ -7,9 +7,8 @@ from pvpython_helper import clean_view, orbit, register_cmaps, save_png
 
 BASE_DIR = Path(__file__).parent
 VTK_PATH = (BASE_DIR / "../../results/3D/pointnet_bunny.vtk").resolve()
-RENDER_DIR = (BASE_DIR / "../../results/3D/renders").resolve()
+RENDER_DIR = (BASE_DIR / "../../results/rgb_png").resolve()
 CMAP_DIR = (BASE_DIR / "../../.cmap").resolve()
-RENDER_DIR.mkdir(parents=True, exist_ok=True)
 
 # ----------------------------------- settings ----------------------------------------
 POINT_SIZE = 15.0  # sphere diameter in final-image pixels

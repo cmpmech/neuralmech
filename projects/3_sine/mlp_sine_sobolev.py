@@ -17,6 +17,7 @@ from postprocessing import save_csv
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -161,7 +162,7 @@ if not args.book:
 else:
     if EPOCHS == 400:
         save_csv(
-            RESULTS_DIR / "mlp_sine_sobolev_grad.csv",
+            CSV_DIR / "mlp_sine_sobolev_grad.csv",
             x=x_test.detach()[:, 0],
             y=y_pred.detach()[:, 0],
             dy=dy_pred.detach()[:, 0] / 2 / np.pi,
@@ -170,7 +171,7 @@ else:
         )
 
     save_csv(
-        RESULTS_DIR / "mlp_sine_sobolev_train.csv",
+        CSV_DIR / "mlp_sine_sobolev_train.csv",
         x=X_train[:, 0],
         y=Y_train[:, 0],
         dy=DY_train[:, 0] / 2 / np.pi,

@@ -20,6 +20,7 @@ from solvers.optimization import MMA, ReferenceMMA, StructuredFEM
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_poisson"
 
 parser = argparse.ArgumentParser()
@@ -253,8 +254,7 @@ ax.axis("off")
 ax.set_rasterized(True)
 fig.tight_layout(pad=0)
 if args.book:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    plt.savefig(RESULTS_DIR / "topopt_poisson.png", bbox_inches="tight", pad_inches=0)
+    plt.savefig(RGB_PDF_DIR / "topopt_poisson.pdf", bbox_inches="tight", pad_inches=0)
     plt.close()
 elif not args.animate:
     plt.show()

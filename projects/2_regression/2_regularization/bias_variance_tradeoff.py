@@ -9,6 +9,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = BASE_DIR / "../../results"
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -110,10 +111,10 @@ else:
     for i in range(100):
         data[f"y_pred_{i}"] = y_preds[i]
     if CASE == 0:
-        save_csv(RESULTS_DIR / f"polynomial_regression_{CASE}_{SAMPLES}.csv", **data)
+        save_csv(CSV_DIR / f"polynomial_regression_{CASE}_{SAMPLES}.csv", **data)
     elif CASE == 1:
-        save_csv(RESULTS_DIR / f"polynomial_regression_{CASE}_{P}.csv", **data)
+        save_csv(CSV_DIR / f"polynomial_regression_{CASE}_{P}.csv", **data)
     elif CASE == 2:
         save_csv(
-            RESULTS_DIR / f"polynomial_regression_{CASE}_{REGULARIZATION}.csv", **data
+            CSV_DIR / f"polynomial_regression_{CASE}_{REGULARIZATION}.csv", **data
         )

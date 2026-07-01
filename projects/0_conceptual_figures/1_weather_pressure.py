@@ -9,6 +9,7 @@ import xarray as xr
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 DATA_PATH = (BASE_DIR / "../../external_data/era5_msl.nc").resolve()
 
 parser = argparse.ArgumentParser()
@@ -80,7 +81,7 @@ for timestep in range(3):
     ax.patch.set_alpha(0)
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     if args.book:
-        plt.savefig(RESULTS_DIR / f"climate_pressure_{timestep}.png", transparent=True)
+        plt.savefig(RGB_PDF_DIR / f"climate_pressure_{timestep}.pdf", transparent=True)
         plt.close()
     else:
         plt.show()

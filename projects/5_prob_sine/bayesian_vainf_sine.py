@@ -13,6 +13,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -132,14 +133,14 @@ if not args.book:
 # -------------------------------- book postprocessing --------------------------------
 else:
     save_csv(
-        RESULTS_DIR / "vainf.csv",
+        CSV_DIR / "vainf.csv",
         x=x_test.squeeze().cpu().numpy(),
         mean=mean.squeeze().cpu().numpy(),
         std=std.squeeze().cpu().numpy(),
         std_total=total_std.squeeze().cpu().numpy(),
     )
     save_csv(
-        RESULTS_DIR / "vainf_train.csv",
+        CSV_DIR / "vainf_train.csv",
         x=x_train.squeeze().cpu().numpy(),
         y=y_train.squeeze().cpu().numpy(),
     )

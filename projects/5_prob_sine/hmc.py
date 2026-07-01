@@ -9,6 +9,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -79,8 +80,8 @@ if not args.book:
 else:
     for cutoff in [100, 400, 2000]:
         save_csv(
-            RESULTS_DIR / f"hmc_samples_{cutoff}.csv",
+            CSV_DIR / f"hmc_samples_{cutoff}.csv",
             s=np.arange(1, cutoff + 1),
             x=samples[:cutoff],
         )
-    save_csv(RESULTS_DIR / "hmc_target.csv", x=x, y=target(x))
+    save_csv(CSV_DIR / "hmc_target.csv", x=x, y=target(x))

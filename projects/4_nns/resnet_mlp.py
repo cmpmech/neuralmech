@@ -12,6 +12,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -73,7 +74,7 @@ if not args.book:
 else:
     act2string = {nn.ReLU: "relu", nn.Sigmoid: "sigmoid"}
     save_csv(
-        RESULTS_DIR / f"avg_gradients_{act2string[ACTIVATION]}_{USE_SKIP}_{USE_INIT}.csv",
+        CSV_DIR / f"avg_gradients_{act2string[ACTIVATION]}_{USE_SKIP}_{USE_INIT}.csv",
         x=np.arange(0, HIDDEN_LAYERS + 1),
         y=avg_gradients,
     )

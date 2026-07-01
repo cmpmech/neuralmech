@@ -23,6 +23,7 @@ from solvers.optimization import ComplexStructuredFEM
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_helmholtz_adam"
 
 parser = argparse.ArgumentParser()
@@ -323,8 +324,7 @@ ax.axis("off")
 ax.set_rasterized(True)
 fig.tight_layout(pad=0)
 if args.book:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    plt.savefig(RESULTS_DIR / "topopt_helmholtz.png")
+    plt.savefig(RGB_PDF_DIR / "topopt_helmholtz.pdf")
     plt.close()
 elif not args.animate:
     plt.show()

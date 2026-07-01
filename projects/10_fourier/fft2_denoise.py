@@ -9,6 +9,7 @@ from postprocessing import show_image
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = BASE_DIR / "../../results"
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 # ------------------------------ load image ------------------------------
 # img = Image.open(BASE_DIR / "../../data/images/duckling.jpg").convert("L")
@@ -40,8 +41,9 @@ W, H = img_arr.shape[0], img_arr.shape[1]
 fig, ax = plt.subplots(figsize=(H / 100, W / 100), dpi=100)
 cb = ax.pcolormesh(X, Y, magnitude, cmap="cividis")
 plt.axis("off")
+ax.set_rasterized(True)  # vectorized pdf too large at this grid resolution
 plt.tight_layout(pad=0)
-plt.savefig(RESULTS_DIR / f"fft2_freq_denoise.png")
+plt.savefig(RGB_PDF_DIR / f"fft2_freq_denoise.pdf")
 plt.show()
 
 fig, ax = plt.subplots(figsize=(H / 100, W / 100), dpi=100)
@@ -68,18 +70,19 @@ W, H = img_arr.shape[0], img_arr.shape[1]
 fig, ax = plt.subplots(figsize=(H / 100, W / 100), dpi=100)
 cb = ax.pcolormesh(X, Y, magnitude, cmap="cividis")
 plt.axis("off")
+ax.set_rasterized(True)  # vectorized pdf too large at this grid resolution
 plt.tight_layout(pad=0)
-plt.savefig(RESULTS_DIR / f"fft2_freq_denoise_filtered.png")
+plt.savefig(RGB_PDF_DIR / f"fft2_freq_denoise_filtered.pdf")
 plt.show()
 
 img_reconstructed = np.fft.ifft2(np.fft.ifftshift(F_filtered)).real
 img_reconstructed = np.clip(img_reconstructed, 0, 255)
 
 show_image(
-    img_arr.astype(np.uint8), grayscale=True, path=RESULTS_DIR / f"fft_denoise_og.jpg"
+    img_arr.astype(np.uint8), grayscale=True, path=RGB_PDF_DIR / f"fft_denoise_og.pdf"
 )
 show_image(
     img_reconstructed.astype(np.uint8),
     grayscale=True,
-    path=RESULTS_DIR / f"fft_denoise_compressed.jpg",
+    path=RGB_PDF_DIR / f"fft_denoise_compressed.pdf",
 )

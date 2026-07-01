@@ -8,6 +8,7 @@ import taichi as ti
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = BASE_DIR / "../../results"
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames"
 
 np.random.seed(0)
@@ -192,11 +193,10 @@ print(f"particles {n_p}, steps {n_steps}, ms/step {(toc - tic) / n_steps * 1e3:.
 
 # ----------------------------- postprocessing ---------------------------
 if args.book:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     for s, pos in snapshots:
         fig, ax = plt.subplots()
         plot_snapshot(ax, pos, fluid)
-        fig.savefig(RESULTS_DIR / f"mpm_fluid_solid_taichi_{s:04d}.pdf")
+        fig.savefig(RGB_PDF_DIR / f"mpm_fluid_solid_taichi_{s:04d}.pdf")
         plt.close(fig)
 elif args.animate:
     pass

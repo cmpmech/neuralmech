@@ -8,6 +8,7 @@ import numpy as np
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = BASE_DIR / "../../results"
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -97,10 +98,10 @@ fig.colorbar(cb1, ax=axes[1])
 for ax in axes:
     ax.set_aspect("equal")
     ax.axis("off")
+    ax.set_rasterized(True)  # vectorized pdf too large at this mesh density
 fig.tight_layout(pad=0)
 
 if args.book:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    fig.savefig(RESULTS_DIR / "helmholtz_mlhp_pointsource_iterative.pdf")
+    fig.savefig(RGB_PDF_DIR / "helmholtz_mlhp_pointsource_iterative.pdf")
 else:
     plt.show()

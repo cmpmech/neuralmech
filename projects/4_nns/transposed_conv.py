@@ -11,6 +11,7 @@ from postprocessing import show_image
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -41,5 +42,5 @@ if not args.book:
 
 # -------------------------------- book postprocessing --------------------------------
 else:
-    show_image(x[0, 0].numpy(), grayscale=True, path=RESULTS_DIR / "checkerboarding1.jpg", close=True)
-    show_image(y[0, 0].numpy(), grayscale=True, path=RESULTS_DIR / "checkerboarding2.jpg", close=True)
+    show_image(x[0, 0].numpy(), grayscale=True, path=RGB_PDF_DIR / "checkerboarding1.pdf", close=True)
+    show_image(y[0, 0].numpy(), grayscale=True, path=RGB_PDF_DIR / "checkerboarding2.pdf", close=True)

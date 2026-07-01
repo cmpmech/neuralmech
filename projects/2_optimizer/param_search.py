@@ -8,6 +8,7 @@ from optimization_config import ackley as objective
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -54,7 +55,7 @@ def plot(X, best, name, resolution=800):
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
     if args.book:
-        fig.savefig(RESULTS_DIR / f"param_search_{name}.png")
+        fig.savefig(RGB_PDF_DIR / f"param_search_{name}.pdf")
     else:
         plt.show()
     plt.close(fig)

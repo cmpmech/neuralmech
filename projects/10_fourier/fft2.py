@@ -9,6 +9,7 @@ from postprocessing import show_image
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = BASE_DIR / "../../results"
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 
 CASE = 1
@@ -39,15 +40,17 @@ W, H = img_arr.shape[0], img_arr.shape[1]
 fig, ax = plt.subplots(figsize=(H / 100, W / 100), dpi=100)
 cb = ax.pcolormesh(X, Y, magnitude, cmap="cividis")
 plt.axis("off")
+ax.set_rasterized(True)  # vectorized pdf too large at this grid resolution
 plt.tight_layout(pad=0)
-plt.savefig(RESULTS_DIR / f"fft2_freq_{CASE}.png")
+plt.savefig(RGB_PDF_DIR / f"fft2_freq_{CASE}.pdf")
 plt.show()
 
 fig, ax = plt.subplots(figsize=(H / 100, W / 100), dpi=100)
 cb = ax.pcolormesh(X, Y, phase, cmap="cividis")
 plt.axis("off")
+ax.set_rasterized(True)  # vectorized pdf too large at this grid resolution
 plt.tight_layout(pad=0)
-plt.savefig(RESULTS_DIR / f"fft2_phase_{CASE}.png")
+plt.savefig(RGB_PDF_DIR / f"fft2_phase_{CASE}.pdf")
 plt.show()
 
 # ------------------------------ truncation ------------------------------
@@ -66,10 +69,10 @@ img_reconstructed = np.clip(img_reconstructed, 0, 255)
 show_image(
     img_arr.astype(np.uint8),
     grayscale=True,
-    path=RESULTS_DIR / f"fft_og_{CASE}.jpg",
+    path=RGB_PDF_DIR / f"fft_og_{CASE}.pdf",
 )
 show_image(
     img_reconstructed.astype(np.uint8),
     grayscale=True,
-    path=RESULTS_DIR / f"fft_compressed_{CASE}_{keep_ratio}.jpg",
+    path=RGB_PDF_DIR / f"fft_compressed_{CASE}_{keep_ratio}.pdf",
 )

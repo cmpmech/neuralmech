@@ -6,7 +6,7 @@ from efficient_kan import KAN
 from escnn import nn as enn
 from neuralop.models import FNO
 from torch import nn
-from torch_geometric.nn import GATConv, GCNConv, GINConv, SAGEConv
+from torch_geometric.nn import ChebConv, GATConv, GCNConv, GINConv, SAGEConv
 from torch_geometric.nn.conv.message_passing import HookDict
 from torchdiffeq import odeint
 
@@ -236,6 +236,40 @@ class DGCN(nn.Module):
         self.acts: list[nn.Module | None] = []
         for i in range(len(channels) - 1):
             self.convs.append(GCNConv(channels[i], channels[i + 1]))
+            self.acts.append(activations[i] if i < len(activations) else None)
+
+    def forward(self, graph) -> torch.Tensor:
+        x = graph.x
+        for conv, act in zip(self.convs, self.acts):
+            x = conv(x, graph.edge_index)
+            if act:
+                x = act(x)
+        return x
+
+
+class DGCheb(nn.Module):
+    """Deep graph network using Chebyshev spectral convolution layers.
+
+    Reference: https://arxiv.org/abs/1606.09375
+
+    Args:
+        channels: List of channel sizes for each layer.
+            Example: [16, 32, 64] creates two ChebConv layers (16->32, 32->64).
+        activations: List of activation modules after each conv layer.
+        K: Chebyshev filter order (number of hops).
+    """
+
+    def __init__(
+        self,
+        channels: list[int],
+        activations: list[nn.Module | None],
+        K: int = 3,
+    ) -> None:
+        super().__init__()
+        self.convs = nn.ModuleList()
+        self.acts: list[nn.Module | None] = []
+        for i in range(len(channels) - 1):
+            self.convs.append(ChebConv(channels[i], channels[i + 1], K=K))
             self.acts.append(activations[i] if i < len(activations) else None)
 
     def forward(self, graph) -> torch.Tensor:
@@ -758,6 +792,139 @@ class ELM(nn.Module):
     def forward(self, x: torch.Tensor):
         x = self.feature_extractor(x)
         return self.output_layer(x)
+
+
+# ------------------------------- deep material networks ------------------------------
+def laminate_rotation(alpha):
+    c, s = torch.cos(alpha), torch.sin(alpha)
+    return torch.stack(  # to not break autograd
+        [
+            torch.stack([c**2, s**2, 2 * c * s]),
+            torch.stack([s**2, c**2, -2 * c * s]),
+            torch.stack([-c * s, c * s, c**2 - s**2]),
+        ]
+    )
+
+
+class LaminateBlock(nn.Module):
+    """Two-layer laminate building block of a deep material network."""
+
+    def __init__(self):
+        super().__init__()
+        self.v1_logit = nn.Parameter(torch.zeros(()))  # with sigmoid 0<=v1<=1
+        self.alpha = nn.Parameter(torch.zeros(()))
+
+    @property
+    def v1(self):
+        return torch.sigmoid(self.v1_logit)
+
+    def homogenize_stiffness(self, C1, C2):
+        v1, v2 = self.v1, 1 - self.v1
+        A1, B1, D1 = C1[0, 0], C1[0, 1:], C1[1:, 1:]
+        A2, B2, D2 = C2[0, 0], C2[0, 1:], C2[1:, 1:]
+        D1_inv, D2_inv = torch.linalg.inv(D1), torch.linalg.inv(D2)
+
+        D_tilde_inv = torch.linalg.inv(v1 * D1_inv + v2 * D2_inv)
+        P = v1 * D1_inv @ B1 + v2 * D2_inv @ B2
+        A_bar = (
+            v1 * (A1 - B1 @ D1_inv @ B1)
+            + v2 * (A2 - B2 @ D2_inv @ B2)
+            + P @ D_tilde_inv @ P
+        )
+        B_bar, D_bar = D_tilde_inv @ P, D_tilde_inv
+
+        C_bar = torch.zeros(3, 3)
+        C_bar[0, 0], C_bar[0, 1:], C_bar[1:, 0], C_bar[1:, 1:] = (
+            A_bar,
+            B_bar,
+            B_bar,
+            D_bar,
+        )
+        C = laminate_rotation(self.alpha) @ C_bar @ laminate_rotation(-self.alpha)
+
+        cache = (D1, D2, B1, B2, v1, v2)  # reused in recover_strains
+        return C, cache
+
+    def recover_strains(self, deps, cache):
+        D1, D2, B1, B2, v1, v2 = cache
+        deps_l = laminate_rotation(-self.alpha) @ deps
+        eps11 = deps_l[0]
+        M = D1 + (v1 / v2) * D2
+        x1 = torch.linalg.solve(M, D2 @ deps_l[1:] / v2 + (B2 - B1) * eps11)
+        x2 = (deps_l[1:] - v1 * x1) / v2
+        deps1_l = torch.cat([eps11[None], x1])
+        deps2_l = torch.cat([eps11[None], x2])
+        T = laminate_rotation(self.alpha)
+        return T @ deps1_l, T @ deps2_l
+
+    def homogenize_stress(self, dsig1, dsig2):
+        return self.v1 * dsig1 + (1 - self.v1) * dsig2
+
+
+class DMN(nn.Module):
+    """Binary-tree deep (composite) material network with `depth` laminate layers."""
+
+    def __init__(self, depth):
+        super().__init__()
+        self.depth = depth
+        self.layers = nn.ModuleList(
+            [
+                nn.ModuleList([LaminateBlock() for _ in range(2 ** (depth - l - 1))])
+                for l in range(depth)
+            ]
+        )
+        self._all_cache = None  # populated by forward, consumed by homogenize_stress
+
+    def forward(self, C1, C2, deps):
+        L = self.depth
+
+        # bottom-up: homogenize stiffness, leaves to root
+        all_C, all_cache = [None] * L, [None] * L
+        C_leaves, cache_leaves = zip(
+            *(block.homogenize_stiffness(C1, C2) for block in self.layers[0])
+        )
+        all_C[0], all_cache[0] = list(C_leaves), list(cache_leaves)
+        for l in range(1, L):
+            prev_C = all_C[l - 1]
+            C_leaves, cache_leaves = zip(
+                *(
+                    b.homogenize_stiffness(prev_C[2 * i], prev_C[2 * i + 1])
+                    for i, b in enumerate(self.layers[l])
+                )
+            )
+            all_C[l], all_cache[l] = list(C_leaves), list(cache_leaves)
+        C_root = all_C[L - 1][0]
+
+        # top-down: recover strains, root to leaves
+        # walk down the tree just above the leaves (strains at internal layer)
+        cur_deps = [deps]
+        for l in range(L - 1, 0, -1):
+            next_deps = []
+            for block, cache, deps in zip(self.layers[l], all_cache[l], cur_deps):
+                deps1, deps2 = block.recover_strains(deps, cache)
+                next_deps.extend([deps1, deps2])
+            cur_deps = next_deps
+
+        # get per-phase strains
+        leaf_deps = []
+        for block, cache, deps in zip(self.layers[0], all_cache[0], cur_deps):
+            leaf_deps.extend(block.recover_strains(deps, cache))
+
+        self._all_cache = all_cache  # kept for homogenize_stress
+        return C_root, leaf_deps
+
+    def homogenize_stress(self, leaf_dsig):
+        # bottom-up: compute homogenized stress, leaves to root
+        cur_dsig = [
+            block.homogenize_stress(leaf_dsig[2 * i], leaf_dsig[2 * i + 1])
+            for i, block in enumerate(self.layers[0])
+        ]
+        for l in range(1, self.depth):
+            cur_dsig = [
+                block.homogenize_stress(cur_dsig[2 * i], cur_dsig[2 * i + 1])
+                for i, block in enumerate(self.layers[l])
+            ]
+        return cur_dsig[0]
 
 
 # ----------------------------- autoencoders -----------------------------

@@ -69,7 +69,7 @@ ax.imshow(domains[0], cmap="binary")
 ax.set_aspect("equal")
 ax.axis("off")
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-plt.savefig(f"../../results/fibers.pdf", bbox_inches="tight", pad_inches=0)
+plt.savefig(f"../../results/rgb_pdf/fibers.pdf", bbox_inches="tight", pad_inches=0)
 plt.show()
 
 
@@ -96,7 +96,7 @@ for num_squares in range(num_circles + 1):
         ax.axis("off")
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         plt.savefig(
-            f"../../results/fibers_anomaly.pdf", bbox_inches="tight", pad_inches=0
+            f"../../results/rgb_pdf/fibers_anomaly.pdf", bbox_inches="tight", pad_inches=0
         )
         plt.show()
 

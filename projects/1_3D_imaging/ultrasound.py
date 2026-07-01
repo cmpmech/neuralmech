@@ -9,6 +9,8 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -81,7 +83,7 @@ ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    fig.savefig(RESULTS_DIR / "ultrasound_groundtruth.png")
+    fig.savefig(RGB_PDF_DIR / "ultrasound_groundtruth.pdf")
 else:
     plt.show()
 plt.close(fig)
@@ -92,7 +94,7 @@ ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    fig.savefig(RESULTS_DIR / "ultrasound_prediction.png")
+    fig.savefig(RGB_PDF_DIR / "ultrasound_prediction.pdf")
 else:
     plt.show()
 plt.close(fig)
@@ -100,12 +102,12 @@ plt.close(fig)
 # -------------------------------- book postprocessing --------------------------------
 if args.book:
     save_csv(
-        RESULTS_DIR / "ultrasound_signals.csv",
+        CSV_DIR / "ultrasound_signals.csv",
         t=t,
         **{f"y{j}": signals[j] for j in range(len(SENSOR_XS))},
     )
     save_csv(
-        RESULTS_DIR / "ultrasound_signals_das.csv",
+        CSV_DIR / "ultrasound_signals_das.csv",
         t=t,
         **{f"y{j}": signals_das[j] for j in range(len(SENSOR_XS))},
     )

@@ -8,6 +8,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 init()
 
@@ -46,4 +47,4 @@ for label, term in TERMS.items():
     results[label] = counts
 
 # --------------------------------------- export --------------------------------------
-save_csv(RESULTS_DIR / "ai_in_cm.csv", year=YEARS, **results)
+save_csv(CSV_DIR / "ai_in_cm.csv", year=YEARS, **results)

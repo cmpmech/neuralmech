@@ -15,6 +15,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
@@ -141,19 +142,19 @@ if not args.book:
 # -------------------------------- book postprocessing --------------------------------
 else:
     save_csv(
-        RESULTS_DIR / f"{tag}_test.csv",
+        CSV_DIR / f"{tag}_test.csv",
         x=x_test[:, 0],
         y=y_test[:, 0],
         ypred=y_pred[:, 0],
     )
     save_csv(
-        RESULTS_DIR / f"{tag}_grad.csv",
+        CSV_DIR / f"{tag}_grad.csv",
         x=x_grad.detach()[:, 0],
         dy=dy_test[:, 0],
         dypred=dy_pred.detach()[:, 0],
     )
     save_csv(
-        RESULTS_DIR / f"{tag}_train.csv",
+        CSV_DIR / f"{tag}_train.csv",
         x=X_train[:, 0],
         y=Y_train[:, 0],
         ypred=y_pred_train[:, 0],

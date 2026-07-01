@@ -9,6 +9,7 @@ from postprocessing import show_image
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -28,7 +29,7 @@ for sample in ds:
     show_image(
         img,
         grayscale=True,
-        path=RESULTS_DIR / f"mnist_{digit}.png",
+        path=RGB_PDF_DIR / f"mnist_{digit}.pdf",
         close=args.book,
     )
     if len(seen) == 10:

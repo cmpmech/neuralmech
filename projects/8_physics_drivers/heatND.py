@@ -10,6 +10,7 @@ import scipy.sparse as sp
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 ANIMATION_DIR = (BASE_DIR / "../../results/animations/animation_frames").resolve()
 
 parser = argparse.ArgumentParser()
@@ -170,7 +171,7 @@ if DIM in (1, 2) and not args.animate:
         plt.show()
 # -------------------------------- book postprocessing --------------------------------
     else:
-        plt.savefig(RESULTS_DIR / f"heat{DIM}D.png")
+        plt.savefig(RGB_PDF_DIR / f"heat{DIM}D.pdf")
         plt.close()
 # ----------------------------------- animate export ----------------------------------
 if args.animate and DIM in (1, 2):

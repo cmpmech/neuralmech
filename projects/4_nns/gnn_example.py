@@ -14,6 +14,7 @@ from NN import DGSAGE
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -28,6 +29,8 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 EPOCHS = 1000
 LR = 1e-2
 
+FREQUENCY = 7
+
 # define loss
 cost_fun = nn.MSELoss()
 
@@ -36,7 +39,7 @@ CHANNELS = [8, 32, 32, 32, 1]
 ACTIVATIONS = [nn.GELU(approximate="tanh") for _ in range(len(CHANNELS) - 2)]
 
 # ------------------------------------ prepare data -----------------------------------
-f = lambda x1, x2: torch.sin(14 * torch.pi * x1 * x2)
+f = lambda x1, x2: torch.sin(FREQUENCY * 2 * torch.pi * x1 * x2)
 
 data = torch.load(DATA_DIR / "ghana_mesh.pt", weights_only=False)
 y = Data(
@@ -87,7 +90,9 @@ if not args.book:
     plt.show()
 
     fig, ax = plt.subplots(figsize=(5, 10), dpi=100)
-    ax.tripcolor(tri, y_pred.detach().squeeze().cpu(), shading="gouraud", cmap="Spectral")
+    ax.tripcolor(
+        tri, y_pred.detach().squeeze().cpu(), shading="gouraud", cmap="Spectral"
+    )
     ax.triplot(tri, color="k", linewidth=1, alpha=0.6)
     ax.set_aspect("equal")
     plt.show()
@@ -107,10 +112,10 @@ else:
         plt.savefig(path, transparent=True)
         plt.close()
 
-    save_tri(y.x.squeeze().cpu(), RESULTS_DIR / "GNN_target.pdf")
-    save_tri(y_pred.detach().squeeze().cpu(), RESULTS_DIR / "GNN_prediction.pdf")
+    save_tri(y.x.squeeze().cpu(), RGB_PDF_DIR / "GNN_target.pdf")
+    save_tri(y_pred.detach().squeeze().cpu(), RGB_PDF_DIR / "GNN_prediction.pdf")
     for i in range(CHANNELS[0]):
-        save_tri(x.x[:, i].detach().squeeze().cpu(), RESULTS_DIR / f"GNN_input_{i}.pdf")
+        save_tri(x.x[:, i].detach().squeeze().cpu(), RGB_PDF_DIR / f"GNN_input_{i}.pdf")
 
     # mesh with the target as colored nodes
     fig, ax = plt.subplots(figsize=(5, 10), dpi=200)
@@ -120,5 +125,5 @@ else:
     ax.axis("off")
     ax.set_rasterized(True)
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    plt.savefig(RESULTS_DIR / "GNN_target_points.pdf", transparent=True)
+    plt.savefig(RGB_PDF_DIR / "GNN_target_points.pdf", transparent=True)
     plt.close()

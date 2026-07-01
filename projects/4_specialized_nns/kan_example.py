@@ -14,6 +14,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -100,7 +101,7 @@ if not args.book:
 # -------------------------------- book postprocessing --------------------------------
 else:
     save_csv(
-        RESULTS_DIR / "kan_fit.csv",
+        CSV_DIR / "kan_fit.csv",
         x=x_,
         y=y.squeeze().cpu(),
         ypred=y_pred.squeeze().detach().cpu(),
@@ -116,12 +117,12 @@ else:
                 for j in range(acts.shape[1])
             }
         )
-        save_csv(RESULTS_DIR / f"kan_edges_{layer_idx}.csv", **cols)
+        save_csv(CSV_DIR / f"kan_edges_{layer_idx}.csv", **cols)
         strength = acts.abs().mean(-1)  # (out, in)
         strength = 0.1 + 0.9 * (strength - strength.min()) / (
             strength.max() - strength.min()
         )
         save_csv(
-            RESULTS_DIR / f"kan_strength_{layer_idx}.csv",
+            CSV_DIR / f"kan_strength_{layer_idx}.csv",
             **{f"phi{j}": strength[:, j] for j in range(strength.shape[1])},
         )

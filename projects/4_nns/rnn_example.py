@@ -14,6 +14,7 @@ from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -91,7 +92,7 @@ if not args.book:
 else:
     cell2string = {nn.RNN: "rnn", nn.LSTM: "lstm", nn.GRU: "gru"}
     save_csv(
-        RESULTS_DIR / f"rnn_sine_{cell2string[CELL]}.csv",
+        CSV_DIR / f"rnn_sine_{cell2string[CELL]}.csv",
         i=np.arange(RESOLUTION) + 1,
         x=x.squeeze().detach().cpu(),
         z=x_,

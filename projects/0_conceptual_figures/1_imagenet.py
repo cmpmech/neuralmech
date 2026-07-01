@@ -9,6 +9,7 @@ from postprocessing import show_image
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -25,7 +26,7 @@ for i, sample in enumerate(ds):
         label = ds.features["label"].int2str(int(sample["label"]))
 # ----------------------------------- postprocessing ----------------------------------
         print(label)
-        show_image(img, path=RESULTS_DIR / f"imagenet_{i}.png", close=args.book)
+        show_image(img, path=RGB_PDF_DIR / f"imagenet_{i}.pdf", close=args.book)
         ids.discard(i)
     if not ids:
         break
