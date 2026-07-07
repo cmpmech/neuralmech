@@ -22,17 +22,18 @@ torch.backends.cudnn.deterministic = True
 
 # -------------------------- training settings ---------------------------
 # allow quick overrides via environment for experiment runs
-epochs = int(os.getenv("EPOCHS", "77"))
+epochs = int(os.getenv("EPOCHS", "22"))
 lr = float(os.getenv("LR", "1e-2"))  # change over ae
-weight_decay = float(os.getenv("WEIGHT_DECAY", "1e-4"))
-batch_size = int(os.getenv("BATCH_SIZE", "64"))
+weight_decay = float(os.getenv("WEIGHT_DECAY", "3e-6"))
+batch_size = int(os.getenv("BATCH_SIZE", "128"))
 
 # beta = 0. # good reconstruction
 # allow override
-beta = float(os.getenv("BETA", str(0.2)))
+beta = float(os.getenv("BETA", str(0.05)))
 
 # define loss
-recon_loss = nn.MSELoss(reduction="mean")
+# recon_loss = nn.MSELoss(reduction="mean")
+recon_loss = nn.BCELoss()
 
 
 # prevent posterior collapsing for any latent dimension by enforcing a minimum KL divergence
@@ -63,7 +64,7 @@ channel_dim = 1
 kernel_size = 3
 act = partial(nn.PReLU, init=0.2)
 
-encoder_lr_factor = 0.1  # smaller lr for encoder to prevent posterior collapse
+encoder_lr_factor = 0.3  # smaller lr for encoder to prevent posterior collapse
 
 # bottleneck_layers = 1  # controls compression ratio
 # compression = 2 ** (-depth - bottleneck_layers)
@@ -73,7 +74,8 @@ encoder_lr_factor = 0.1  # smaller lr for encoder to prevent posterior collapse
 domain_size = 256
 data = []
 # data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_anomaly_1_256_400.npy") ) )
-data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_3max_400.npy") ) )
+# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_2max_800.npy") ) )
+data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_1max_800.npy") ) )
 # data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_1sq_2tot_400.np.npy") ) )
 
 ## Add squares to dataset
@@ -139,7 +141,6 @@ Decoder = nn.Sequential()
 Decoder.append(MLP(layers[::-1], [act()] * (len(layers) - 1)))      # not times 2
 Decoder.append(nn.Unflatten(1, (channels[-1], red_domain_size, red_domain_size)))  
 
-# what is this??
 Decoder.append(
     DCN(
         channels[::-1],
@@ -152,6 +153,7 @@ Decoder.append(
         normalizations=[nn.GroupNorm(1, channel) for channel in channels[-2:0:-1]],
     )
 )
+Decoder.append(nn.Sigmoid())  # output in [0,1] for BCE loss
 
 model = VAE(Encoder, Decoder).to(device)
 init_weights(model, act())
