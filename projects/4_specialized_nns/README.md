@@ -55,3 +55,18 @@ the Stanford bunny point cloud.
   PointNet regressing a scalar field on the Stanford bunny point cloud
 - `pointnetpp_example.py` _needs `bunny_pointcloud.npz`_
   PointNet++ (hierarchical set abstraction) on the same point cloud
+- `analog_rnn_example.py` _needs `minecraft_mobs.npz`_
+  analog recurrent network (Hughes et al. 2019): a trainable acoustic medium that classifies
+  mob-sound clips by the wave energy each reaches at three right-wall probes, one per behaviour
+  class, trained end-to-end through the wave solver's adjoint
+
+## Non-obvious technicalities (authored by Claude)
+
+`analog_rnn_example.py` runs one full wave solve (forward and adjoint) per clip, so an epoch
+over all 53 clips is the runtime bottleneck. When first exploring the setup -- resolution,
+propagation time `T`, material contrast, low-pass cutoff -- start with a single clip per class
+(three solves per epoch instead of 53). This cuts iteration time by more than an order of
+magnitude and already answers the key question, whether the trainable medium can route the
+three mobs to their probes, before scaling up to the full imbalanced set. With one clip per
+class the data are balanced, so the inverse-frequency class weighting is a no-op there.
+Subsample right after the npz is loaded, keeping the first index of each class.

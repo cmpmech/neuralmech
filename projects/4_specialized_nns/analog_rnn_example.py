@@ -40,16 +40,17 @@ torch.backends.cudnn.deterministic = True
 # -------------------------------------- settings -------------------------------------
 # geometry: source on the left wall, three probes on the right wall (one per class),
 # a trainable material square centered in x spanning the full height
-LENGTHS = (2.0, 1.0)
-SOURCE_CENTER = (0.1, 0.5)
-DESIGN_X = (0.5, 1.5)
-PROBE_X = 1.9
-PROBE_Y = (0.25, 0.5, 0.75)
+LENGTHS = (200.0, 100.0)
+SOURCE_CENTER = (10.0, 50.0)
+DESIGN_X = (50.0, 150.0)
+PROBE_X = 190.0
+PROBE_Y = (25.0, 50.0, 75.0)
 
 # discretization
-RESOLUTION = (80, 40)
-CFL = 0.5
-T = 0.02
+# RESOLUTION = (96, 48)
+RESOLUTION = (200, 100)
+CFL = 0.9  # 0.5
+T = 1.5
 
 # physics: air (material 1) and a moderate-contrast dense scatterer (material 2)
 RHO1, RHO2 = 1.204, 12.04
@@ -59,20 +60,21 @@ POINTS_PER_WAVELENGTH = 10
 
 # absorbing sponge on every edge [x-, x+, y-, y+] so probe energies are not degenerate
 BOUNDARIES = ["pml", "pml", "pml", "pml"]
-SPONGE_WIDTH = 8
-SPONGE_BETA = 1.5
+SPONGE_WIDTH = 8  # 50  # 8
+SPONGE_BETA = 1.5  # 0.1  # 1.5
 
 # optimization
-EPOCHS = 50
-LR = 3e-2
+SAMPLES_PER_CLASS = 2  # first clips kept per class for overfitting (-1 uses all)
+EPOCHS = 300
+LR = 5e-2
 RMIN = 2.0
 
 # projection: beta grows slowly (per epoch) so the medium binarizes late in training
 ETA = 0.5
 BETA0 = 1.0
 BETA_GROWTH = 2.0
-BETA_STEP = 10  # epochs between beta updates
-BETA_MAX = 16.0
+BETA_STEP = 16  # epochs between beta updates
+BETA_MAX = 1.0
 
 
 # -------------------------------------- helper ---------------------------------------
@@ -101,7 +103,7 @@ def physical(xval, beta):
     return projection(x_tilde, beta, ETA) * design, x_tilde
 
 
-def load_source(clip, sample_rate):
+def load_source(clip):
     # resample the clip onto the simulation time base, low-pass to the grid's max
     # resolvable frequency (zero-phase), normalize, and scale to the source amplitude
     sos = butter(8, f_max, btype="low", fs=1.0 / dt, output="sos")
@@ -202,7 +204,15 @@ if data["X"].shape[0] == 0:
     raise SystemExit("empty minecraft_mobs.npz; run minecraft_mobs_download.py first")
 labels = data["y"]
 classes = data["classes"]
-signals = [load_source(clip, int(data["sr"])) for clip in data["X"]]
+clips = data["X"]
+
+if SAMPLES_PER_CLASS != -1:
+    keep = np.concatenate([np.where(labels == c)[0][:SAMPLES_PER_CLASS]
+                           for c in range(len(classes))])
+    labels = labels[keep]
+    clips = clips[keep]
+
+signals = [load_source(clip) for clip in clips]
 samples = len(signals)
 
 # inverse-frequency class weights (mean weight 1) counter the imbalanced clip counts
@@ -211,7 +221,7 @@ class_weights = samples / (len(classes) * counts)
 
 # ------------------------------------ optimization -----------------------------------
 n = int(active.size)
-x = torch.full((n,), 0.5, device=device, requires_grad=True)
+x = (0.5 + 0.1 * (torch.rand(n, device=device) - 0.5)).requires_grad_(True)
 optimizer = torch.optim.Adam([x], lr=LR)
 
 loss_history = []
@@ -251,11 +261,15 @@ for epoch in range(EPOCHS):
 
     loss_history.append(loss_sum / samples)
     acc_history.append(correct / samples)
-    print(f"epoch {epoch}: loss {loss_history[-1]:.4f}  "
-          f"accuracy {acc_history[-1]:.2f}  beta {beta:.0f}")
+    print(
+        f"epoch {epoch}: loss {loss_history[-1]:.4f}  "
+        f"accuracy {acc_history[-1]:.2f}  beta {beta:.0f}"
+    )
 
     if args.animate:
-        fig, ax = plt.subplots(figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150)
+        fig, ax = plt.subplots(
+            figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150
+        )
         ax.imshow(gamma.get()[crop].T, origin="lower", cmap="binary", vmin=0, vmax=1)
         ax.axis("off")
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
@@ -275,6 +289,7 @@ for signal, label in zip(signals, labels):
         sim, gamma_final, source, sensors, sponge, int(label)
     )
     confusion[int(label), int(probs.argmax())] += 1
+    print(f"true {classes[int(label)]:8s} probs {np.round(probs, 3)}")
 accuracy = np.trace(confusion) / confusion.sum()
 print(f"training accuracy {accuracy:.3f}")
 print(confusion)
@@ -288,7 +303,9 @@ if args.animate:
     scale = max(float(np.max(np.abs(f))) for f in frames)
     overlay = np.ma.masked_where(design_view < 0.5, design_view)
     for f, frame in enumerate(frames):
-        fig, ax = plt.subplots(figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150)
+        fig, ax = plt.subplots(
+            figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150
+        )
         ax.imshow(frame.T, origin="lower", cmap="seismic", vmin=-scale, vmax=scale)
         ax.imshow(overlay.T, origin="lower", cmap="binary", vmin=0, vmax=1, alpha=0.85)
         ax.axis("off")
@@ -297,8 +314,12 @@ if args.animate:
         plt.close()
 # -------------------------------- book postprocessing --------------------------------
 elif args.book:
-    save_csv(CSV_DIR / "analog_rnn_history.csv", epoch=np.arange(EPOCHS),
-             loss=np.array(loss_history), accuracy=np.array(acc_history))
+    save_csv(
+        CSV_DIR / "analog_rnn_history.csv",
+        epoch=np.arange(EPOCHS),
+        loss=np.array(loss_history),
+        accuracy=np.array(acc_history),
+    )
     save_csv(CSV_DIR / "analog_rnn_confusion.csv", confusion=confusion.ravel())
 
     fig, ax = plt.subplots(figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150)
