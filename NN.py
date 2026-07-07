@@ -811,7 +811,10 @@ class LaminateBlock(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.v1_logit = nn.Parameter(torch.zeros(()))  # with sigmoid 0<=v1<=1
+        # random volume fraction breaks the symmetry of an all-equal init; otherwise every
+        # block stays identical and the fit stalls (alpha stays 0: a large random rotation
+        # drives the homogenized stiffness non-physical)
+        self.v1_logit = nn.Parameter(0.5 * torch.randn(()))  # with sigmoid 0<=v1<=1
         self.alpha = nn.Parameter(torch.zeros(()))
 
     @property
@@ -819,22 +822,25 @@ class LaminateBlock(nn.Module):
         return torch.sigmoid(self.v1_logit)
 
     def homogenize_stiffness(self, C1, C2):
+        # C1, C2 are batched stiffnesses (N, 3, 3); homogenizes over the leading dimension
         v1, v2 = self.v1, 1 - self.v1
-        A1, B1, D1 = C1[0, 0], C1[0, 1:], C1[1:, 1:]
-        A2, B2, D2 = C2[0, 0], C2[0, 1:], C2[1:, 1:]
+        A1, B1, D1 = C1[:, 0, 0], C1[:, 0, 1:], C1[:, 1:, 1:]
+        A2, B2, D2 = C2[:, 0, 0], C2[:, 0, 1:], C2[:, 1:, 1:]
         D1_inv, D2_inv = torch.linalg.inv(D1), torch.linalg.inv(D2)
 
         D_tilde_inv = torch.linalg.inv(v1 * D1_inv + v2 * D2_inv)
-        P = v1 * D1_inv @ B1 + v2 * D2_inv @ B2
-        A_bar = (
-            v1 * (A1 - B1 @ D1_inv @ B1)
-            + v2 * (A2 - B2 @ D2_inv @ B2)
-            + P @ D_tilde_inv @ P
+        P = v1 * torch.einsum("nij,nj->ni", D1_inv, B1) + v2 * torch.einsum(
+            "nij,nj->ni", D2_inv, B2
         )
-        B_bar, D_bar = D_tilde_inv @ P, D_tilde_inv
+        A_bar = (
+            v1 * (A1 - torch.einsum("ni,nij,nj->n", B1, D1_inv, B1))
+            + v2 * (A2 - torch.einsum("ni,nij,nj->n", B2, D2_inv, B2))
+            + torch.einsum("ni,nij,nj->n", P, D_tilde_inv, P)
+        )
+        B_bar, D_bar = torch.einsum("nij,nj->ni", D_tilde_inv, P), D_tilde_inv
 
-        C_bar = torch.zeros(3, 3)
-        C_bar[0, 0], C_bar[0, 1:], C_bar[1:, 0], C_bar[1:, 1:] = (
+        C_bar = torch.zeros_like(C1)
+        C_bar[:, 0, 0], C_bar[:, 0, 1:], C_bar[:, 1:, 0], C_bar[:, 1:, 1:] = (
             A_bar,
             B_bar,
             B_bar,
@@ -846,18 +852,26 @@ class LaminateBlock(nn.Module):
         return C, cache
 
     def recover_strains(self, deps, cache):
+        # deps is a batch of strain increments (N, 3)
         D1, D2, B1, B2, v1, v2 = cache
-        deps_l = laminate_rotation(-self.alpha) @ deps
-        eps11 = deps_l[0]
+        deps_l = torch.einsum("ij,nj->ni", laminate_rotation(-self.alpha), deps)
+        eps11 = deps_l[:, 0]
         M = D1 + (v1 / v2) * D2
-        x1 = torch.linalg.solve(M, D2 @ deps_l[1:] / v2 + (B2 - B1) * eps11)
-        x2 = (deps_l[1:] - v1 * x1) / v2
-        deps1_l = torch.cat([eps11[None], x1])
-        deps2_l = torch.cat([eps11[None], x2])
+        rhs = (
+            torch.einsum("nij,nj->ni", D2, deps_l[:, 1:]) / v2
+            + (B2 - B1) * eps11[:, None]
+        )
+        x1 = torch.linalg.solve(M, rhs)
+        x2 = (deps_l[:, 1:] - v1 * x1) / v2
+        deps1_l = torch.cat([eps11[:, None], x1], dim=1)
+        deps2_l = torch.cat([eps11[:, None], x2], dim=1)
         T = laminate_rotation(self.alpha)
-        return T @ deps1_l, T @ deps2_l
+        return torch.einsum("ij,nj->ni", T, deps1_l), torch.einsum(
+            "ij,nj->ni", T, deps2_l
+        )
 
     def homogenize_stress(self, dsig1, dsig2):
+        # dsig1, dsig2 are batched stresses (N, 3)
         return self.v1 * dsig1 + (1 - self.v1) * dsig2
 
 
@@ -876,12 +890,23 @@ class DMN(nn.Module):
         self._all_cache = None  # populated by forward, consumed by homogenize_stress
 
     def forward(self, C1, C2, deps):
+        # linear two-phase cell: leaves alternate phase 1 / phase 2
+        leaf_C = [C1 if i % 2 == 0 else C2 for i in range(2**self.depth)]
+        return self.homogenize(leaf_C, deps)
+
+    def homogenize(self, leaf_C, deps):
+        # bottom-up stiffness then top-down strains for a tree of per-leaf stiffnesses
+        # leaf_C (list of 2**depth batched (N, 3, 3)); deps macro increment (N, 3). This
+        # generalizes forward: each leaf may carry its own (e.g. nonlinear tangent) stiffness
         L = self.depth
 
         # bottom-up: homogenize stiffness, leaves to root
         all_C, all_cache = [None] * L, [None] * L
         C_leaves, cache_leaves = zip(
-            *(block.homogenize_stiffness(C1, C2) for block in self.layers[0])
+            *(
+                block.homogenize_stiffness(leaf_C[2 * i], leaf_C[2 * i + 1])
+                for i, block in enumerate(self.layers[0])
+            )
         )
         all_C[0], all_cache[0] = list(C_leaves), list(cache_leaves)
         for l in range(1, L):

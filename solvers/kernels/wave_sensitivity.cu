@@ -1,9 +1,15 @@
 // Adjoint sensitivity kernels for the scalar / acoustic wave equation (see wave.cu
 // for the forward kernels and the compile-time configuration flags). Generalized
-// to NDIM dimensions. The Frechet kernel has the same bilinear form in both
-// formulations, with formulation-specific coefficients passed in (Eq. 10 / Eq. 20):
-//   coef_t (du/dt)^2 + coef_grad |grad u|^2
-// Only undamped (self-adjoint) problems are admissible.
+// to NDIM dimensions. One integrand kernel serves both sensitivity variants: the
+// Frechet kernel is the bilinear form (Eq. 10 scalar / Eq. 20 acoustic), evaluated
+// on a forward field u and an adjoint field lambda, with formulation-specific
+// coefficients passed in:
+//   scale ( coef_t (du/dt)(dlambda/dt) + coef_grad (grad u . grad lambda) )
+// The lossless superposition variant (wave_sensitivity.py) is the diagonal case:
+// it aliases lambda = u (same device pointers for both triplets), recovering the
+// quadratic form coef_t (du/dt)^2 + coef_grad |grad u|^2, and uses scale = +/-1 to
+// add/subtract contributions. The boundary-reconstruction variant passes distinct
+// fields and scale = 1.
 
 #ifdef USE_FLOAT
 typedef float real_t;
@@ -20,8 +26,11 @@ __global__ void integrand_step_kernel(real_t* __restrict__ kernel,
                                       const real_t* __restrict__ u0,
                                       const real_t* __restrict__ u1,
                                       const real_t* __restrict__ u2,
+                                      const real_t* __restrict__ l0,
+                                      const real_t* __restrict__ l1,
+                                      const real_t* __restrict__ l2,
                                       const real_t dt, const real_t coef_t,
-                                      const real_t coef_grad, const real_t sign,
+                                      const real_t coef_grad, const real_t scale,
                                       const real_t dx0, const int N0
 #if NDIM >= 2
                                       , const real_t dx1, const int N1, const int s0
@@ -51,20 +60,24 @@ __global__ void integrand_step_kernel(real_t* __restrict__ kernel,
 #endif
 
     const real_t dudt = (u2[idx] - u0[idx]) / (2.f * dt);
+    const real_t dldt = (l2[idx] - l0[idx]) / (2.f * dt);
 
-    real_t grad2 = 0.f;
-    const real_t g0 = (u1[idx + o0] - u1[idx - o0]) / (2.f * dx0);
-    grad2 += g0 * g0;
+    real_t graddot = 0.f;
+    const real_t gu0 = (u1[idx + o0] - u1[idx - o0]) / (2.f * dx0);
+    const real_t gl0 = (l1[idx + o0] - l1[idx - o0]) / (2.f * dx0);
+    graddot += gu0 * gl0;
 #if NDIM >= 2
-    const real_t g1 = (u1[idx + o1] - u1[idx - o1]) / (2.f * dx1);
-    grad2 += g1 * g1;
+    const real_t gu1 = (u1[idx + o1] - u1[idx - o1]) / (2.f * dx1);
+    const real_t gl1 = (l1[idx + o1] - l1[idx - o1]) / (2.f * dx1);
+    graddot += gu1 * gl1;
 #endif
 #if NDIM >= 3
-    const real_t g2 = (u1[idx + o2] - u1[idx - o2]) / (2.f * dx2);
-    grad2 += g2 * g2;
+    const real_t gu2 = (u1[idx + o2] - u1[idx - o2]) / (2.f * dx2);
+    const real_t gl2 = (l1[idx + o2] - l1[idx - o2]) / (2.f * dx2);
+    graddot += gu2 * gl2;
 #endif
 
-    kernel[idx] += sign * (coef_t * dudt * dudt + coef_grad * grad2);
+    kernel[idx] += scale * (coef_t * dudt * dldt + coef_grad * graddot);
 }
 
 // -----------------------------------------------------------------------

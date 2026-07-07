@@ -8,7 +8,7 @@ import cupy as cp
 import matplotlib.pyplot as plt
 import numpy as np
 
-from solvers.wave import setup_simulation, setup_source, simulate
+from solvers.wave import acoustic_simulation, scalar_simulation, setup_source, simulate
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
@@ -47,17 +47,15 @@ N = math.ceil(T / dt)
 
 print(frequency)
 
-sim = setup_simulation(
-    Nx,
-    dx,
-    N,
-    dt,
-    WAVESPEED,
-    DENSITY,
-    THREADS,
-    formulation=FORMULATION,
-    precision=PRECISION,
-)
+if FORMULATION == "acoustic":
+    sim = acoustic_simulation(
+        Nx, dx, N, dt, THREADS, precision=PRECISION,
+        rho1=1.204, rho2=2643.0, kappa1=1.419e5, kappa2=6.87e8,
+    )
+else:
+    sim = scalar_simulation(
+        Nx, dx, N, dt, THREADS, precision=PRECISION, wavespeed=WAVESPEED, density=DENSITY
+    )
 
 indicator = cp.ones(sim.Nx_padded, dtype=sim.dtype)
 

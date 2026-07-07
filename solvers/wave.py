@@ -17,20 +17,16 @@ class setup_source:
 
 @dataclass
 class setup_simulation:
+    # shared grid / time / precision scaffolding; the formulation-specific material
+    # model lives in the scalar_simulation / acoustic_simulation subclasses below
     Nx: tuple[int, ...]  # logical grid points per axis (incl. ghosts)
     dx: tuple[float, ...]
     N: int  # number of time steps
     dt: float
-    wavespeed: float  # scalar: background wave speed c0
-    density: float  # scalar: background density rho0
     threads: tuple[int, ...]  # threads per block, per axis
-    formulation: str = "scalar"  # "scalar" or "acoustic"
     precision: str = "float32"  # "float32" or "float64"
-    # acoustic TATO material constants (gamma = 0 -> air, gamma = 1 -> solid)
-    rho1: float = 1.204
-    rho2: float = 2643.0
-    kappa1: float = 1.419e5
-    kappa2: float = 6.87e8
+
+    compile_flags = ()  # extra nvcc -D flags for compile_kernels
 
     def __post_init__(self):
         self.ndim = len(self.Nx)
@@ -43,32 +39,100 @@ class setup_simulation:
         self.strides = tuple(strides)
         self.dtype = cp.float32 if self.precision == "float32" else cp.float64
 
+
+@dataclass
+class scalar_simulation(setup_simulation):
+    wavespeed: float = None  # background wave speed c0
+    density: float = None  # background density rho0
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.wavespeed is None or self.density is None:
+            raise ValueError("scalar_simulation requires wavespeed and density")
+
     def frechet_coefficients(self):
-        if self.formulation == "scalar":
-            return -self.density, self.density * self.wavespeed**2
-        return -(1 / self.kappa2 - 1 / self.kappa1), (1 / self.rho2 - 1 / self.rho1)
+        return -self.density, self.density * self.wavespeed**2
 
-
-def build_materials(sim, indicator, damping=None):
-    # scalar: indicator is the rho-scaling field gamma.
-    # acoustic: gamma interpolates the inverse density and inverse bulk modulus
-    if sim.formulation == "scalar":
+    def build_materials(self, indicator, damping=None):
+        # indicator is the rho-scaling field gamma
         return {"gamma": indicator}
 
-    rho_inv = 1 / sim.rho1 + indicator * (1 / sim.rho2 - 1 / sim.rho1)
-    kappa_inv = 1 / sim.kappa1 + indicator * (1 / sim.kappa2 - 1 / sim.kappa1)
-    if damping is None:
-        damping = cp.zeros(sim.Nx_padded, dtype=sim.dtype)
-    return {"rho": 1 / rho_inv, "kappa": 1 / kappa_inv, "damping": damping}
+    def step_factors(self):
+        return [self.dtype(2.0 * self.wavespeed**2 * self.dt**2 / dxk**2) for dxk in self.dx]
+
+    def step_kernel_args(self, mat):
+        return (mat["gamma"],)
+
+    def excitation_params(self, mat):
+        return mat["gamma"], self.dtype(self.dt**2 / self.density)  # dt^2 / (rho0 gamma)
 
 
-def compile_kernels(sim):
-    options = ["--use_fast_math", f"-DNDIM={sim.ndim}"]
+@dataclass
+class acoustic_simulation(setup_simulation):
+    # TATO material constants (gamma = 0 -> air, gamma = 1 -> solid)
+    rho1: float = None
+    rho2: float = None
+    kappa1: float = None
+    kappa2: float = None
+
+    compile_flags = ("-DFORMULATION_ACOUSTIC",)
+
+    def __post_init__(self):
+        super().__post_init__()
+        if None in (self.rho1, self.rho2, self.kappa1, self.kappa2):
+            raise ValueError("acoustic_simulation requires rho1, rho2, kappa1, kappa2")
+
+    def frechet_coefficients(self):
+        return -(1 / self.kappa2 - 1 / self.kappa1), (1 / self.rho2 - 1 / self.rho1)
+
+    def build_materials(self, indicator, damping=None):
+        # gamma interpolates the inverse density and inverse bulk modulus
+        rho_inv = 1 / self.rho1 + indicator * (1 / self.rho2 - 1 / self.rho1)
+        kappa_inv = 1 / self.kappa1 + indicator * (1 / self.kappa2 - 1 / self.kappa1)
+        if damping is None:
+            damping = cp.zeros(self.Nx_padded, dtype=self.dtype)
+        return {"rho": 1 / rho_inv, "kappa": 1 / kappa_inv, "damping": damping}
+
+    def step_factors(self):
+        return [self.dtype(2.0 * self.dt**2 / dxk**2) for dxk in self.dx]  # kappa in-kernel
+
+    def step_kernel_args(self, mat):
+        return (mat["rho"], mat["kappa"], mat["damping"], self.dtype(self.dt))
+
+    def excitation_params(self, mat):
+        return mat["kappa"], self.dtype(self.dt**2)  # kappa dt^2
+
+
+def compile_kernels(sim, path=KERNEL_PATH):
+    options = ["--use_fast_math", f"-DNDIM={sim.ndim}", *sim.compile_flags]
     if sim.precision == "float32":
         options.append("-DUSE_FLOAT")
-    if sim.formulation == "acoustic":
-        options.append("-DFORMULATION_ACOUSTIC")
-    return cp.RawModule(code=KERNEL_PATH.read_text(), options=tuple(options))
+    return cp.RawModule(code=Path(path).read_text(), options=tuple(options))
+
+
+def build_sponge(sim, width, d_max, power=3, sides=None):
+    # absorbing strip: damping ramps from 0 at the interface to d_max at the outer
+    # face as (depth / width)^power. sides is a list of (axis, end) with end in
+    # {"lo", "hi"}; default absorbs both ends of the last axis (top / bottom). The
+    # resulting field feeds build_materials / simulate as the damping argument.
+    if sides is None:
+        sides = [(sim.ndim - 1, "lo"), (sim.ndim - 1, "hi")]
+    damping = cp.zeros(sim.Nx_padded, dtype=sim.dtype)
+
+    for axis, end in sides:
+        n = sim.Nx[axis]
+        ramp = cp.zeros(n, dtype=sim.dtype)
+        depth = cp.arange(width, dtype=sim.dtype)
+        profile = d_max * ((width - depth) / width) ** power
+        if end == "lo":
+            ramp[1 : 1 + width] = profile           # cells just inside the ghost layer
+        else:
+            ramp[n - 1 - width : n - 1] = profile[::-1]
+        shape = [1] * sim.ndim
+        shape[axis] = n
+        sl = tuple(slice(0, s) for s in sim.Nx)     # write into the logical interior
+        damping[sl] = cp.maximum(damping[sl], ramp.reshape(shape)[sl])
+    return damping
 
 
 def grid_block(sim):
@@ -92,28 +156,12 @@ def axis_geometry(sim, factors):
 def define_step_method(sim, kernels, mat):
     fd_kernel = kernels.get_function("fd_kernel")
     grid, block = grid_block(sim)
-    dt2 = sim.dt**2
+    geom = axis_geometry(sim, sim.step_factors())
+    args = sim.step_kernel_args(mat)
 
-    if sim.formulation == "scalar":
-        factors = [sim.dtype(2.0 * sim.wavespeed**2 * dt2 / dxk**2) for dxk in sim.dx]
-        geom = axis_geometry(sim, factors)
-        gamma = mat["gamma"]
-
-        def fd_step(u0, u1, u2):
-            fd_kernel(grid, block, (u0, u1, u2, gamma, *geom))
-            return u2
-    else:
-        factors = [
-            sim.dtype(2.0 * dt2 / dxk**2) for dxk in sim.dx
-        ]  # kappa applied in-kernel
-        geom = axis_geometry(sim, factors)
-        rho, kappa, damping = mat["rho"], mat["kappa"], mat["damping"]
-
-        def fd_step(u0, u1, u2):
-            fd_kernel(
-                grid, block, (u0, u1, u2, rho, kappa, damping, sim.dtype(sim.dt), *geom)
-            )
-            return u2
+    def fd_step(u0, u1, u2):
+        fd_kernel(grid, block, (u0, u1, u2, *args, *geom))
+        return u2
 
     return fd_step
 
@@ -163,13 +211,7 @@ def define_excitation(sim, position, kernels, mat):
     num_sources = position.shape[1]
     blocks = (num_sources + threads - 1) // threads
     lin_index = linear_indices(sim, position)
-
-    if sim.formulation == "scalar":
-        scale = mat["gamma"]
-        dt2 = sim.dtype(sim.dt**2 / sim.density)  # source term dt^2 / (rho0 gamma)
-    else:
-        scale = mat["kappa"]
-        dt2 = sim.dtype(sim.dt**2)  # source term kappa dt^2
+    scale, dt2 = sim.excitation_params(mat)
 
     def excitation_step(u, signal, t_index):
         excitation_kernel(
@@ -200,7 +242,7 @@ def simulate(sim, source, indicator, damping=None, sensors=None, record_every=No
     U = cp.zeros((2, *sim.Nx_padded), dtype=sim.dtype)
     u0, u1 = U[0], U[1]
 
-    mat = build_materials(sim, indicator, damping)
+    mat = sim.build_materials(indicator, damping)
     kernels = compile_kernels(sim)
     fd_step = define_step_method(sim, kernels, mat)
     bc_step = define_homogeneous_Neumann_BC(sim, kernels)

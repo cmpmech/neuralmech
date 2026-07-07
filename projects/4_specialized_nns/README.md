@@ -11,9 +11,15 @@ the Stanford bunny point cloud.
   noisy sine and its derivative sampled on grids of several resolutions
 - `deeponet_sine_gen.py` -> `data/deeponet_sine_{32,64,128,256}.npz`
   shifted sines with a fixed sensor sampling and random query coordinates
-- `dmn_data.py` -> `data/dmn_dataset.npz`
-  finite-cell homogenized effective stiffness of a two-phase circular-inclusion cell
-  for many sampled phase moduli (uses `solvers/homogenization.py`)
+- `hom_dmn_gen.py` -> `data/hom_dmn.npz`
+  finite-cell homogenized effective stiffness of a two-phase circular-inclusion cell for
+  many sampled phase moduli, plus a nonlinear-elastic FE reference of the same cell under a
+  uniaxial macro-strain path (uses `solvers/homogenization.py` and the nonlinear-elastic
+  cffi subroutine)
+- `minecraft_mobs_download.py` -> `data/minecraft_mobs.npz`
+  fixed-length mob-sound clips fetched from the minecraft wiki, labelled by behaviour class
+  (neutral / passive / hostile) for the analog wave-network classifier; one mob per class is
+  active by default (cow, creeper, enderman), audio kept flat in `external_data/minecraft_mobs/`
 
 ## Drivers
 
@@ -41,7 +47,7 @@ the Stanford bunny point cloud.
   Lagrangian neural network learning the Lagrangian of the same system
 - `mlp_dynamics_example.py`
   plain MLP baseline predicting the same dynamics directly
-- `dmn_example.py` _needs `dmn_dataset.npz`_
+- `dmn_example.py` _needs `hom_dmn.npz`_
   deep material network: a laminate-tree topology fit to the finite-cell effective
   stiffness, then nonlinear-elastic prediction with no retraining, checked against a
   finite-cell reference solved with the same material law

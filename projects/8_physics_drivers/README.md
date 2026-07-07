@@ -37,6 +37,10 @@ the result.
 `elastic2D_example.py`
     Linear elasticity on a 2D mlhp finite-element mesh.
 
+`homogenization2D.py`
+    Effective stiffness of a two-phase inclusion cell by the finite cell method,
+    computed with the reusable KUBC energy homogenizer in solvers/homogenization.py.
+
 `plasticity2D.py`
     Small-strain J2 plasticity around a hole in a stretched plate, load-stepped
     with a Newton solve. The return mapping is a C user-material subroutine

@@ -138,7 +138,7 @@ def dmn_online(model):
 
 
 # --------------------------------------- load data -----------------------------------
-data = np.load(DATA_DIR / "dmn_dataset.npz")
+data = np.load(DATA_DIR / "hom_dmn.npz")
 C1 = torch.tensor(data["C1"])
 C2 = torch.tensor(data["C2"])
 C_eff = torch.tensor(data["C_eff"])

@@ -2,9 +2,9 @@ import math
 import numpy as np
 import cupy as cp
 
-from solvers.wave import setup_simulation, setup_source
-from solvers.wave_sensitivity import compute_subtracted_kernels, compute_sensitivity
-from solvers.wave_sensitivity_pml import compute_sensitivity_pml, build_sponge
+from solvers.wave import acoustic_simulation, setup_source, build_sponge
+from solvers.wave_sensitivity import (compute_subtracted_kernels, compute_sensitivity,
+                                      compute_sensitivity_pml)
 
 # Verifies the boundary-reconstruction (PML) adjoint sensitivity:
 #   check 1  PML gradient == the trusted superposition gradient in the lossless limit
@@ -30,9 +30,8 @@ def build_case(Nx, N, contrast):
     kappa_inv = 1 / KAPPA1 + g * (1 / KAPPA2 - 1 / KAPPA1)
     wavespeed = float(cp.max(cp.sqrt(rho_inv / kappa_inv)))
     dt = 0.4 * min(dx) / wavespeed / math.sqrt(2)
-    sim = setup_simulation(Nx, dx, N, dt, wavespeed, RHO1, (16, 16),
-                           formulation="acoustic", precision="float64",
-                           rho1=RHO1, rho2=RHO2, kappa1=KAPPA1, kappa2=KAPPA2)
+    sim = acoustic_simulation(Nx, dx, N, dt, (16, 16), precision="float64",
+                              rho1=RHO1, rho2=RHO2, kappa1=KAPPA1, kappa2=KAPPA2)
     t_arr = np.linspace(0, (N - 1) * dt, N)
     sig = 1e3 * np.sin(2 * np.pi * 60 * t_arr) * (t_arr < 3 / 60)
     signal = cp.asarray(sig[:, None], dtype=sim.dtype)
@@ -88,14 +87,14 @@ for Nx, N in [((40, 40), 120), ((76, 76), 240), ((112, 112), 360)]:
 
 # ---------------------------------------------------------------------------
 # check 3: sponge absorption. fraction of field energy remaining at the final step
-from solvers.wave import (build_materials, compile_kernels, define_step_method,
+from solvers.wave import (compile_kernels, define_step_method,
                           define_homogeneous_Neumann_BC, define_excitation)
 sim, source, sensors, um, (RHO1, KAPPA1) = build_case((40, 40), 120, 2643.0 / 1.204)
 
 
 def remaining_energy(damping):
     air = cp.zeros(sim.Nx_padded, dtype=sim.dtype)
-    mat = build_materials(sim, air, damping)
+    mat = sim.build_materials(air, damping)
     kernels = compile_kernels(sim)
     fd_step = define_step_method(sim, kernels, mat)
     bc_step = define_homogeneous_Neumann_BC(sim, kernels)

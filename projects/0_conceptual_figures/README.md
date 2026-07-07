@@ -48,6 +48,10 @@ figure appears in.
   a quadratic B-spline curve and its basis functions
 - `4_graph_concept.py`
   a Delaunay graph over scattered points, illustrating the graph-network setting
+- `4_analog_rnn.py` _needs `minecraft_mobs.npz`_
+  wave physics as an analog recurrent neural network: a creeper sound drives a
+  point source on the left of a structureless 2:1 domain, and three right-wall
+  sensors (one per behaviour class) read out the propagating pressure
 
 ## Chapter 5 (Probabilistic Deep Learning)
 

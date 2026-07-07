@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -104,3 +105,10 @@ def show_colorbar(
     if path is not None:
         plt.savefig(path)
     plt.show() if not close else plt.close()
+
+
+def cmyk_to_rgb(c, m, y, k):
+    r = (1 - c) * (1 - k)
+    g = (1 - m) * (1 - k)
+    b = (1 - y) * (1 - k)
+    return (r, g, b)
