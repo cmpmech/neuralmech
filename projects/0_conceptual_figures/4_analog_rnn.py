@@ -75,9 +75,9 @@ sim = acoustic_simulation(
     (4, 64),
     precision="float32",
     rho1=RHO1,
-    rho2=RHO2,
+    rho2=RHO1,  # only air
     kappa1=KAPPA1,
-    kappa2=KAPPA2,
+    kappa2=KAPPA1,  # only air
 )
 
 # boundary conditions
@@ -98,7 +98,7 @@ if len(creeper_ids) == 0:
         "no creeper clip in minecraft_mobs.npz; run minecraft_mobs_download.py first"
     )
 clip = data["X"][creeper_ids[0]]  # audio
-sample_rate = int(data["sr"])
+sampling_rate = int(data["sr"])
 
 f_max = 500  # computed with wavespeed / (10 * max(dx))
 # low pass filtering

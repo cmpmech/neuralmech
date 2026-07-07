@@ -122,10 +122,15 @@ def compute_sensitivity(sim, subtracted_kernels, k_factor, num_sources):
     return subtracted_kernels * sim.dtype(factor)
 
 
-def compute_sensitivity_pml(sim, design, source, sensors, um, sponge, num_sources=1):
-    # returns (cost, gradient w.r.t. the design field gamma over the padded grid).
-    # sponge is a damping field (see build_sponge in wave.py); pass cp.zeros(...) to
-    # recover the plain closed-domain adjoint (should match the superposition variant).
+def _sensitivity_pml_core(sim, design, source, sensors, um, sponge, num_sources,
+                          adjoint_scale=None):
+    # shared forward+backward machinery for the PML adjoint. adjoint_scale is an
+    # optional callable applied after the forward pass: given the per-sensor energies
+    # fadjoint_squared it returns a per-sensor factor that rescales each sensor's
+    # adjoint source column. Because the adjoint field is linear in its source, this
+    # turns the quadratic-tracking gradient into the gradient of any loss L(y) when the
+    # factor is 2 dL/dy (see compute_sensitivity_classification). None reproduces the
+    # plain tracking adjoint. Returns (cost, gradient, fadjoint_squared).
     strip = sponge_indices(sim, sponge)
     n_strip = int(strip.size)
     num_sensors = sensors.shape[1]
@@ -168,6 +173,10 @@ def compute_sensitivity_pml(sim, design, source, sensors, um, sponge, num_source
             seed_last[...] = u2
         u0, u1, u2 = u1, u2, u0
 
+    # rescale each sensor's adjoint source to match the desired loss (default: none)
+    if adjoint_scale is not None:
+        fadjoint *= adjoint_scale(fadjoint_squared)[None, :]
+
     adjoint = setup_source(sensors, fadjoint)
     adjoint_excitation = define_excitation(sim, adjoint.position, kernels, mat_damped)
 
@@ -205,4 +214,42 @@ def compute_sensitivity_pml(sim, design, source, sensors, um, sponge, num_source
     # itself is unchanged, so optimization trajectories and the dB metric are unaffected.
     cost = 0.5 * float(np.prod(sim.dx)) * sim.dt * cp.sum(fadjoint_squared).item()
     gradient = kernel * sim.dtype(float(np.prod(sim.dx)) * sim.dt / num_sources)
+    return cost, gradient, fadjoint_squared
+
+
+def compute_sensitivity_pml(sim, design, source, sensors, um, sponge, num_sources=1):
+    # returns (cost, gradient w.r.t. the design field gamma over the padded grid).
+    # sponge is a damping field (see build_sponge in wave.py); pass cp.zeros(...) to
+    # recover the plain closed-domain adjoint (should match the superposition variant).
+    cost, gradient, _ = _sensitivity_pml_core(sim, design, source, sensors, um, sponge,
+                                              num_sources)
     return cost, gradient
+
+
+def compute_sensitivity_classification(sim, design, source, sensors, sponge, label,
+                                       num_sources=1):
+    # analog-RNN classifier gradient (Hughes et al. 2019): the medium `design` is the
+    # trainable weight field, the sensors are one probe per class, and the readout is
+    # the integrated probe energy y_m = sum_t u(x_m, t)^2. The prediction is the
+    # normalized intensity p = y / sum(y) (equivalently a softmax over log-energies)
+    # and the loss is cross-entropy -log p[label]. Running the tracking adjoint against
+    # a silent target (um = 0) makes the forward pass yield exactly y (in
+    # fadjoint_squared) and an adjoint source -u; rescaling each probe by 2 dL/dy_m then
+    # turns the gradient into that of the cross-entropy loss. The prod(dx) dt prefactors
+    # cancel in p (raw energies used directly for the readout), but the per-probe adjoint
+    # gradient carries a prod(dx) dt factor, so the rescale divides it back out.
+    # returns (loss, probs, gradient w.r.t. the design field gamma over the padded grid).
+    um = cp.zeros((sim.N, sensors.shape[1]), dtype=sim.dtype)
+    prefactor = float(np.prod(sim.dx)) * sim.dt
+
+    def adjoint_scale(y):
+        # 2 dL/dy_m with dL/dy_m = 1/sum(y) - delta_{m,label}/y[label]
+        scale = cp.full(y.shape, 1.0 / float(cp.sum(y)), dtype=sim.dtype)
+        scale[label] -= 1.0 / float(y[label])
+        return (2.0 / prefactor) * scale
+
+    _, gradient, y = _sensitivity_pml_core(sim, design, source, sensors, um, sponge,
+                                           num_sources, adjoint_scale)
+    probs = (y / cp.sum(y)).get()
+    loss = float(-np.log(probs[label]))
+    return loss, probs, gradient
