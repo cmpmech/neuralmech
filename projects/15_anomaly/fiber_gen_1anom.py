@@ -9,9 +9,9 @@ import matplotlib.pyplot as plt
 # -------------------------- configurable params -------------------------
 SEED = 33
 N = 256                # image size (N x N)
-SAMPLES = 50           # number of samples to generate
-MIN_CIRCLES = 3
-MAX_CIRCLES = 7
+SAMPLES = 500           # number of samples to generate
+MIN_CIRCLES = 2
+MAX_CIRCLES = 6
 RADIUS_RANGE = (0.065, 0.11)  # (min, max)
 DOMAIN_LENGTH = 1.0
 
