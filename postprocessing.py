@@ -1,3 +1,4 @@
+import datetime
 import json
 from pathlib import Path
 
@@ -17,6 +18,18 @@ from matplotlib.colors import (
 def save_csv(path: str, **cols) -> None:
     """Save keyword-argument columns as a space-separated CSV file."""
     pd.DataFrame(cols).to_csv(path, sep=" ", index=False)
+
+
+# --------------------------- temporary figure saving --------------------------
+def save_temp_fig(name: str) -> None:
+    """Save the current figure to '<name>_<timestamp>.jpg' for quick inspection.
+
+    A throwaway replacement for plt.savefig during development: pass a path prefix
+    that already includes the results folder (e.g. 'results/analog_rnn'); a
+    timestamp is appended so repeated calls never overwrite each other.
+    """
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    plt.savefig(f"{name}_{stamp}.jpg")
 
 
 # ---------------------------- colormaps ---------------------------------

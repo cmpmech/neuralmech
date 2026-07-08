@@ -8,12 +8,23 @@ import cupyx.scipy.ndimage as ndi
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from scipy.signal import butter, resample, sosfiltfilt
 
-from postprocessing import save_csv
+from analog_rnn_fixture import (
+    N,
+    Nx,
+    RESOLUTION,
+    crop,
+    load_source,
+    pad_hi,
+    pad_lo,
+    sensors,
+    sim,
+    source_position,
+    sponge,
+    to_index,
+)
+from postprocessing import save_csv, save_temp_fig
 from solvers.wave import (
-    acoustic_simulation,
-    build_sponge,
     compile_kernels,
     define_excitation,
     define_homogeneous_Neumann_BC,
@@ -27,6 +38,7 @@ RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 CSV_DIR = (RESULTS_DIR / "data").resolve()
 DATA_DIR = (BASE_DIR / "../../data").resolve()
+MODELS_DIR = (BASE_DIR / "../../models").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -38,30 +50,8 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 
 # -------------------------------------- settings -------------------------------------
-# geometry: source on the left wall, three probes on the right wall (one per class),
-# a trainable material square centered in x spanning the full height
-LENGTHS = (200.0, 100.0)
-SOURCE_CENTER = (10.0, 50.0)
+# geometry: a trainable material square centered in x spanning the full height
 DESIGN_X = (50.0, 150.0)
-PROBE_X = 190.0
-PROBE_Y = (25.0, 50.0, 75.0)
-
-# discretization
-# RESOLUTION = (96, 48)
-RESOLUTION = (200, 100)
-CFL = 0.9  # 0.5
-T = 1.5
-
-# physics: air (material 1) and a moderate-contrast dense scatterer (material 2)
-RHO1, RHO2 = 1.204, 12.04
-KAPPA1, KAPPA2 = 1.419e5, 1.419e5
-AMPLITUDE = 1e3
-POINTS_PER_WAVELENGTH = 10
-
-# absorbing sponge on every edge [x-, x+, y-, y+] so probe energies are not degenerate
-BOUNDARIES = ["pml", "pml", "pml", "pml"]
-SPONGE_WIDTH = 8  # 50  # 8
-SPONGE_BETA = 1.5  # 0.1  # 1.5
 
 # optimization
 SAMPLES_PER_CLASS = 2  # first clips kept per class for overfitting (-1 uses all)
@@ -75,7 +65,7 @@ ETA = 0.5
 BETA0 = 1.0
 BETA_GROWTH = 2.0
 BETA_STEP = 16  # epochs between beta updates
-BETA_MAX = 1.0
+BETA_MAX = 64.0
 
 
 # -------------------------------------- helper ---------------------------------------
@@ -104,15 +94,6 @@ def physical(xval, beta):
     return projection(x_tilde, beta, ETA) * design, x_tilde
 
 
-def load_source(clip):
-    # resample the clip onto the simulation time base, low-pass to the grid's max
-    # resolvable frequency (zero-phase), normalize, and scale to the source amplitude
-    sos = butter(8, f_max, btype="low", fs=1.0 / dt, output="sos")
-    wave = sosfiltfilt(sos, resample(clip, N))
-    wave = wave / np.max(np.abs(wave))
-    return cp.asarray(AMPLITUDE * wave[:, None] / np.prod(dx), dtype=sim.dtype)
-
-
 def simulate_frames(gamma, signal, record_every):
     mat = sim.build_materials(gamma, sponge)
     kernels = compile_kernels(sim)
@@ -133,53 +114,6 @@ def simulate_frames(gamma, signal, record_every):
 
 
 # --------------------------------------- setup ---------------------------------------
-# increase grid by sponge layer on each absorbing edge
-pad_lo = tuple(SPONGE_WIDTH if BOUNDARIES[2 * d] == "pml" else 0 for d in range(2))
-pad_hi = tuple(SPONGE_WIDTH if BOUNDARIES[2 * d + 1] == "pml" else 0 for d in range(2))
-
-# spatial grid
-Nx = tuple(RESOLUTION[d] + pad_lo[d] + pad_hi[d] for d in range(2))
-dx = tuple(LENGTHS[d] / (RESOLUTION[d] - 3) for d in range(2))
-# helpers
-to_index = lambda coord: tuple(
-    int(round(coord[d] / dx[d])) + pad_lo[d] for d in range(2)
-)
-crop = tuple(slice(1 + pad_lo[d], Nx[d] - 1 - pad_hi[d]) for d in range(2))
-
-# temporal grid
-wavespeeds = np.sqrt(np.array([KAPPA2 / RHO2, KAPPA1 / RHO1]))
-dt = CFL * min(dx) / np.max(wavespeeds) / math.sqrt(2)
-N = math.ceil(T / dt)
-
-f_max = np.min(wavespeeds) / (POINTS_PER_WAVELENGTH * max(dx))
-print(f"steps {N}, max resolvable frequency {f_max:.1f} Hz")
-
-sim = acoustic_simulation(
-    Nx,
-    dx,
-    N,
-    dt,
-    (4, 64),
-    precision="float32",
-    rho1=RHO1,
-    rho2=RHO2,
-    kappa1=KAPPA1,
-    kappa2=KAPPA2,
-)
-
-# boundary conditions
-EDGES = [(0, "lo"), (0, "hi"), (1, "lo"), (1, "hi")]
-sides = [e for e, b in zip(EDGES, BOUNDARIES) if b == "pml"]
-sponge = build_sponge(
-    sim, SPONGE_WIDTH, 2.0 * SPONGE_BETA / (KAPPA1 * dt), power=3, sides=sides
-)
-
-# source and probes: probe m is the class-m readout (hostile 0, neutral 1, passive 2)
-src_i, src_j = to_index(SOURCE_CENTER)
-source_position = cp.array([[src_i], [src_j]], dtype=cp.int32)
-probes = [to_index((PROBE_X, y)) for y in PROBE_Y]
-sensors = cp.array([[p[0] for p in probes], [p[1] for p in probes]], dtype=cp.int32)
-
 # design region: the trainable material square
 design = cp.zeros(sim.Nx_padded, dtype=sim.dtype)
 x_lo, x_hi = to_index((DESIGN_X[0], 0))[0], to_index((DESIGN_X[1], 0))[0]
@@ -208,8 +142,9 @@ classes = data["classes"]
 clips = data["X"]
 
 if SAMPLES_PER_CLASS != -1:
-    keep = np.concatenate([np.where(labels == c)[0][:SAMPLES_PER_CLASS]
-                           for c in range(len(classes))])
+    keep = np.concatenate(
+        [np.where(labels == c)[0][:SAMPLES_PER_CLASS] for c in range(len(classes))]
+    )
     labels = labels[keep]
     clips = clips[keep]
 
@@ -241,7 +176,7 @@ for epoch in range(EPOCHS):
     loss_sum = 0.0
     correct = 0
     for start in range(0, samples, batch_size):
-        batch = perm[start:start + batch_size]
+        batch = perm[start : start + batch_size]
         gamma, x_tilde = physical(x.detach().cpu().numpy(), beta)
 
         grad_gamma = cp.zeros(sim.Nx_padded, dtype=sim.dtype)
@@ -303,6 +238,12 @@ print(confusion)
 
 design_view = gamma_final.get()[crop]
 
+# --------------------------------------- export --------------------------------------
+# binarize the trained medium into a reusable material mask
+material = design_view > 0.5
+np.save(MODELS_DIR / "analog_rnn_material.npy", material)
+print(f"saved binarized material to {MODELS_DIR / 'analog_rnn_material.npy'}")
+
 if args.animate:
     wave_dir = ANIMATION_DIR / "wavefield"
     wave_dir.mkdir(parents=True, exist_ok=True)
@@ -346,4 +287,5 @@ else:
     axes[1, 0].axis("off")
     axes[1, 1].imshow(confusion, origin="upper", cmap="cividis")
     fig.subplots_adjust(left=0.05, right=0.98, top=0.98, bottom=0.05)
+    save_temp_fig(RESULTS_DIR / "analog_rnn")
     plt.show()

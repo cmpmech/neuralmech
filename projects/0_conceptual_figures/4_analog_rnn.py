@@ -161,9 +161,9 @@ if not args.animate:
         fig.savefig(RGB_PDF_DIR / "analog_rnn_source.pdf", transparent=True)
         plt.close()
 
+    scale = np.max(np.abs(um))
     for k in range(len(SENSOR)):
         fig, ax = plt.subplots(figsize=(6, 2), dpi=100)
-        scale = np.max(np.abs(um[:, k]))
         ax.set_ylim(-scale, scale)
         ax.set_xlim(0, T)
         ax.plot(t, um[:, k], color=cmyk_to_rgb(0.8, 0.44, 0, 0.2), linewidth=1)
