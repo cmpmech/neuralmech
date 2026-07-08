@@ -65,6 +65,7 @@ SPONGE_BETA = 1.5  # 0.1  # 1.5
 
 # optimization
 SAMPLES_PER_CLASS = 2  # first clips kept per class for overfitting (-1 uses all)
+BATCH_SIZE = 2  # clips per gradient step (-1 is full batch)
 EPOCHS = 300
 LR = 5e-2
 RMIN = 2.0
@@ -227,6 +228,7 @@ optimizer = torch.optim.Adam([x], lr=LR)
 loss_history = []
 acc_history = []
 grad_scale = None
+batch_size = samples if BATCH_SIZE == -1 else BATCH_SIZE
 
 ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/analog_rnn"
 if args.animate:
@@ -234,30 +236,35 @@ if args.animate:
 tic = time.time()
 for epoch in range(EPOCHS):
     beta = beta_of(epoch)
-    gamma, x_tilde = physical(x.detach().cpu().numpy(), beta)
+    perm = torch.randperm(samples).tolist()
 
-    grad_gamma = cp.zeros(sim.Nx_padded, dtype=sim.dtype)
     loss_sum = 0.0
     correct = 0
-    for signal, label in zip(signals, labels):
-        w = float(class_weights[label])
-        source = setup_source(source_position, signal)
-        loss, probs, grad = compute_sensitivity_classification(
-            sim, gamma, source, sensors, sponge, int(label)
-        )
-        grad_gamma += w * grad
-        loss_sum += w * loss
-        correct += int(probs.argmax() == label)
-    grad_gamma /= samples
+    for start in range(0, samples, batch_size):
+        batch = perm[start:start + batch_size]
+        gamma, x_tilde = physical(x.detach().cpu().numpy(), beta)
 
-    dpx = dprojection(x_tilde, beta, ETA) * design
-    grad_obj = filter_adjoint(grad_gamma * dpx).ravel()[active].get()
+        grad_gamma = cp.zeros(sim.Nx_padded, dtype=sim.dtype)
+        for i in batch:
+            label = int(labels[i])
+            w = float(class_weights[label])
+            source = setup_source(source_position, signals[i])
+            loss, probs, grad = compute_sensitivity_classification(
+                sim, gamma, source, sensors, sponge, label
+            )
+            grad_gamma += w * grad
+            loss_sum += w * loss
+            correct += int(probs.argmax() == label)
+        grad_gamma /= len(batch)
 
-    grad_scale = np.abs(grad_obj).max() if grad_scale is None else grad_scale
-    x.grad = torch.as_tensor(grad_obj / grad_scale, dtype=x.dtype, device=device)
-    optimizer.step()
-    with torch.no_grad():
-        x.clamp_(0.0, 1.0)
+        dpx = dprojection(x_tilde, beta, ETA) * design
+        grad_obj = filter_adjoint(grad_gamma * dpx).ravel()[active].get()
+
+        grad_scale = np.abs(grad_obj).max() if grad_scale is None else grad_scale
+        x.grad = torch.as_tensor(grad_obj / grad_scale, dtype=x.dtype, device=device)
+        optimizer.step()
+        with torch.no_grad():
+            x.clamp_(0.0, 1.0)
 
     loss_history.append(loss_sum / samples)
     acc_history.append(correct / samples)
