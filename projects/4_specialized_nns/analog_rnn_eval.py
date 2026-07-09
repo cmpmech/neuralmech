@@ -23,28 +23,36 @@ from solvers.wave import setup_source, simulate
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 DATA_DIR = (BASE_DIR / "../../data").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 MODELS_DIR = (BASE_DIR / "../../models").resolve()
 
 # -------------------------------------- settings -------------------------------------
-CLASS = 2
-SNAPSHOT_STEP = 10000
+CLASS = 0
+SNAPSHOT_STEP = 4000  # 10000
+
+DESIGN = False
 
 # ------------------------------------- load model ------------------------------------
 material_path = MODELS_DIR / "analog_rnn_material.npy"
 if not material_path.exists():
     raise SystemExit("no trained material; run analog_rnn_train.py first")
 material = np.load(material_path)
+if DESIGN == False:
+    material *= False
 gamma = cp.zeros(sim.Nx_padded, dtype=sim.dtype)
 gamma[crop] = cp.asarray(material, dtype=sim.dtype)
+
 
 # ------------------------------------- load data -------------------------------------
 data = np.load(DATA_DIR / "minecraft_mobs.npz")
 ids = np.where(data["y"] == CLASS)[0]
 if len(ids) == 0:
     raise SystemExit(f"no clip for class {CLASS} in minecraft_mobs.npz")
+
 signal = load_source(data["X"][ids[0]])
 source = setup_source(source_position, signal)
 source_wave = signal[:, 0].get()
+
 
 # -------------------------------------- simulate -------------------------------------
 record_every = min(SNAPSHOT_STEP, N - 1)
@@ -57,14 +65,21 @@ t = np.linspace(0, (N - 1) * dt, N)
 # ----------------------------------- postprocessing ----------------------------------
 # wavefield snapshot with the trained scatterer overlaid (frame 1 is t = record_every)
 snap = frames[1][crop]
-scale = float(np.max(np.abs(snap))) * 0.2
+if DESIGN == True:
+    scale = float(np.max(np.abs(snap))) * 0.15
+else:
+    scale = float(np.max(np.abs(snap))) * 0.5
 overlay = np.ma.masked_where(~material, material.astype(float))
 fig, ax = plt.subplots(figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150)
 ax.imshow(snap.T, origin="lower", cmap=cmr.fusion, vmin=-scale, vmax=scale)
 ax.imshow(overlay.T, origin="lower", cmap="binary", vmin=0, vmax=1, alpha=1)
 ax.axis("off")
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-save_temp_fig(RESULTS_DIR / f"analog_rnn_eval_field_{CLASS}")
+if DESIGN == True:
+    fig.savefig(RGB_PDF_DIR / f"analog_rnn_eval_field_{CLASS}.pdf")
+else:
+    fig.savefig(RGB_PDF_DIR / "analog_rnn_field.pdf")
+# save_temp_fig(RESULTS_DIR / f"analog_rnn_eval_field_{CLASS}")
 plt.close()
 
 # source signal
@@ -75,7 +90,11 @@ ax.set_xlim(0, t[-1])
 ax.plot(t, source_wave, color=cmyk_to_rgb(0, 0.76, 0.8, 0.2), linewidth=1)
 ax.axis("off")
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-save_temp_fig(RESULTS_DIR / f"analog_rnn_eval_source_{CLASS}")
+if DESIGN == True:
+    fig.savefig(RGB_PDF_DIR / f"analog_rnn_eval_source_{CLASS}.pdf", transparent=True)
+else:
+    fig.savefig(RGB_PDF_DIR / "analog_rnn_source.pdf", transparent=True)
+# save_temp_fig(RESULTS_DIR / f"analog_rnn_eval_source_{CLASS}")
 plt.close()
 
 # sensor signals: sensor k is the class-k readout
@@ -87,5 +106,11 @@ for k in range(len(SENSOR)):
     ax.plot(t, um[:, k], color=cmyk_to_rgb(0.8, 0.44, 0, 0.2), linewidth=1)
     ax.axis("off")
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    save_temp_fig(RESULTS_DIR / f"analog_rnn_eval_sensor_{CLASS}_{k}")
+    if DESIGN == True:
+        fig.savefig(
+            RGB_PDF_DIR / f"analog_rnn_eval_sensor_{CLASS}_{k}.pdf", transparent=True
+        )
+    else:
+        fig.savefig(RGB_PDF_DIR / f"analog_rnn_sensors_{k}.pdf", transparent=True)
+    # save_temp_fig(RESULTS_DIR / f"analog_rnn_eval_sensor_{CLASS}_{k}")
     plt.close()

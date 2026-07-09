@@ -27,8 +27,8 @@ POINTS_PER_WAVELENGTH = 10
 
 # absorbing sponge on every edge [x-, x+, y-, y+] so probe energies are not degenerate
 BOUNDARIES = ["pml", "pml", "pml", "pml"]
-SPONGE_WIDTH = 50  # matches 4_analog_rnn.py; 8 also holds at RESOLUTION <= (2400, 1200)
-SPONGE_BETA = 0.1  # matches 4_analog_rnn.py; 1.5 also holds at RESOLUTION <= (2400, 1200)
+SPONGE_WIDTH = 50  # 100  # 50
+SPONGE_BETA = 0.1  # 0.1
 
 # --------------------------------------- setup ---------------------------------------
 # increase grid by sponge layer on each absorbing edge
@@ -49,7 +49,7 @@ wavespeeds = np.sqrt(np.array([KAPPA2 / RHO2, KAPPA1 / RHO1]))
 dt = CFL * min(dx) / np.max(wavespeeds) / math.sqrt(2)
 N = math.ceil(T / dt)
 
-f_max = np.min(wavespeeds) / (POINTS_PER_WAVELENGTH * max(dx))
+f_max = 500  # np.min(wavespeeds) / (POINTS_PER_WAVELENGTH * max(dx)) USING AIR
 print(f"steps {N}, max resolvable frequency {f_max:.1f} Hz")
 
 sim = acoustic_simulation(

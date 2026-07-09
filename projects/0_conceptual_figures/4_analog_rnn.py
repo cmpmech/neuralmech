@@ -100,93 +100,94 @@ if len(creeper_ids) == 0:
 clip = data["X"][creeper_ids[0]]  # audio
 sampling_rate = int(data["sr"])
 
-f_max = 500  # computed with wavespeed / (10 * max(dx))
-# low pass filtering
-sos = butter(8, f_max, btype="low", fs=1 / dt, output="sos")  # filter
-raw_wave = resample(clip, N)
-source_wave = sosfiltfilt(sos, raw_wave)  # apply filter
-raw_wave = raw_wave / np.max(np.abs(raw_wave))
-source_wave = source_wave / np.max(np.abs(source_wave))
 
-srcs = [to_index((x, y)) for x, y in SOURCE]
-position = cp.array([[s[0] for s in srcs], [s[1] for s in srcs]], dtype=cp.int32)
-signal = cp.asarray(
-    (AMPLITUDE * source_wave / np.prod(dx))[:, None] * np.ones(len(SOURCE)),
-    dtype=sim.dtype,
-)
-source = setup_source(position, signal)
+print(wavespeed / (10 * max(dx)))
 
-# sensors
-cols = [to_index((x, y)) for x, y in SENSOR]
-sensors = cp.array([[c[0] for c in cols], [c[1] for c in cols]], dtype=cp.int32)
+# f_max = 500  # computed with wavespeed / (10 * max(dx))
+# # low pass filtering
+# sos = butter(8, f_max, btype="low", fs=1 / dt, output="sos")  # filter
+# raw_wave = resample(clip, N)
+# source_wave = sosfiltfilt(sos, raw_wave)  # apply filter
+# raw_wave = raw_wave / np.max(np.abs(raw_wave))
+# source_wave = source_wave / np.max(np.abs(source_wave))
 
-# -------------------------------------- simulate -------------------------------------
-# animate: store every RECORD_EVERY steps; otherwise store only the snapshot step
-record_every = RECORD_EVERY if args.animate else SNAPSHOT_STEP
-_, um, frames = simulate(
-    sim, source, gamma, damping=sponge, sensors=sensors, record_every=record_every
-)
-um = um.get()
-t = np.linspace(0, (N - 1) * dt, N)
+# srcs = [to_index((x, y)) for x, y in SOURCE]
+# position = cp.array([[s[0] for s in srcs], [s[1] for s in srcs]], dtype=cp.int32)
+# signal = cp.asarray(
+#     (AMPLITUDE * source_wave / np.prod(dx))[:, None] * np.ones(len(SOURCE)),
+#     dtype=sim.dtype,
+# )
+# source = setup_source(position, signal)
 
-# ----------------------------------- postprocessing ----------------------------------
-if not args.animate:
-    # wavefield snapshot
-    snap = frames[SNAPSHOT_STEP // record_every][crop]
-    scale = float(np.max(np.abs(snap))) * 0.5
-    fig_field, ax_field = plt.subplots(
-        figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=100
-    )
-    ax_field.imshow(snap.T, origin="lower", cmap=cmr.fusion, vmin=-scale, vmax=scale)
-    ax_field.set_rasterized(True)
-    ax_field.axis("off")
-    fig_field.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    if not args.book:
-        plt.show()
-    else:
-        fig_field.savefig(RGB_PDF_DIR / "analog_rnn_field.pdf")
-        plt.close()
+# # sensors
+# cols = [to_index((x, y)) for x, y in SENSOR]
+# sensors = cp.array([[c[0] for c in cols], [c[1] for c in cols]], dtype=cp.int32)
 
-    # source
-    fig, ax = plt.subplots(figsize=(6, 2), dpi=100)
-    scale = np.max(np.abs(source_wave))
-    ax.set_ylim(-scale, scale)
-    ax.set_xlim(0, T)
-    ax.plot(t, source_wave, color=cmyk_to_rgb(0, 0.76, 0.8, 0.2), linewidth=1)
-    ax.axis("off")
-    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    if not args.book:
-        plt.show()
-    else:
-        fig.savefig(RGB_PDF_DIR / "analog_rnn_source.pdf", transparent=True)
-        plt.close()
+# # -------------------------------------- simulate -------------------------------------
+# # animate: store every RECORD_EVERY steps; otherwise store only the snapshot step
+# record_every = RECORD_EVERY if args.animate else SNAPSHOT_STEP
+# _, um, frames = simulate(
+#     sim, source, gamma, damping=sponge, sensors=sensors, record_every=record_every
+# )
+# um = um.get()
+# t = np.linspace(0, (N - 1) * dt, N)
 
-    scale = np.max(np.abs(um))
-    for k in range(len(SENSOR)):
-        fig, ax = plt.subplots(figsize=(6, 2), dpi=100)
-        ax.set_ylim(-scale, scale)
-        ax.set_xlim(0, T)
-        ax.plot(t, um[:, k], color=cmyk_to_rgb(0.8, 0.44, 0, 0.2), linewidth=1)
-        ax.axis("off")
-        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-        if not args.book:
-            plt.show()
-        else:
-            fig.savefig(RGB_PDF_DIR / f"analog_rnn_sensors_{k}.pdf", transparent=True)
-            plt.close()
+# # ----------------------------------- postprocessing ----------------------------------
+# if not args.animate:
+#     # wavefield snapshot
+#     snap = frames[SNAPSHOT_STEP // record_every][crop]
+#     scale = float(np.max(np.abs(snap))) * 0.5
+#     fig, ax = plt.subplots(figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=100)
+#     ax.imshow(snap.T, origin="lower", cmap=cmr.fusion, vmin=-scale, vmax=scale)
+#     ax.set_rasterized(True)
+#     ax.axis("off")
+#     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+#     if not args.book:
+#         plt.show()
+#     else:
+#         fig.savefig(RGB_PDF_DIR / "analog_rnn_field.pdf")
+#         plt.close()
 
-ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/analog_rnn"
-if args.animate:
-    ANIMATION_DIR.mkdir(parents=True, exist_ok=True)
-    scale = float(np.max(np.abs(frames[:, crop[0], crop[1]]))) * 0.2
-    for f, frame in enumerate(frames):
-        fig, ax = plt.subplots(
-            figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150
-        )
-        ax.imshow(
-            frame[crop].T, origin="lower", cmap=cmr.fusion, vmin=-scale, vmax=scale
-        )
-        ax.axis("off")
-        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-        fig.savefig(ANIMATION_DIR / f"frame_{f:04d}.jpg")
-        plt.close()
+#     # source
+#     fig, ax = plt.subplots(figsize=(6, 2), dpi=100)
+#     scale = np.max(np.abs(source_wave))
+#     ax.set_ylim(-scale, scale)
+#     ax.set_xlim(0, T)
+#     ax.plot(t, source_wave, color=cmyk_to_rgb(0, 0.76, 0.8, 0.2), linewidth=1)
+#     ax.axis("off")
+#     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+#     if not args.book:
+#         plt.show()
+#     else:
+#         fig.savefig(RGB_PDF_DIR / "analog_rnn_source.pdf", transparent=True)
+#         plt.close()
+
+#     scale = np.max(np.abs(um))
+#     for k in range(len(SENSOR)):
+#         fig, ax = plt.subplots(figsize=(6, 2), dpi=100)
+#         ax.set_ylim(-scale, scale)
+#         ax.set_xlim(0, T)
+#         ax.plot(t, um[:, k], color=cmyk_to_rgb(0.8, 0.44, 0, 0.2), linewidth=1)
+#         ax.axis("off")
+#         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+#         if not args.book:
+#             plt.show()
+#         else:
+#             fig.savefig(RGB_PDF_DIR / f"analog_rnn_sensors_{k}.pdf", transparent=True)
+#             plt.close()
+
+# ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/analog_rnn"
+# if args.animate:
+#     ANIMATION_DIR.mkdir(parents=True, exist_ok=True)
+#     scale = float(np.max(np.abs(frames[:, crop[0], crop[1]]))) * 0.2
+#     for f, frame in enumerate(frames):
+#         fig, ax = plt.subplots(
+#             figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150
+#         )
+#         ax.imshow(
+#             frame[crop].T, origin="lower", cmap=cmr.fusion, vmin=-scale, vmax=scale
+#         )
+#         ax.axis("off")
+#         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+#         fig.savefig(ANIMATION_DIR / f"frame_{f:04d}.jpg")
+#         plt.close()
