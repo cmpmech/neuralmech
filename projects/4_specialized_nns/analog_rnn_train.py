@@ -8,11 +8,10 @@ import cupyx.scipy.ndimage as ndi
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-
 from analog_rnn_fixture import (
+    RESOLUTION,
     N,
     Nx,
-    RESOLUTION,
     crop,
     load_source,
     pad_hi,
@@ -23,6 +22,7 @@ from analog_rnn_fixture import (
     sponge,
     to_index,
 )
+
 from postprocessing import save_csv, save_temp_fig
 from solvers.wave import (
     compile_kernels,
@@ -51,12 +51,13 @@ torch.backends.cudnn.deterministic = True
 
 # -------------------------------------- settings -------------------------------------
 # geometry: a trainable material square centered in x spanning the full height
-DESIGN_X = (50.0, 150.0)
+DESIGN_X = (50.0, 150.0)  # wider (20, 180) plateaued at 0.93 accuracy for 5/class
+# DESIGN_X = (20.0, 180.0)
 
 # optimization
-SAMPLES_PER_CLASS = 2  # first clips kept per class for overfitting (-1 uses all)
-BATCH_SIZE = 2  # clips per gradient step (-1 is full batch)
-EPOCHS = 300
+SAMPLES_PER_CLASS = 10 #5  # first clips kept per class for overfitting (-1 uses all)
+BATCH_SIZE = 3  # clips per gradient step (-1 is full batch)
+EPOCHS = 200
 LR = 5e-2
 RMIN = 2.0
 

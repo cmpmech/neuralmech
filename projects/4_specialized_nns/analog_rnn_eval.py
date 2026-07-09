@@ -26,8 +26,8 @@ DATA_DIR = (BASE_DIR / "../../data").resolve()
 MODELS_DIR = (BASE_DIR / "../../models").resolve()
 
 # -------------------------------------- settings -------------------------------------
-CLASS = 0  # class to excite (hostile 0, neutral 1, passive 2)
-SNAPSHOT_STEP = 700  # absolute time step of the still snapshot
+CLASS = 2
+SNAPSHOT_STEP = 10000
 
 # ------------------------------------- load model ------------------------------------
 material_path = MODELS_DIR / "analog_rnn_material.npy"
@@ -57,14 +57,14 @@ t = np.linspace(0, (N - 1) * dt, N)
 # ----------------------------------- postprocessing ----------------------------------
 # wavefield snapshot with the trained scatterer overlaid (frame 1 is t = record_every)
 snap = frames[1][crop]
-scale = float(np.max(np.abs(snap))) * 0.5
+scale = float(np.max(np.abs(snap))) * 0.2
 overlay = np.ma.masked_where(~material, material.astype(float))
 fig, ax = plt.subplots(figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150)
 ax.imshow(snap.T, origin="lower", cmap=cmr.fusion, vmin=-scale, vmax=scale)
-ax.imshow(overlay.T, origin="lower", cmap="binary", vmin=0, vmax=1, alpha=0.4)
+ax.imshow(overlay.T, origin="lower", cmap="binary", vmin=0, vmax=1, alpha=1)
 ax.axis("off")
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-save_temp_fig(RESULTS_DIR / "analog_rnn_eval_field")
+save_temp_fig(RESULTS_DIR / f"analog_rnn_eval_field_{CLASS}")
 plt.close()
 
 # source signal
@@ -75,7 +75,7 @@ ax.set_xlim(0, t[-1])
 ax.plot(t, source_wave, color=cmyk_to_rgb(0, 0.76, 0.8, 0.2), linewidth=1)
 ax.axis("off")
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-save_temp_fig(RESULTS_DIR / "analog_rnn_eval_source")
+save_temp_fig(RESULTS_DIR / f"analog_rnn_eval_source_{CLASS}")
 plt.close()
 
 # sensor signals: sensor k is the class-k readout
@@ -87,5 +87,5 @@ for k in range(len(SENSOR)):
     ax.plot(t, um[:, k], color=cmyk_to_rgb(0.8, 0.44, 0, 0.2), linewidth=1)
     ax.axis("off")
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    save_temp_fig(RESULTS_DIR / f"analog_rnn_eval_sensor{k}")
+    save_temp_fig(RESULTS_DIR / f"analog_rnn_eval_sensor_{CLASS}_{k}")
     plt.close()

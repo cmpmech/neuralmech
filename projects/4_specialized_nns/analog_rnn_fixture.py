@@ -14,7 +14,8 @@ SENSOR = [(190.0, 25.0), (190.0, 50.0), (190.0, 75.0)]
 
 # discretization
 # RESOLUTION = (96, 48)
-RESOLUTION = (200, 100)
+# RESOLUTION = (200, 100)
+RESOLUTION = (3000, 1500)
 CFL = 0.9  # 0.5
 T = 1.5
 
@@ -26,8 +27,8 @@ POINTS_PER_WAVELENGTH = 10
 
 # absorbing sponge on every edge [x-, x+, y-, y+] so probe energies are not degenerate
 BOUNDARIES = ["pml", "pml", "pml", "pml"]
-SPONGE_WIDTH = 8  # 50  # 8
-SPONGE_BETA = 1.5  # 0.1  # 1.5
+SPONGE_WIDTH = 50  # matches 4_analog_rnn.py; 8 also holds at RESOLUTION <= (2400, 1200)
+SPONGE_BETA = 0.1  # matches 4_analog_rnn.py; 1.5 also holds at RESOLUTION <= (2400, 1200)
 
 # --------------------------------------- setup ---------------------------------------
 # increase grid by sponge layer on each absorbing edge
