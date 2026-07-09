@@ -55,7 +55,7 @@ DESIGN_X = (50.0, 150.0)  # wider (20, 180) plateaued at 0.93 accuracy for 5/cla
 # DESIGN_X = (20.0, 180.0)
 
 # optimization
-SAMPLES_PER_CLASS = 5  # 10 #5
+SAMPLES_PER_CLASS = 2  # 5  # 10 #5
 BATCH_SIZE = 3  # clips per gradient step (-1 is full batch)
 EPOCHS = 200
 LR = 5e-2

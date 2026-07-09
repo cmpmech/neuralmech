@@ -28,7 +28,7 @@ MODELS_DIR = (BASE_DIR / "../../models").resolve()
 
 # -------------------------------------- settings -------------------------------------
 CLASS = 0
-SNAPSHOT_STEP = 4000  # 10000
+SNAPSHOT_STEP = 10000  # 4000  # 10000
 
 DESIGN = False
 
@@ -39,6 +39,12 @@ if not material_path.exists():
 material = np.load(material_path)
 if DESIGN == False:
     material *= False
+
+# DEBUGGING START
+material = np.zeros((2998, 1498), dtype=np.bool)
+# material[1500:1600, :] = True
+# DEBUGGING END
+
 gamma = cp.zeros(sim.Nx_padded, dtype=sim.dtype)
 gamma[crop] = cp.asarray(material, dtype=sim.dtype)
 
@@ -65,10 +71,10 @@ t = np.linspace(0, (N - 1) * dt, N)
 # ----------------------------------- postprocessing ----------------------------------
 # wavefield snapshot with the trained scatterer overlaid (frame 1 is t = record_every)
 snap = frames[1][crop]
-if DESIGN == True:
-    scale = float(np.max(np.abs(snap))) * 0.15
-else:
-    scale = float(np.max(np.abs(snap))) * 0.5
+# if DESIGN == True:
+scale = float(np.max(np.abs(snap[~material]))) * 0.5
+# else:
+#     scale = float(np.max(np.abs(snap))) * 0.5
 overlay = np.ma.masked_where(~material, material.astype(float))
 fig, ax = plt.subplots(figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150)
 ax.imshow(snap.T, origin="lower", cmap=cmr.fusion, vmin=-scale, vmax=scale)

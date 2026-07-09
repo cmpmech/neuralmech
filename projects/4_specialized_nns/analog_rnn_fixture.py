@@ -16,18 +16,19 @@ SENSOR = [(190.0, 25.0), (190.0, 50.0), (190.0, 75.0)]
 # RESOLUTION = (96, 48)
 # RESOLUTION = (200, 100)
 RESOLUTION = (3000, 1500)
+# RESOLUTION = (1400, 700)
 CFL = 0.9  # 0.5
 T = 1.5
 
 # physics: air (material 1) and a moderate-contrast dense scatterer (material 2)
-RHO1, RHO2 = 1.204, 12.04
-KAPPA1, KAPPA2 = 1.419e5, 1.419e5
+RHO1, RHO2 = 1.204, 2643  # 12.04
+KAPPA1, KAPPA2 = 1.419e5, 6.87e8  # reduced stiffness for larger timesteps
 AMPLITUDE = 1e3
 POINTS_PER_WAVELENGTH = 10
 
 # absorbing sponge on every edge [x-, x+, y-, y+] so probe energies are not degenerate
 BOUNDARIES = ["pml", "pml", "pml", "pml"]
-SPONGE_WIDTH = 50  # 100  # 50
+SPONGE_WIDTH = 100  # 100  # 50  # 100  # 50
 SPONGE_BETA = 0.1  # 0.1
 
 # --------------------------------------- setup ---------------------------------------
@@ -49,7 +50,7 @@ wavespeeds = np.sqrt(np.array([KAPPA2 / RHO2, KAPPA1 / RHO1]))
 dt = CFL * min(dx) / np.max(wavespeeds) / math.sqrt(2)
 N = math.ceil(T / dt)
 
-f_max = 500  # np.min(wavespeeds) / (POINTS_PER_WAVELENGTH * max(dx)) USING AIR
+f_max = np.min(wavespeeds) / (POINTS_PER_WAVELENGTH * max(dx))
 print(f"steps {N}, max resolvable frequency {f_max:.1f} Hz")
 
 sim = acoustic_simulation(
