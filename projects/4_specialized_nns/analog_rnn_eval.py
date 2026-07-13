@@ -27,10 +27,10 @@ RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 MODELS_DIR = (BASE_DIR / "../../models").resolve()
 
 # -------------------------------------- settings -------------------------------------
-CLASS = 0
-SNAPSHOT_STEP = 10000  # 4000  # 10000
+CLASS = 2 
+SNAPSHOT_STEP = 11000 #1000 #2500 #1500 #15000 #15000  # 4000  # 10000
 
-DESIGN = False
+DESIGN = True
 
 # ------------------------------------- load model ------------------------------------
 material_path = MODELS_DIR / "analog_rnn_material.npy"
@@ -41,7 +41,7 @@ if DESIGN == False:
     material *= False
 
 # DEBUGGING START
-material = np.zeros((2998, 1498), dtype=np.bool)
+# material = np.zeros((2998, 1498), dtype=np.bool)
 # material[1500:1600, :] = True
 # DEBUGGING END
 
@@ -71,10 +71,10 @@ t = np.linspace(0, (N - 1) * dt, N)
 # ----------------------------------- postprocessing ----------------------------------
 # wavefield snapshot with the trained scatterer overlaid (frame 1 is t = record_every)
 snap = frames[1][crop]
-# if DESIGN == True:
-scale = float(np.max(np.abs(snap[~material]))) * 0.5
-# else:
-#     scale = float(np.max(np.abs(snap))) * 0.5
+if DESIGN == True:
+    scale = float(np.max(np.abs(snap[~material]))) * 0.8
+else:
+    scale = float(np.max(np.abs(snap))) * 0.5
 overlay = np.ma.masked_where(~material, material.astype(float))
 fig, ax = plt.subplots(figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150)
 ax.imshow(snap.T, origin="lower", cmap=cmr.fusion, vmin=-scale, vmax=scale)

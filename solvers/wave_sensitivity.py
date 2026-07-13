@@ -227,7 +227,7 @@ def compute_sensitivity_pml(sim, design, source, sensors, um, sponge, num_source
 
 
 def compute_sensitivity_classification(sim, design, source, sensors, sponge, label,
-                                       num_sources=1):
+                                       num_sources=1, amplitude_penalty=0.0):
     # analog-RNN classifier gradient (Hughes et al. 2019): the medium `design` is the
     # trainable weight field, the sensors are one probe per class, and the readout is
     # the integrated probe energy y_m = sum_t u(x_m, t)^2. The prediction is the
@@ -238,18 +238,27 @@ def compute_sensitivity_classification(sim, design, source, sensors, sponge, lab
     # turns the gradient into that of the cross-entropy loss. The prod(dx) dt prefactors
     # cancel in p (raw energies used directly for the readout), but the per-probe adjoint
     # gradient carries a prod(dx) dt factor, so the rescale divides it back out.
+    # amplitude_penalty adds -amplitude_penalty * log(sum(y)) to the loss, rewarding
+    # designs that drive all three probes loud together (large |u|) on top of the
+    # classification objective. The log keeps the penalty dimensionless and on the same
+    # footing as the softmax normalization term 1/sum(y) regardless of the raw energy
+    # scale (which swings over many orders of magnitude as the design binarizes) -- a
+    # penalty linear in sum(y) would need retuning every time that scale shifts, and in
+    # practice is either negligible or overwhelms the classification term entirely.
     # returns (loss, probs, gradient w.r.t. the design field gamma over the padded grid).
     um = cp.zeros((sim.N, sensors.shape[1]), dtype=sim.dtype)
     prefactor = float(np.prod(sim.dx)) * sim.dt
 
     def adjoint_scale(y):
-        # 2 dL/dy_m with dL/dy_m = 1/sum(y) - delta_{m,label}/y[label]
-        scale = cp.full(y.shape, 1.0 / float(cp.sum(y)), dtype=sim.dtype)
+        # 2 dL/dy_m with dL/dy_m = (1 - amplitude_penalty)/sum(y) - delta_{m,label}/y[label]
+        total = float(cp.sum(y))
+        scale = cp.full(y.shape, (1.0 - amplitude_penalty) / total, dtype=sim.dtype)
         scale[label] -= 1.0 / float(y[label])
         return (2.0 / prefactor) * scale
 
     _, gradient, y = _sensitivity_pml_core(sim, design, source, sensors, um, sponge,
                                            num_sources, adjoint_scale)
-    probs = (y / cp.sum(y)).get()
-    loss = float(-np.log(probs[label]))
+    total = float(cp.sum(y))
+    probs = (y / total).get()
+    loss = float(-np.log(probs[label]) - amplitude_penalty * np.log(total))
     return loss, probs, gradient

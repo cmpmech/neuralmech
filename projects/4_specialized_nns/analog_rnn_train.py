@@ -55,17 +55,18 @@ DESIGN_X = (50.0, 150.0)  # wider (20, 180) plateaued at 0.93 accuracy for 5/cla
 # DESIGN_X = (20.0, 180.0)
 
 # optimization
-SAMPLES_PER_CLASS = 2  # 5  # 10 #5
-BATCH_SIZE = 3  # clips per gradient step (-1 is full batch)
+SAMPLES_PER_CLASS = 6 #2 #6 # TODO increase to 5-10
+BATCH_SIZE = 2 #2 #2 # TODO increase to 2
 EPOCHS = 200
-LR = 5e-2
-RMIN = 2.0
+LR = 2e-2
+RMIN = 4.0 #2.0  # TODO test
+AMPLITUDE_PENALTY = 0.4 #0.0  # magnitude penalty off -> pure cross-entropy -log p[label]
 
 # projection: beta grows slowly (per epoch) so the medium binarizes late in training
 ETA = 0.5
 BETA0 = 1.0
-BETA_GROWTH = 2.0
-BETA_STEP = 16  # epochs between beta updates
+BETA_GROWTH = 2.0 #1.1 #2.0
+BETA_STEP = 16 #4 #16
 BETA_MAX = 64.0
 
 
@@ -160,6 +161,7 @@ class_weights = samples / (len(classes) * counts)
 n = int(active.size)
 x = (0.5 + 0.1 * (torch.rand(n, device=device) - 0.5)).requires_grad_(True)
 optimizer = torch.optim.Adam([x], lr=LR)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
 
 loss_history = []
 acc_history = []
@@ -186,7 +188,8 @@ for epoch in range(EPOCHS):
             w = float(class_weights[label])
             source = setup_source(source_position, signals[i])
             loss, probs, grad = compute_sensitivity_classification(
-                sim, gamma, source, sensors, sponge, label
+                sim, gamma, source, sensors, sponge, label,
+                amplitude_penalty=AMPLITUDE_PENALTY,
             )
             grad_gamma += w * grad
             loss_sum += w * loss
@@ -201,6 +204,7 @@ for epoch in range(EPOCHS):
         optimizer.step()
         with torch.no_grad():
             x.clamp_(0.0, 1.0)
+    scheduler.step()
 
     loss_history.append(loss_sum / samples)
     acc_history.append(correct / samples)
