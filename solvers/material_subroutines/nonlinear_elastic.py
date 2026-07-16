@@ -16,10 +16,7 @@ build() compiles the routine and returns the loaded library exposing
 material_address as an integer function pointer. Parameter layout: [E, nu, c].
 """
 
-import sys
-from pathlib import Path
-
-import cffi
+from solvers.material_subroutines import build_subroutine
 
 ABI = 1  # mlhp C-interface ABI this routine was written against
 
@@ -61,22 +58,8 @@ _SOURCE = r"""
 
 
 def build(tmpdir=None):
-    """Compile the subroutine with cffi and return the loaded library exposing
-    material_address as an integer function pointer.
-
-    tmpdir: build directory for the compiled extension (defaults to a _build
-    folder next to this module).
-    """
-    tmpdir = Path(tmpdir) if tmpdir else Path(__file__).parent / "_build"
-    tmpdir.mkdir(parents=True, exist_ok=True)
-
-    ffi = cffi.FFI()
-    ffi.cdef("extern const unsigned long long material_address;")
-    ffi.set_source("_nonlinear_elastic_subroutine", _SOURCE)
-    ffi.compile(tmpdir=str(tmpdir))
-
-    if str(tmpdir) not in sys.path:
-        sys.path.insert(0, str(tmpdir))
-    import _nonlinear_elastic_subroutine
-
-    return _nonlinear_elastic_subroutine.lib
+    """Compile the subroutine and return the loaded library exposing
+    material_address as an integer function pointer."""
+    return build_subroutine(
+        "_nonlinear_elastic_subroutine", _SOURCE, ["material_address"], tmpdir
+    )

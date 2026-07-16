@@ -1,6 +1,6 @@
 """Shared building blocks for the structured-grid topology-optimization drivers.
 
-Two reusable pieces:
+Three reusable pieces:
 
 * :class:`MMA` / :class:`ReferenceMMA` -- the optimizer. Single-constraint Method
   of Moving Asymptotes (Svanberg 1987): each step updates the moving asymptotes
@@ -12,8 +12,19 @@ Two reusable pieces:
   reshaping and the design-independent free-dof sparsity, so a SIMP loop assembles by
   gather + segmented sum into fixed CSC). ``StructuredFEM`` adds a real SPD solve with
   one reused CHOLMOD factorization; ``ComplexStructuredFEM`` adds a complex Helmholtz
-  system ``a K + b M`` solved with a fresh sparse LU each design.
+  system ``a K + b M`` solved with a fresh sparse LU each design. The ``Pardiso*``
+  variants are drop-in replacements backed by MKL pardiso (``solvers/mklwrapper.py``),
+  which analyzes the sparsity once and only refactorizes as the design changes --
+  multithreaded, so keep OPENBLAS pinned to one thread to avoid oversubscription.
+  ``CGStructuredFEM`` drops the factorization entirely and solves each design with
+  Jacobi-preconditioned CG (mlhp on the CPU or cupyx on the GPU), warm-started
+  from the previous design's solution.
+* :class:`DensityFilter` and :func:`projection` / :func:`dprojection` -- the
+  regularization: conic density filtering (with its adjoint and the classic OC
+  sensitivity variant) and the smoothed-Heaviside projection pair.
 """
+
+import math
 
 import numpy as np
 import scipy.sparse
@@ -175,6 +186,7 @@ class _StructuredFEM:
 
         # every element drops ndof_e^2 entries at the same (iK, jK); collapse the
         # duplicates once so each assembly is a gather + segmented sum into fixed CSC
+        # (equivalent to scipy.sparse.coo_matrix(...).tocsc() per design, but ~2x faster)
         ndof_e = efts.shape[1]
         iK = np.repeat(efts, ndof_e, axis=1).ravel()
         jK = np.tile(efts, (1, ndof_e)).ravel()
@@ -223,9 +235,10 @@ class _StructuredFEM:
 
     def bilinear(self, local_mats, left, right):  # grid-shaped left^T local_mats right
         l_e, r_e = left[self.efts], right[self.efts]
-        return self.elements_to_grid(
-            np.einsum("ei,sij,ej->es", l_e, local_mats, r_e, optimize=True)
-        )
+        # one gemm beats np.einsum's 3-operand path ~3x: tmp[e,s,i] = K[s,i,j] r[e,j]
+        flat = np.asarray(local_mats).transpose(2, 0, 1).reshape(r_e.shape[1], -1)
+        tmp = (r_e @ flat).reshape(len(r_e), -1, l_e.shape[1])
+        return self.elements_to_grid(np.einsum("esi,ei->es", tmp, l_e))
 
 
 class StructuredFEM(_StructuredFEM):
@@ -263,8 +276,116 @@ class StructuredFEM(_StructuredFEM):
         self._A.V = self._cvxopt.matrix(data)
         self._cholmod.numeric(self._A, self._factor)
         b = self._cvxopt.matrix(np.asarray(rhs_free, dtype=float))
-        self._cholmod.solve(self._factor, b)
-        return np.array(b).ravel()
+        self._cholmod.solve(self._factor, b)  # rhs_free may stack several rhs columns
+        return np.array(b).ravel() if np.ndim(rhs_free) == 1 else np.array(b)
+
+    def element_energy(self, u):  # grid-shaped unit-material energy u^T K_local u
+        return self.bilinear(self.K_locals, u, u)
+
+
+class PardisoStructuredFEM(_StructuredFEM):
+    """Drop-in :class:`StructuredFEM` variant backed by MKL pardiso.
+
+    Pardiso registers its analysis on the first assembled system and only
+    refactorizes as the design changes, mirroring the CHOLMOD symbolic reuse.
+    Pardiso runs on MKL threads, so drivers should pin OPENBLAS to one thread
+    instead of pinning everything. See :class:`StructuredFEM` for the arguments.
+    """
+
+    def __init__(self, efts, free, ndof, K_locals, grid_shape, sub_voxels=1):
+        super().__init__(efts, free, ndof, grid_shape, sub_voxels)
+        from solvers.mklwrapper import pardisoFactorize
+
+        self._pardiso = pardisoFactorize
+        self._factor = None
+        self.K_locals = K_locals
+
+    def solve(self, material, rhs_free, spring_diag=None):  # K(material) u = rhs, free dofs
+        K = self.assemble(material, self.K_locals)
+        if spring_diag is not None:  # add nodal springs onto the diagonal (mechanisms)
+            K.data[self._diag_idx] += spring_diag
+        # K is symmetric, so its CSC transpose is a free CSR view of the same system
+        if self._factor is None:
+            self._factor = self._pardiso(K.T, symmetric=True)
+        else:
+            self._factor.refactorize(K.T)
+        return self._factor(np.asarray(rhs_free, dtype=float))
+
+    def element_energy(self, u):  # grid-shaped unit-material energy u^T K_local u
+        return self.bilinear(self.K_locals, u, u)
+
+
+class CGStructuredFEM(_StructuredFEM):
+    """Drop-in :class:`StructuredFEM` variant solved with Jacobi-preconditioned CG.
+
+    Matrix-explicit but factorization-free: each design is assembled into the fixed
+    CSC and solved iteratively, warm-started from the previous design's solution.
+    ``use_cupy=False`` runs mlhp's CG with the scipy matvec wrapped as a linear
+    operator; ``use_cupy=True`` keeps one CSR copy on the GPU (refreshing only the
+    values, since the sparsity is design-independent) and solves with cupyx CG.
+    Iteration counts grow with the SIMP contrast ``E0/EMIN``, so the direct solvers
+    stay faster on small 2D problems. Single right-hand side only. See
+    :class:`StructuredFEM` for the shared arguments.
+
+    Args:
+        use_cupy: solve on the GPU with cupyx CG instead of mlhp CG on the CPU.
+        rtol: relative residual tolerance of the CG solve.
+        maxiter: CG iteration cap per solve.
+    """
+
+    def __init__(self, efts, free, ndof, K_locals, grid_shape, sub_voxels=1,
+                 use_cupy=False, rtol=1e-8, maxiter=10000):
+        super().__init__(efts, free, ndof, grid_shape, sub_voxels)
+        self.K_locals = K_locals
+        self.use_cupy = use_cupy
+        self.rtol = rtol
+        self.maxiter = maxiter
+        self._x0 = np.zeros(self.nfree)
+        if use_cupy:
+            import cupy
+            import cupyx.scipy.sparse
+            import cupyx.scipy.sparse.linalg
+
+            self._cp = cupy
+            self._cpx_sparse = cupyx.scipy.sparse
+            self._cpx_linalg = cupyx.scipy.sparse.linalg
+            self._K_gpu = None
+        else:
+            import mlhp
+
+            self._mlhp = mlhp
+
+    def solve(self, material, rhs_free, spring_diag=None):  # K(material) u = rhs, free dofs
+        K = self.assemble(material, self.K_locals)
+        if spring_diag is not None:  # add nodal springs onto the diagonal (mechanisms)
+            K.data[self._diag_idx] += spring_diag
+        diag = K.diagonal()
+        rhs = np.asarray(rhs_free, dtype=float)
+        if self.use_cupy:
+            cp = self._cp
+            # K is symmetric, so its CSC arrays double as a CSR view of the same system
+            if self._K_gpu is None:
+                self._K_gpu = self._cpx_sparse.csr_matrix(
+                    (cp.asarray(K.data), cp.asarray(K.indices), cp.asarray(K.indptr)),
+                    shape=K.shape)
+            else:
+                self._K_gpu.data[:] = cp.asarray(K.data)
+            inv_diag = 1.0 / cp.asarray(diag)
+            M = self._cpx_linalg.LinearOperator(K.shape, matvec=lambda x: inv_diag * x)
+            u, info = self._cpx_linalg.cg(
+                self._K_gpu, cp.asarray(rhs), x0=cp.asarray(self._x0),
+                rtol=self.rtol, maxiter=self.maxiter, M=M)
+            u = cp.asnumpy(u)
+        else:
+            mlhp = self._mlhp
+            A = mlhp.linearOperator_array(lambda x, out: np.copyto(out, K @ x))
+            M = mlhp.linearOperator_array(lambda x, out: np.divide(x, diag, out=out))
+            u = mlhp.cg(
+                A, mlhp.DoubleVector(rhs.tolist()), x0=mlhp.DoubleVector(self._x0.tolist()),
+                rtol=self.rtol, maxiter=self.maxiter, M=M)
+            u = np.array(u.array)
+        self._x0 = u
+        return u
 
     def element_energy(self, u):  # grid-shaped unit-material energy u^T K_local u
         return self.bilinear(self.K_locals, u, u)
@@ -295,3 +416,78 @@ class ComplexStructuredFEM(_StructuredFEM):
 
     def factorize(self, matrix):  # complex sparse LU (no symbolic reuse across designs)
         return scipy.sparse.linalg.splu(matrix)
+
+
+class PardisoComplexStructuredFEM(ComplexStructuredFEM):
+    """Drop-in :class:`ComplexStructuredFEM` variant backed by MKL pardiso.
+
+    The sparsity of ``a K + b M`` is design-independent, so pardiso analyzes it once
+    and only refactorizes per design (complex structurally symmetric) -- unlike the
+    fresh sparse LU scipy needs each time. The returned factorization exposes
+    ``.solve`` like scipy's splu. See :class:`ComplexStructuredFEM` for the arguments.
+    """
+
+    def __init__(self, efts, free, ndof, K_locals, M_locals, grid_shape, sub_voxels=1):
+        super().__init__(efts, free, ndof, K_locals, M_locals, grid_shape, sub_voxels)
+        from solvers.mklwrapper import pardisoFactorize
+
+        self._pardiso = pardisoFactorize
+        self._factor = None
+
+    def factorize(self, matrix):  # pardiso refactorization on the fixed sparsity
+        # S is symmetric, so its CSC transpose is a free CSR view of the same system
+        if self._factor is None:
+            self._factor = self._pardiso(matrix.T, symmetric=True)
+        else:
+            self._factor.refactorize(matrix.T)
+        return self._factor
+
+
+class DensityFilter:
+    """Conic density filter on a structured 2D grid, with adjoint and OC variants.
+
+    Precomputes the radius-``rmin`` conic kernel and its normalization on a grid of
+    ``shape``. Works on NumPy arrays by default; pass ``xp=cupy`` (and optionally a
+    ``dtype``) to build and convolve on the GPU instead.
+    """
+
+    def __init__(self, rmin, shape, xp=np, dtype=None):
+        if xp is np:
+            import scipy.ndimage as ndi
+        else:
+            import cupyx.scipy.ndimage as ndi
+        self.xp, self.ndi = xp, ndi
+        ceil_r = int(math.ceil(rmin))
+        ki, kj = xp.meshgrid(
+            xp.arange(-ceil_r, ceil_r + 1),
+            xp.arange(-ceil_r, ceil_r + 1),
+            indexing="ij",
+        )
+        self.kernel = xp.maximum(0.0, rmin - xp.sqrt(ki**2 + kj**2))
+        if dtype is not None:
+            self.kernel = self.kernel.astype(dtype)
+        self.Hs = ndi.convolve(
+            xp.ones(shape, self.kernel.dtype), self.kernel, mode="constant", cval=0.0
+        )
+
+    def __call__(self, x):  # conic smoothing of the raw design
+        return self.ndi.convolve(x, self.kernel, mode="constant", cval=0.0) / self.Hs
+
+    def adjoint(self, g):  # transpose of the filter, for the chain rule
+        return self.ndi.convolve(g / self.Hs, self.kernel, mode="constant", cval=0.0)
+
+    def sensitivity(self, rho, dc):  # classic OC sensitivity filter (Sigmund 2001)
+        num = self.ndi.convolve(rho * dc, self.kernel, mode="constant", cval=0.0)
+        return num / (self.xp.maximum(rho, 1e-3) * self.Hs)
+
+
+def projection(x, beta, eta):
+    """Smoothed Heaviside about threshold ``eta`` (NumPy or CuPy array ``x``)."""
+    a, b = math.tanh(beta * eta), math.tanh(beta * (1.0 - eta))
+    return (a + np.tanh(beta * (x - eta))) / (a + b)
+
+
+def dprojection(x, beta, eta):
+    """Derivative of :func:`projection` with respect to ``x``."""
+    a, b = math.tanh(beta * eta), math.tanh(beta * (1.0 - eta))
+    return beta * (1.0 - np.tanh(beta * (x - eta)) ** 2) / (a + b)

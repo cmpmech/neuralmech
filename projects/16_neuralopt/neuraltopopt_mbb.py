@@ -187,7 +187,7 @@ integrand = mlhp.staticDomainIntegrand(
 )
 quadrature = mlhp.gridQuadrature(nsubcells=[SUB_VOXELS, SUB_VOXELS])
 K_locals = mlhp.integratePartitionMatrices(
-    basis_local, integrand, quadrature, mlhp.absoluteQuadratureOrder([QUAD_ORDER, 2])
+    basis_local, integrand, quadrature, mlhp.absoluteQuadratureOrder([QUAD_ORDER, QUAD_ORDER])
 )
 
 

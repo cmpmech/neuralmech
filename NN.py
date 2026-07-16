@@ -794,7 +794,7 @@ class ELM(nn.Module):
         return self.output_layer(x)
 
 
-# ------------------------------- deep material networks ------------------------------
+# ------------------------ deep material networks ------------------------
 def laminate_rotation(alpha):
     c, s = torch.cos(alpha), torch.sin(alpha)
     return torch.stack(  # to not break autograd
@@ -887,8 +887,6 @@ class DMN(nn.Module):
                 for l in range(depth)
             ]
         )
-        self._all_cache = None  # populated by forward, consumed by homogenize_stress
-
     def forward(self, C1, C2, deps):
         # linear two-phase cell: leaves alternate phase 1 / phase 2
         leaf_C = [C1 if i % 2 == 0 else C2 for i in range(2**self.depth)]
@@ -898,45 +896,29 @@ class DMN(nn.Module):
         # bottom-up stiffness then top-down strains for a tree of per-leaf stiffnesses
         # leaf_C (list of 2**depth batched (N, 3, 3)); deps macro increment (N, 3). This
         # generalizes forward: each leaf may carry its own (e.g. nonlinear tangent) stiffness
-        L = self.depth
 
         # bottom-up: homogenize stiffness, leaves to root
-        all_C, all_cache = [None] * L, [None] * L
-        C_leaves, cache_leaves = zip(
-            *(
-                block.homogenize_stiffness(leaf_C[2 * i], leaf_C[2 * i + 1])
-                for i, block in enumerate(self.layers[0])
-            )
-        )
-        all_C[0], all_cache[0] = list(C_leaves), list(cache_leaves)
-        for l in range(1, L):
-            prev_C = all_C[l - 1]
-            C_leaves, cache_leaves = zip(
+        all_cache = []
+        cur_C = leaf_C
+        for layer in self.layers:
+            cur_C, cache = zip(
                 *(
-                    b.homogenize_stiffness(prev_C[2 * i], prev_C[2 * i + 1])
-                    for i, b in enumerate(self.layers[l])
+                    block.homogenize_stiffness(cur_C[2 * i], cur_C[2 * i + 1])
+                    for i, block in enumerate(layer)
                 )
             )
-            all_C[l], all_cache[l] = list(C_leaves), list(cache_leaves)
-        C_root = all_C[L - 1][0]
+            all_cache.append(cache)
+        C_root = cur_C[0]
 
-        # top-down: recover strains, root to leaves
-        # walk down the tree just above the leaves (strains at internal layer)
+        # top-down: recover per-phase strains, root to leaves
         cur_deps = [deps]
-        for l in range(L - 1, 0, -1):
-            next_deps = []
-            for block, cache, deps in zip(self.layers[l], all_cache[l], cur_deps):
-                deps1, deps2 = block.recover_strains(deps, cache)
-                next_deps.extend([deps1, deps2])
-            cur_deps = next_deps
-
-        # get per-phase strains
-        leaf_deps = []
-        for block, cache, deps in zip(self.layers[0], all_cache[0], cur_deps):
-            leaf_deps.extend(block.recover_strains(deps, cache))
-
-        self._all_cache = all_cache  # kept for homogenize_stress
-        return C_root, leaf_deps
+        for layer, layer_cache in zip(reversed(self.layers), reversed(all_cache)):
+            cur_deps = [
+                child
+                for block, cache, d in zip(layer, layer_cache, cur_deps)
+                for child in block.recover_strains(d, cache)
+            ]
+        return C_root, cur_deps
 
     def homogenize_stress(self, leaf_dsig):
         # bottom-up: compute homogenized stress, leaves to root

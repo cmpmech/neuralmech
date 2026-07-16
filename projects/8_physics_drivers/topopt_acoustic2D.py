@@ -4,11 +4,12 @@ import time
 from pathlib import Path
 
 import cupy as cp
-import cupyx.scipy.ndimage as ndi
 import matplotlib.pyplot as plt
 import mmapy
 import numpy as np
+import torch
 
+from solvers.optimization import DensityFilter, dprojection, projection
 from solvers.wave import (
     acoustic_simulation,
     build_sponge,
@@ -23,6 +24,11 @@ from solvers.wave_sensitivity import compute_sensitivity_pml
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -42,7 +48,7 @@ TARGET_SIZE = (2.0, 2.0)
 RESOLUTION = (128, 64)
 CFL = 0.5
 
-# physics:
+# physics
 RHO1, RHO2 = 1.204, 2643.0
 KAPPA1, KAPPA2 = 1.419e5, 6.87e8
 FREQUENCY = 200.0
@@ -64,10 +70,12 @@ SPONGE_WIDTH = 12
 SPONGE_BETA = 1.5
 
 # optimization
+USE_ADAM = False  # Adam instead of MMA
 EPOCHS = 160
+LR = 1e-2  # Adam step size
+MMA_MOVE = 0.2  # MMA step move limit
 RMIN = 2.0
 ETA = 0.5
-MMA_MOVE = 0.2
 BETA0 = 1.0
 BETA_GROWTH = 2.0
 BETA_STEP = 18  # epochs between beta updates
@@ -83,24 +91,6 @@ def sineburst(t, amplitude, frequency, cycles):
         * np.sin(2 * np.pi * frequency * t)
         * np.sin(np.pi * frequency * t / cycles) ** 2
     )
-
-
-def density_filter(x):
-    return ndi.convolve(x, KERNEL, mode="constant", cval=0.0) / HS
-
-
-def filter_adjoint(g):
-    return ndi.convolve(g / HS, KERNEL, mode="constant", cval=0.0)
-
-
-def projection(x, beta, eta):
-    a, b = math.tanh(beta * eta), math.tanh(beta * (1.0 - eta))
-    return (a + cp.tanh(beta * (x - eta))) / (a + b)
-
-
-def dprojection(x, beta, eta):
-    a, b = math.tanh(beta * eta), math.tanh(beta * (1.0 - eta))
-    return beta * (1.0 - cp.tanh(beta * (x - eta)) ** 2) / (a + b)
 
 
 def physical(xval, beta):
@@ -213,30 +203,27 @@ design[x0:x_hi, ch_hi:y_hi] = 1.0  # upper block
 design_area = float(design.sum())
 active = cp.where(design.ravel() > 0)[0]  # flat indices of the design variables
 
-# optimization helpers
 # conic density filter
-ceil_r = int(math.ceil(RMIN))
-ki, kj = cp.meshgrid(
-    cp.arange(-ceil_r, ceil_r + 1), cp.arange(-ceil_r, ceil_r + 1), indexing="ij"
-)
-KERNEL = cp.maximum(0.0, RMIN - cp.sqrt(ki**2 + kj**2)).astype(sim.dtype)
-HS = ndi.convolve(
-    cp.ones(sim.Nx_padded, dtype=sim.dtype), KERNEL, mode="constant", cval=0.0
-)
+density_filter = DensityFilter(RMIN, sim.Nx_padded, xp=cp, dtype=sim.dtype)
 
 # beta continuation
 beta_of = lambda epoch: min(BETA0 * BETA_GROWTH ** (epoch // BETA_STEP), BETA_MAX)
 
-name = "topopt_acoustic2D" + ("_amplify" if AMPLIFY else "")
+name = "topopt_acoustic2D" + ("_adam" if USE_ADAM else "")
+name += "_amplify" if AMPLIFY else ""
 ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames" / name
 
 # ------------------------------------ optimization -----------------------------------
 n = int(active.size)
 xval = np.full((n, 1), 0.5)
-xold1, xold2 = xval.copy(), xval.copy()
-low, upp = np.zeros((n, 1)), np.ones((n, 1))
-xmin, xmax = np.zeros((n, 1)), np.ones((n, 1))
-a0, a_mma, c_mma, d_mma = 1.0, np.zeros((0, 1)), np.zeros((0, 1)), np.zeros((0, 1))
+if USE_ADAM:
+    x = torch.full((n,), 0.5, device=device, requires_grad=True)
+    optimizer = torch.optim.Adam([x], lr=LR)
+else:
+    xold1, xold2 = xval.copy(), xval.copy()
+    low, upp = np.zeros((n, 1)), np.ones((n, 1))
+    xmin, xmax = np.zeros((n, 1)), np.ones((n, 1))
+    a0, a_mma, c_mma, d_mma = 1.0, np.zeros((0, 1)), np.zeros((0, 1)), np.zeros((0, 1))
 
 energy_air = target_energy(cp.zeros(sim.Nx_padded, dtype=sim.dtype))
 cost_ref = None
@@ -247,27 +234,35 @@ if args.animate:
 tic = time.time()
 for epoch in range(EPOCHS):
     beta = beta_of(epoch)
+    if USE_ADAM:
+        xval = x.detach().cpu().numpy()
     gamma, x_tilde = physical(xval, beta)
 
     cost, grad_gamma = compute_sensitivity_pml(sim, gamma, source, sensors, um, sponge)
 
     dpx = dprojection(x_tilde, beta, ETA) * design
-    grad_obj = filter_adjoint(grad_gamma * dpx).ravel()[active].get()
+    grad_obj = density_filter.adjoint(grad_gamma * dpx).ravel()[active].get()
 
     cost_ref = cost if cost_ref is None else cost_ref
     sign = -1.0 if AMPLIFY else 1.0
-    f0val = sign * cost / cost_ref
-    df0dx = (sign * grad_obj / cost_ref).reshape(n, 1)
-    fval = np.zeros((0, 1))
-    dfdx = np.zeros((0, n))
+    if USE_ADAM:
+        x.grad = torch.as_tensor(sign * grad_obj / cost_ref, dtype=x.dtype, device=device)
+        optimizer.step()
+        with torch.no_grad():
+            x.clamp_(0.0, 1.0)
+    else:
+        f0val = sign * cost / cost_ref
+        df0dx = (sign * grad_obj / cost_ref).reshape(n, 1)
+        fval = np.zeros((0, 1))
+        dfdx = np.zeros((0, n))
 
-    xmma, _, _, _, _, _, _, _, _, low, upp = mmapy.mmasub(
-        0, n, epoch + 1, xval, xmin, xmax, xold1, xold2,
-        f0val, df0dx, fval, dfdx, low, upp,
-        a0, a_mma, c_mma, d_mma, move=MMA_MOVE,
-    )
-    xold2, xold1 = xold1, xval
-    xval = xmma
+        xmma, _, _, _, _, _, _, _, _, low, upp = mmapy.mmasub(
+            0, n, epoch + 1, xval, xmin, xmax, xold1, xold2,
+            f0val, df0dx, fval, dfdx, low, upp,
+            a0, a_mma, c_mma, d_mma, move=MMA_MOVE,
+        )
+        xold2, xold1 = xold1, xval
+        xval = xmma
 
     cost_history.append(cost / energy_air)
     print(
@@ -294,6 +289,8 @@ toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s  ({(toc - tic) / EPOCHS:.2f} s/epoch)")
 
 # ----------------------------------- postprocessing ----------------------------------
+if USE_ADAM:
+    xval = x.detach().cpu().numpy()
 gamma_final, _ = physical(xval, beta_of(EPOCHS))
 gamma_binary = (gamma_final > 0.5).astype(sim.dtype) * design
 
@@ -326,13 +323,12 @@ if args.animate:
         fig.savefig(wave_dir / f"frame_{f:04d}.jpg")
         plt.close()
 elif args.book:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150)
     ax.imshow(design.T, origin="lower", cmap="binary", vmin=0, vmax=1)
     ax.set_aspect("equal")
     ax.axis("off")
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    fig.savefig(RESULTS_DIR / f"{name}.pdf", transparent=True)
+    fig.savefig(RGB_PDF_DIR / f"{name}.pdf", transparent=True)
     plt.close()
 else:
     fig, axes = plt.subplots(2, 1, figsize=(6, 6))

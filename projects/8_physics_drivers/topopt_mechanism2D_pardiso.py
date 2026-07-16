@@ -1,9 +1,8 @@
 import argparse
 import os
 
-# small system: single-threaded CHOLMOD/BLAS beats multithreaded spawn overhead
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
+# pardiso runs on MKL threads; the numpy assembly is too small for BLAS threads,
+# which would only oversubscribe against MKL's pool
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import time
@@ -15,7 +14,7 @@ import numpy as np
 from matplotlib.tri import Triangulation
 from tqdm import tqdm
 
-from solvers.optimization import MMA, DensityFilter, StructuredFEM
+from solvers.optimization import MMA, DensityFilter, PardisoStructuredFEM
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
@@ -132,7 +131,7 @@ passive[:PORT, :PORT] = True  # input port (bottom-left)
 passive[NX - PORT :, :PORT] = True  # output port (bottom-right)
 
 # --------------------------- FEM assembly & solver helpers ---------------------------
-fem = StructuredFEM(efts, free, ndof, K_locals, (NX, NY), SUB_VOXELS)
+fem = PardisoStructuredFEM(efts, free, ndof, K_locals, (NX, NY), SUB_VOXELS)
 
 
 def simp(rho, penal):  # SIMP stiffness interpolation between void and solid

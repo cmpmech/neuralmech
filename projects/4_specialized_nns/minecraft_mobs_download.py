@@ -1,22 +1,10 @@
-"""
-Download Minecraft mob sound effects and convert them into a single fixed-length
-numpy dataset for the analog wave-network classifier (neutral / passive / hostile).
-Only one mob per class is active by default (cow, creeper, enderman); uncomment more
-entries in MOB_CLASS to grow the dataset.
-
-The clips are written flat into external_data/minecraft_mobs/ with an index prefix so
-that on-disk order matches the row order of the .npz dataset (data/minecraft_mobs.npz).
-Downloaded audio is for local research/training use only -- ship this script and your
-trained model, not the audio.
-
-Requires libsndfile with Ogg Vorbis support (the common case on Linux/macOS/Windows via
-the soundfile wheels). If sf.read() fails to decode .ogg on your system, `pip install
-audioread` and swap the decoder, or `apt install libsndfile1`.
-
-Usage:
-    pip install requests numpy soundfile scipy
-    python minecraft_mobs_download.py
-"""
+# download minecraft mob sound effects and convert them into a single fixed-length
+# numpy dataset for the analog wave-network classifier (hostile / neutral / passive).
+# clips are written flat into external_data/minecraft_mobs/ with an index prefix so
+# that on-disk order matches the row order of data/minecraft_mobs.npz. downloaded
+# audio is for local research/training use only -- ship this script and your trained
+# model, not the audio. decoding .ogg requires libsndfile with Ogg Vorbis support
+# (the common case via the soundfile wheels); otherwise `apt install libsndfile1`.
 
 import io
 import time
@@ -33,6 +21,7 @@ DATA_DIR = (BASE_DIR / "../../data").resolve()
 AUDIO_DIR = (BASE_DIR / "../../external_data/minecraft_mobs").resolve()
 DATASET_PATH = DATA_DIR / "minecraft_mobs.npz"
 
+# -------------------------------------- settings -------------------------------------
 API = "https://minecraft.wiki/api.php"
 HEADERS = {
     "User-Agent": "mob-sound-research-script/0.1 (contact: leon.herrmann@uni-weimar.de)"
@@ -143,14 +132,15 @@ MOB_CLASS = {
 }
 
 
-def _api_get(params):
+# --------------------------------------- helper --------------------------------------
+def api_get(params):
     r = requests.get(API, params=params, headers=HEADERS, timeout=30)
     r.raise_for_status()
     return r.json()
 
 
 def get_category_members(category, cmtype):
-    """Titles of subcategories or files directly in `category`."""
+    # titles of subcategories or files directly in category
     members = []
     params = {
         "action": "query",
@@ -162,7 +152,7 @@ def get_category_members(category, cmtype):
     }
     cont = {}
     while True:
-        data = _api_get({**params, **cont})
+        data = api_get({**params, **cont})
         members += [m["title"] for m in data["query"]["categorymembers"]]
         if "continue" in data:
             cont = data["continue"]
@@ -173,7 +163,7 @@ def get_category_members(category, cmtype):
 
 
 def collect_files_recursive(category, seen=None):
-    """All File: titles under `category`, recursing into nested subcats."""
+    # all File: titles under category, recursing into nested subcats
     if seen is None:
         seen = set()
     if category in seen:
@@ -188,11 +178,11 @@ def collect_files_recursive(category, seen=None):
 
 
 def resolve_urls(file_titles):
-    """Map File: page titles to direct download URLs, batched by 50."""
+    # map File: page titles to direct download URLs, batched by 50
     urls = {}
     for i in range(0, len(file_titles), 50):
         batch = file_titles[i : i + 50]
-        data = _api_get(
+        data = api_get(
             {
                 "action": "query",
                 "titles": "|".join(batch),
@@ -209,7 +199,7 @@ def resolve_urls(file_titles):
 
 
 def load_and_fit(raw_bytes):
-    """Decode audio bytes -> mono float32 waveform at TARGET_SR, length CLIP_LEN."""
+    # decode audio bytes -> mono float32 waveform at TARGET_SR, length CLIP_LEN
     data, sr = sf.read(io.BytesIO(raw_bytes), dtype="float32", always_2d=False)
     if data.ndim > 1:  # stereo -> mono
         data = data.mean(axis=1)
@@ -223,70 +213,67 @@ def load_and_fit(raw_bytes):
     return data.astype("float32")
 
 
-def main():
-    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-    mob_categories = get_category_members(ROOT_CATEGORY, "subcat")
-    print(f"found {len(mob_categories)} mob sound categories")
+# ------------------------------------ create data ------------------------------------
+AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+mob_categories = get_category_members(ROOT_CATEGORY, "subcat")
+print(f"found {len(mob_categories)} mob sound categories")
 
-    waveforms, class_labels, mob_names, file_names = [], [], [], []
-    index = 0  # running row index; also the on-disk filename prefix, so order matches
+waveforms, class_labels, mob_names, file_names = [], [], [], []
+index = 0  # running row index; also the on-disk filename prefix, so order matches
 
-    for cat in mob_categories:
-        mob_name = cat.replace("Category:", "").replace(" sounds", "").strip()
-        folder_key = mob_name.replace(" ", "_").lower()
-        mob_class = MOB_CLASS.get(folder_key)
-        if mob_class is None:
+for cat in mob_categories:
+    mob_name = cat.replace("Category:", "").replace(" sounds", "").strip()
+    folder_key = mob_name.replace(" ", "_").lower()
+    mob_class = MOB_CLASS.get(folder_key)
+    if mob_class is None:
+        continue
+
+    file_titles = collect_files_recursive(cat)
+    if not file_titles:
+        continue
+    urls = resolve_urls(file_titles)
+
+    n_ok = 0
+    for title, url in urls.items():
+        origname = title.replace("File:", "").replace(" ", "_")
+        fname = f"{index:04d}_{folder_key}_{origname}"
+        dest = AUDIO_DIR / fname
+        if not dest.exists():
+            r = requests.get(url, headers=HEADERS, timeout=60)
+            r.raise_for_status()
+            dest.write_bytes(r.content)
+            time.sleep(REQUEST_DELAY)
+
+        try:
+            wf = load_and_fit(dest.read_bytes())
+        except Exception as e:
+            print(f"  could not decode {fname}: {e}")
+            dest.unlink(missing_ok=True)
             continue
 
-        file_titles = collect_files_recursive(cat)
-        if not file_titles:
-            continue
-        urls = resolve_urls(file_titles)
+        waveforms.append(wf)
+        class_labels.append(CLASS_TO_INT[mob_class])
+        mob_names.append(folder_key)
+        file_names.append(fname)
+        index += 1
+        n_ok += 1
 
-        n_ok = 0
-        for title, url in urls.items():
-            origname = title.replace("File:", "").replace(" ", "_")
-            fname = f"{index:04d}_{folder_key}_{origname}"
-            dest = AUDIO_DIR / fname
-            if not dest.exists():
-                r = requests.get(url, headers=HEADERS, timeout=60)
-                r.raise_for_status()
-                dest.write_bytes(r.content)
-                time.sleep(REQUEST_DELAY)
+    print(f"  {mob_name} ({mob_class}): {n_ok} usable clips")
 
-            try:
-                wf = load_and_fit(dest.read_bytes())
-            except Exception as e:
-                print(f"  could not decode {fname}: {e}")
-                dest.unlink(missing_ok=True)
-                continue
+# --------------------------------------- export --------------------------------------
+X = np.stack(waveforms)  # (N, CLIP_LEN)
+y = np.array(class_labels, dtype="int64")  # (N,) 0=hostile 1=neutral 2=passive
+mob = np.array(mob_names)  # (N,) mob name per clip
+files = np.array(file_names)  # (N,) flat audio filename per clip, order matches X
 
-            waveforms.append(wf)
-            class_labels.append(CLASS_TO_INT[mob_class])
-            mob_names.append(folder_key)
-            file_names.append(fname)
-            index += 1
-            n_ok += 1
-
-        print(f"  {mob_name} ({mob_class}): {n_ok} usable clips")
-
-    X = np.stack(waveforms)  # (N, CLIP_LEN)
-    y = np.array(class_labels, dtype="int64")  # (N,) 0=hostile 1=neutral 2=passive
-    mob = np.array(mob_names)  # (N,) mob name per clip
-    files = np.array(file_names)  # (N,) flat audio filename per clip, order matches X
-
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        DATASET_PATH,
-        X=X,
-        y=y,
-        mob=mob,
-        files=files,
-        sr=TARGET_SR,
-        classes=np.array(["hostile", "neutral", "passive"]),
-    )
-    print(f"saved dataset: X{X.shape}, y{y.shape} -> {DATASET_PATH}")
-
-
-if __name__ == "__main__":
-    main()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+np.savez_compressed(
+    DATASET_PATH,
+    X=X,
+    y=y,
+    mob=mob,
+    files=files,
+    sr=TARGET_SR,
+    classes=np.array(["hostile", "neutral", "passive"]),
+)
+print(f"saved dataset: X{X.shape}, y{y.shape} -> {DATASET_PATH}")

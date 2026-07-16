@@ -1,91 +1,90 @@
+import math
+import time
 from pathlib import Path
 
-import numpy as np
+import cmasher as cmr
 import cupy as cp
 import matplotlib.pyplot as plt
-import time
-import math
-import cmasher as cmr
-from solvers.scalar_wave import (setup_simulation, setup_source, simulate2D)
+import numpy as np
+
 from numeric import sineburst
+from solvers.wave import scalar_simulation, setup_source, simulate
 
 BASE_DIR = Path(__file__).parent
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+DATA_DIR = (BASE_DIR / "../../data").resolve()
 
-# -------------------------- problem definition --------------------------
-# implementation
-threads_j, threads_i = 128, 4
-precompiled = False # True
-
-# load material from CT scan
-indicator = np.ascontiguousarray(np.load(BASE_DIR / '../../data/B_Hai_1.npy').T)
-indicator[:50,:50] = 1.
-indicator[:5,:] = 1.
-indicator[-6:,:] = 1.
-indicator[:,:5] = 1.
-indicator[:,-6:] = 1.
-Nx, Ny = indicator.shape[0], indicator.shape[1]
-print(Nx, Ny)
-min_indicator = 1e-3
-indicator[indicator == 0] = min_indicator
+# -------------------------------------- settings -------------------------------------
+THREADS = (4, 128)
 
 # physics
-Lx, Ly = 0.04, 0.04 * Ny / Nx
-wavespeed = 6000.
-density = 2700.
-amplitude = 1e8
-cycles = 1
+WAVESPEED = 6000.0
+DENSITY = 2700.0
+AMPLITUDE = 1e8
+CYCLES = 1
 T = 8e-5
+MIN_INDICATOR = 1e-3
 
-# discretization
-dx, dy = Lx / (Nx - 3), Ly / (Ny - 3)
-cfl_safety_factor = 0.95
-dt = cfl_safety_factor * min(dx, dy) / wavespeed / math.sqrt(2)
-frequency = wavespeed / 10. / dx
+# --------------------------------------- setup ---------------------------------------
+# load material from CT scan
+indicator = np.ascontiguousarray(np.load(DATA_DIR / "B_Hai_1.npy").T)
+indicator[:50, :50] = 1.0
+indicator[:5, :] = 1.0
+indicator[-6:, :] = 1.0
+indicator[:, :5] = 1.0
+indicator[:, -6:] = 1.0
+Nx, Ny = indicator.shape
+indicator[indicator == 0] = MIN_INDICATOR
+
+Lx, Ly = 0.04, 0.04 * Ny / Nx
+dx = (Lx / (Nx - 3), Ly / (Ny - 3))
+dt = 0.95 * min(dx) / WAVESPEED / math.sqrt(2)
+frequency = WAVESPEED / 10.0 / dx[0]
 N = math.ceil(T / dt)
 
-simulation = setup_simulation((Nx, Ny), (dx, dy), N, dt,
-                              wavespeed, density, (threads_i, threads_j))
+sim = scalar_simulation(
+    (Nx, Ny), dx, N, dt, THREADS, wavespeed=WAVESPEED, density=DENSITY
+)
 
 # source
-x = np.linspace(-dx, Lx+dx, Nx)
-y = np.linspace(-dy, Ly+dy, Ny)
-x, y = np.meshgrid(x, y, indexing='ij')
+x = np.linspace(-dx[0], Lx + dx[0], Nx)
+y = np.linspace(-dx[1], Ly + dx[1], Ny)
+x, y = np.meshgrid(x, y, indexing="ij")
 
-sourceIndices = np.vstack(np.where(np.isclose(x, 0.) & np.isclose(y, 0.)))
-sourceIndices = cp.asarray(sourceIndices, dtype=cp.int32)
+source_pos = np.vstack(np.where(np.isclose(x, 0.0) & np.isclose(y, 0.0)))
+source_pos = cp.asarray(source_pos, dtype=cp.int32)
 
 t = np.linspace(0, (N - 1) * dt, N)
-signal = sineburst(t, amplitude, frequency, cycles) / dx / dy # for the dirac
-signal = cp.asarray(np.repeat(np.expand_dims(signal, axis=1), len(sourceIndices[0]), axis=1), dtype=cp.float32)
-source = setup_source(sourceIndices, signal)
+signal_np = sineburst(t, AMPLITUDE, frequency, CYCLES) / np.prod(dx)  # for the dirac
+signal = cp.asarray(np.tile(signal_np[:, None], (1, source_pos.shape[1])), dtype=sim.dtype)
+source = setup_source(source_pos, signal)
 
-# material
-indicator_padded = cp.ones(simulation.Nx_padded, dtype=cp.float32)
-indicator_padded[:Nx, :Ny] = cp.asarray(indicator, dtype=cp.float32)
+indicator_padded = cp.ones(sim.Nx_padded, dtype=sim.dtype)
+indicator_padded[:Nx, :Ny] = cp.asarray(indicator, dtype=sim.dtype)
 
-# -------------------------------- solve ---------------------------------
+# --------------------------------------- solve ---------------------------------------
 cp.cuda.Stream.null.synchronize()
 tic = time.time()
-u = simulate2D(simulation, source, indicator_padded, precompiled=precompiled)
+u = simulate(sim, source, indicator_padded)
 cp.cuda.Stream.null.synchronize()
 toc = time.time()
-elapsed_time = toc - tic
-print(f'elapsed time: {elapsed_time:.3f} s')
-print(f'elapsed time per timestep: {elapsed_time / N * 1e3:.4f} ms')
-dofs = ((Nx - 2) * (Ny - 2))
-print(f'elapsed time per timestep: {dofs / (elapsed_time / N)/1e9:.2f} billion dofs/s')
+dofs = (Nx - 2) * (Ny - 2)
+print(f"elapsed time {toc - tic:.2f} s ({(toc - tic) / N * 1e3:.4f} ms/step)")
+print(f"{dofs / ((toc - tic) / N) / 1e9:.2f} billion dofs/s")
 
-# --------------------------- post-processing ----------------------------
-u_ = np.ma.masked_where(indicator == min_indicator, u.get())
-indicator_ = np.ma.masked_where(indicator != min_indicator, indicator)
-scale = cp.max(cp.abs(u)) * 3e-2
-fig, ax = plt.subplots(figsize=(Nx / 150,Ny / 150), dpi=150)
-cb = ax.pcolormesh(x, y, u_, cmap=cmr.fusion,
-                   vmin=-scale, vmax=scale)
-ax.pcolormesh(x, y, indicator_ * 0 + 0.7, cmap='Greys_r', vmin=0, vmax=1)
-ax.set_aspect('equal')
-ax.axis('off')
+# ----------------------------------- postprocessing ----------------------------------
+u_np = u.get()
+u_masked = np.ma.masked_where(indicator == MIN_INDICATOR, u_np)
+indicator_masked = np.ma.masked_where(indicator != MIN_INDICATOR, indicator)
+scale = float(np.max(np.abs(u_np))) * 3e-2
+
+fig, ax = plt.subplots(figsize=(Nx / 150, Ny / 150), dpi=150)
+ax.pcolormesh(x, y, u_masked, cmap=cmr.fusion, vmin=-scale, vmax=scale)
+ax.pcolormesh(x, y, indicator_masked * 0 + 0.7, cmap="Greys_r", vmin=0, vmax=1)
+ax.set_aspect("equal")
+ax.axis("off")
 ax.set_rasterized(True)
-fig.tight_layout(pad=0)
-plt.savefig('../../results/rgb_pdf/CTwaves2D.pdf', bbox_inches='tight', pad_inches=0)
+fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+plt.savefig(RGB_PDF_DIR / "CTwaves2D.pdf", bbox_inches="tight", pad_inches=0)
 plt.show()

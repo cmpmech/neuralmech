@@ -214,7 +214,7 @@ def get_kan_edge_activations(model, layer_id, resolution=200):
     return x, activations
 
 
-# ------------------------------ differentiation helpers ------------------------------
+# ------------------------ differentiation helpers -----------------------
 def differentiate(y, x, n=1, graph=True):
     """Compute the nth order derivative of y = f(x) with respect to x."""
 
@@ -222,7 +222,6 @@ def differentiate(y, x, n=1, graph=True):
         return y
     else:
         graph = graph or n > 1
-        dy_dx = grad(y, x, torch.ones_like(x), create_graph=graph, retain_graph=graph)[
-            0
-        ]
+        grad_outputs = torch.ones_like(y)
+        dy_dx = grad(y, x, grad_outputs, create_graph=graph, retain_graph=graph)[0]
         return differentiate(dy_dx, x, n - 1)

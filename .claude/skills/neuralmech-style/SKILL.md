@@ -229,8 +229,10 @@ if PATIENCE is not None and best_state is not None:
 
 - Colormaps (fixed per domain): concepts `cividis`; diverging concepts `Spectral`;
   binary masks `binary`; abs/squared errors `hot_r` **always log-scaled**;
-  elasticity `turbo`; waves `seismic`; heat `inferno`/`magma`; stresses/strains
-  `cmasher.pride`. Non-builtin maps load from `.cmap/` via `load_cmap`.
+  elasticity `turbo`; waves `seismic`; heat `inferno`/`magma` (`cmasher.torch` for
+  topology-optimized temperature fields); stresses/strains and other derived
+  quantities `rainbow_desaturated` (replaces the former `cmasher.pride`).
+  Non-builtin maps load from `.cmap/` via `load_cmap`.
 
 ## Comments & prints
 

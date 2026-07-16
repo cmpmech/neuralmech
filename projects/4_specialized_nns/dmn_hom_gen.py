@@ -31,7 +31,7 @@ E2_RANGE = (0.1, 1.0)
 NU_RANGE = (0.15, 0.35)
 
 # nonlinear-elastic reference: sigma = C0 eps + c (eps.eps) eps per phase (E, nu, c), driven
-# along a uniaxial macro-strain path; the same law is applied online in dmn_exampleV2.py
+# along a uniaxial macro-strain path; the same law is applied online in dmn_example.py
 MATRIX = (1.0, 0.3, 30.0)
 INCLUSION = (0.2, 0.3, 10.0)
 EPS_MAX = 0.2
@@ -40,12 +40,12 @@ NEWTON_ITER = 25
 NEWTON_TOL = 1e-8
 
 
-# ------------------------------------ helper -----------------------------------------
+# --------------------------------------- helper --------------------------------------
 def isotropic_stiffness(E, nu):
     return E / (1 - nu**2) * np.array([[1, nu, 0], [nu, 1, 0], [0, 0, (1 - nu) / 2]])
 
 
-# ----------------------------------- create data -------------------------------------
+# ------------------------------------ create data ------------------------------------
 # fixed RVE (geometry, mesh, quadrature are material independent, so build them once)
 lengths = [LENGTH] * DIM
 center = [0.5 * LENGTH] * DIM
@@ -149,7 +149,7 @@ for step in tqdm(range(1, NSTEPS + 1)):
     ref_eps.append(e11)
     ref_sig.append(-float(np.sum(np.array(fint)[mode_idx] * mode_val)) / volume)
 
-# ------------------------------------- export ----------------------------------------
+# --------------------------------------- export --------------------------------------
 np.savez(
     DATA_DIR / "hom_dmn.npz",
     C1=C1,

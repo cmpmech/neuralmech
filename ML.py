@@ -1,7 +1,7 @@
 import numpy as np
 
 # ----------------------- parametrized regression ------------------------
-class LinearRegression: # limited to 1D outputs
+class LinearRegression:  # limited to 1D outputs
     def __init__(self):
         self.weight = 0
         self.bias = 0

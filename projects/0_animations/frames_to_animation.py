@@ -2,7 +2,7 @@
 Convert a folder of animation frames (PNG/JPG) to a video file.
 
 Uses ffmpeg (H.264 + AAC-less) for smallest file size at good quality.
-Adjust `crf` (0=lossless, 51=worst; 18–23 is visually lossless range).
+Adjust `crf` (0=lossless, 51=worst; 18-23 is visually lossless range).
 
 Usage:
     python frames_to_animation.py --frames_dir ../../results/animations/animation_frames \

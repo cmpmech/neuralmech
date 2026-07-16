@@ -1,9 +1,8 @@
 import argparse
 import os
 
-# small system: single-threaded CHOLMOD/BLAS beats multithreaded spawn overhead
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
+# pardiso runs on MKL threads; the numpy assembly is too small for BLAS threads,
+# which would only oversubscribe against MKL's pool
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import time
@@ -19,7 +18,7 @@ from solvers.optimization import (
     MMA,
     DensityFilter,
     ReferenceMMA,
-    StructuredFEM,
+    PardisoStructuredFEM,
     dprojection,
     projection,
 )
@@ -118,7 +117,7 @@ force = np.asarray(v).copy()
 force_free = force[free]
 
 # --------------------------- FEM assembly & solver helpers ---------------------------
-fem = StructuredFEM(efts, free, ndof, K_locals, (NX, NY), SUB_VOXELS)
+fem = PardisoStructuredFEM(efts, free, ndof, K_locals, (NX, NY), SUB_VOXELS)
 
 
 def simp(rho):  # SIMP conductivity interpolation between void and solid

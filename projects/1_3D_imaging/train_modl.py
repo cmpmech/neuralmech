@@ -1,4 +1,3 @@
-from functools import partial
 from pathlib import Path
 
 import matplotlib
@@ -7,47 +6,24 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn as nn
-from helper import MoDL
+from torch import nn
 from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm import tqdm
 
-from DL import Standardizer, init_weights
+from DL import init_weights
+from helper import MoDL
 from NN import DCN, UNet
 
 BASE_DIR = Path(__file__).parent
-TMP_DIR = BASE_DIR / "../../tmp"
+TMP_DIR = (BASE_DIR / "../../tmp").resolve()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 
-# ----------------------- hyperparameters ------------------------
-# EPOCHS = 200
-# LR = 1e-3
-# BATCH_SIZE = 8 #32  # 4
-# K = 6
-# LAM = 0.5
-# CG_ITER = 10
-# MASK_RATIO = 0.7  # 0.5
-# BASE_CH = 16
-# DEPTH = 3
-# DOMAIN_SIZE = 128  # 256
-# PRINT_EVERY = 1
-
-# EPOCHS = 1000
-# LR = 5e-3 #2e-3 #2e-3 #5e-3 #1e-3
-# BATCH_SIZE = 9 #8 #32  # 4 # full batch currently
-# K = 10
-# LAM = 0.5
-# CG_ITER = 10
-# MASK_RATIO = 0.7  # 0.5
-# BASE_CH = 32 #16
-# DEPTH = 3
-# DOMAIN_SIZE = 128  # 256
-# PRINT_EVERY = 1
-#
-EPOCHS = 1000  # 400 #2000 # WORKS FOR 800
-LR = 2e-3  # 2e-3
+# -------------------------------------- settings -------------------------------------
+# hyperparameters
+EPOCHS = 1000
+LR = 2e-3
 BATCH_SIZE = 16
 K = 10  # 15
 LAM = 0.2  # 0.5
@@ -59,9 +35,10 @@ DOMAIN_SIZE = 128
 PRINT_EVERY = 10
 OVERFIT = None  # set to int for quick overfit test
 
+# define loss
 cost_fun = nn.MSELoss(reduction="mean")
 
-# ----------------------------- data -----------------------------
+# ------------------------------------ prepare data -----------------------------------
 data = torch.from_numpy(
     np.load(BASE_DIR / f"../../data/graded_fibers_{DOMAIN_SIZE}.npy")
 )
@@ -98,9 +75,9 @@ val_loader = DataLoader(val_set, batch_size=len(val_set))
 
 # TODO standardization?
 
-# --------------------------- model ------------------------------
+# --------------------------- instantiate model & optimizer ---------------------------
 levels = [1] + [BASE_CH * 2**i for i in range(DEPTH)]  # [1, 16, 32, 64]
-# act = partial(nn.ReLU, inplace=True)
+# act = nn.ReLU
 act = nn.GELU
 
 downs = [
@@ -146,7 +123,7 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
 # -------------------------------------- training -------------------------------------
 train_cost = [0.0] * EPOCHS
 val_cost = [0.0] * EPOCHS
-pbar = tqdm(range(EPOCHS), desc="Training: ", ncols=90)
+pbar = tqdm(range(EPOCHS))
 for epoch in pbar:
     model.train()
     for b, mask, x_gt in train_loader:
@@ -159,8 +136,7 @@ for epoch in pbar:
         optimizer.step()
         train_cost[epoch] += cost.item()
     train_cost[epoch] /= len(train_loader)
-    if scheduler is not None:
-        scheduler.step()
+    scheduler.step()
 
     model.eval()
     with torch.no_grad():

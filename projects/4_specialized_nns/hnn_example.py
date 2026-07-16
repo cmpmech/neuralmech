@@ -23,6 +23,7 @@ parser.add_argument("--book", action="store_true")
 args = parser.parse_args()
 
 torch.manual_seed(1)
+torch.backends.cudnn.deterministic = True
 
 # -------------------------------------- settings -------------------------------------
 # hyperparameters

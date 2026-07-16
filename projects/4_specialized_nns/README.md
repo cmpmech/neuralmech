@@ -37,6 +37,10 @@ the Stanford bunny point cloud.
   Kolmogorov-Arnold network fitting a product of sines, with edge-strength diagnostics
 - `siren_example.py`
   SIREN (sinusoidal activations) fitting a sharp signal and its gradient
+- `siren_image_compression.py`
+  SIREN fit to a photo at several hidden-layer widths, each giving a different
+  raw-bytes-to-network-bytes compression ratio, compared against a jpeg saved at the
+  matching byte budget
 - `icnn_example.py`
   input-convex neural network fitting a parabola
 - `icnn_neuralode_example.py`
@@ -48,21 +52,31 @@ the Stanford bunny point cloud.
 - `mlp_dynamics_example.py`
   plain MLP baseline predicting the same dynamics directly
 - `dmn_example.py` _needs `hom_dmn.npz`_
-  deep material network: a laminate-tree topology fit to the finite-cell effective
-  stiffness, then nonlinear-elastic prediction with no retraining, checked against a
-  finite-cell reference solved with the same material law
+  deep material network: a laminate-tree topology (the batched DMN forward in `NN.py`)
+  fit to the finite-cell effective stiffness, then frozen-tangent nonlinear-elastic
+  prediction with no retraining, checked against the finite-cell reference generated
+  alongside the dataset
+- `gnn_cheb_example.py` _needs `ghana_mesh.pt`_
+  Chebyshev spectral graph convolution regressing a scalar field on the Ghana mesh
 - `pointnet_example.py` _needs `bunny_pointcloud.npz`_
   PointNet regressing a scalar field on the Stanford bunny point cloud
 - `pointnetpp_example.py` _needs `bunny_pointcloud.npz`_
   PointNet++ (hierarchical set abstraction) on the same point cloud
-- `analog_rnn_example.py` _needs `minecraft_mobs.npz`_
+- `analog_rnn_train.py` _needs `minecraft_mobs.npz`_
   analog recurrent network (Hughes et al. 2019): a trainable acoustic medium that classifies
   mob-sound clips by the wave energy each reaches at three right-wall probes, one per behaviour
-  class, trained end-to-end through the wave solver's adjoint
+  class, trained end-to-end through the wave solver's adjoint; saves the binarized medium to
+  `models/analog_rnn_material.npy`
+- `analog_rnn_eval.py` _needs `analog_rnn_material.npy`_
+  renders a wavefield snapshot plus source and probe signals for one clip propagated
+  through the trained medium (or the free field)
+- `analog_rnn_fixture.py`
+  shared acoustic setup (grid, sponge, source/probe positions, clip resampling)
+  imported by the analog RNN train and eval drivers
 
 ## Non-obvious technicalities (authored by Claude)
 
-`analog_rnn_example.py` runs one full wave solve (forward and adjoint) per clip, so an epoch
+`analog_rnn_train.py` runs one full wave solve (forward and adjoint) per clip, so an epoch
 over all 53 clips is the runtime bottleneck. When first exploring the setup -- resolution,
 propagation time `T`, material contrast, low-pass cutoff -- start with a single clip per class
 (three solves per epoch instead of 53). This cuts iteration time by more than an order of

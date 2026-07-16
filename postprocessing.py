@@ -20,7 +20,7 @@ def save_csv(path: str, **cols) -> None:
     pd.DataFrame(cols).to_csv(path, sep=" ", index=False)
 
 
-# --------------------------- temporary figure saving --------------------------
+# ------------------------ temporary figure saving -----------------------
 def save_temp_fig(name: str) -> None:
     """Save the current figure to '<name>_<timestamp>.jpg' for quick inspection.
 
@@ -47,7 +47,7 @@ def load_cmap(path: str) -> LinearSegmentedColormap:
     return LinearSegmentedColormap.from_list(data.get("Name", "cmap"), stops)
 
 
-# -------------------------------- image postprocessing -------------------------------
+# ------------------------- image postprocessing -------------------------
 def show_image(
     img: np.ndarray,
     grayscale: bool = False,

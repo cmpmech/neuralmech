@@ -45,7 +45,7 @@ tets = np.asarray(T, dtype=np.int64)
 cells = tets.ravel()  # flat connectivity, 0-based
 offsets = np.arange(0, 4 * len(tets) + 1, 4)
 
-# --------------------------------------- export -------------------------------------
+# --------------------------------------- export --------------------------------------
 MESH_DIR.mkdir(parents=True, exist_ok=True)
 out = MESH_DIR / f"{STL_NAME}.npz"
 np.savez(out, vertices=vertices, cells=cells, offsets=offsets)

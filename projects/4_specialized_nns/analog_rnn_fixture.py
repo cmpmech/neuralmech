@@ -13,12 +13,8 @@ SOURCE = [(10.0, 50.0)]
 SENSOR = [(190.0, 25.0), (190.0, 50.0), (190.0, 75.0)]
 
 # discretization
-# RESOLUTION = (96, 48)
-# RESOLUTION = (280, 140)  # too coarse: sensor energy keeps shrinking under grid
-# refinement instead of converging, since RMIN-sized features are only ~4 cells wide
-# RESOLUTION = (560, 280)
-# RESOLUTION = (1400, 700)
-# RESOLUTION = (2800, 1400)
+# below ~(2800, 1400) the sensor energy keeps shrinking under grid refinement instead
+# of converging, since RMIN-sized features are only ~4 cells wide
 RESOLUTION = (3000, 1500)
 CFL = 0.9
 T = 1.5
@@ -34,8 +30,8 @@ POINTS_PER_WAVELENGTH = 10
 
 # absorbing sponge on every edge [x-, x+, y-, y+] so probe energies are not degenerate
 BOUNDARIES = ["pml", "pml", "pml", "pml"]
-SPONGE_WIDTH = 40 #80 #100  # 100  # 50  # 100  # 50, doubled alongside RESOLUTION
-SPONGE_BETA = 0.1  # 0.1
+SPONGE_WIDTH = 40  # scale alongside RESOLUTION
+SPONGE_BETA = 0.1
 
 # --------------------------------------- setup ---------------------------------------
 # increase grid by sponge layer on each absorbing edge
@@ -86,7 +82,7 @@ cols = [to_index((x, y)) for x, y in SENSOR]
 sensors = cp.array([[c[0] for c in cols], [c[1] for c in cols]], dtype=cp.int32)
 
 
-# -------------------------------------- helper ---------------------------------------
+# --------------------------------------- helper --------------------------------------
 def load_source(clip):
     # compress the clip's full spectrum into the resolvable band [0, f_max] (the raw
     # clips carry almost no energy below f_max, so low-passing would keep only

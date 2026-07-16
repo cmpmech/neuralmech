@@ -18,10 +18,7 @@ material_address and update_address as integer function pointers for
 mlhp.constitutiveEquation and mlhp.meshFunctionStrainUpdate.
 """
 
-import sys
-from pathlib import Path
-
-import cffi
+from solvers.material_subroutines import build_subroutine
 
 ABI = 1  # mlhp C-interface ABI this routine was written against
 NHISTORY = 13  # doubles per material point
@@ -179,22 +176,8 @@ _SOURCE = r"""
 
 
 def build(tmpdir=None):
-    """Compile the J2 subroutine with cffi and return the loaded library.
-
-    tmpdir: build directory for the compiled extension (defaults to a _build
-    folder next to this module). The returned object exposes material_address
-    and update_address as integer function pointers.
-    """
-    tmpdir = Path(tmpdir) if tmpdir else Path(__file__).parent / "_build"
-    tmpdir.mkdir(parents=True, exist_ok=True)
-
-    ffi = cffi.FFI()
-    ffi.cdef("extern const unsigned long long material_address, update_address;")
-    ffi.set_source("_j2_subroutine", _SOURCE)
-    ffi.compile(tmpdir=str(tmpdir))
-
-    if str(tmpdir) not in sys.path:
-        sys.path.insert(0, str(tmpdir))
-    import _j2_subroutine
-
-    return _j2_subroutine.lib
+    """Compile the J2 subroutine and return the loaded library exposing
+    material_address and update_address as integer function pointers."""
+    return build_subroutine(
+        "_j2_subroutine", _SOURCE, ["material_address", "update_address"], tmpdir
+    )

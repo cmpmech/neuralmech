@@ -1,7 +1,7 @@
 import argparse
 import os
 
-# small system: single-threaded CHOLMOD/BLAS beats multithreaded spawn overhead
+# small system: the assembly and sparse matvecs are too small to benefit from threads
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -14,7 +14,7 @@ import mlhp
 import numpy as np
 from tqdm import tqdm
 
-from solvers.optimization import DensityFilter, StructuredFEM
+from solvers.optimization import CGStructuredFEM, DensityFilter
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
@@ -36,6 +36,9 @@ NX, NY = np.array(LENGTHS).astype(int) * 150
 SUB_VOXELS = 6
 DEGREE = 3
 QUAD_ORDER = DEGREE + 1  # integration
+
+# solver
+USE_CUPY = True  # False  # cupyx CG on the GPU instead of mlhp CG on the CPU
 
 # physics
 VOLFRAC = 0.5
@@ -101,7 +104,9 @@ force[load_dof] = LOAD
 force_free = force[free]
 
 # --------------------------- FEM assembly & solver helpers ---------------------------
-fem = StructuredFEM(efts, free, ndof, K_locals, (NX, NY), SUB_VOXELS)
+fem = CGStructuredFEM(
+    efts, free, ndof, K_locals, (NX, NY), SUB_VOXELS, use_cupy=USE_CUPY
+)
 
 
 def simp(rho):  # SIMP stiffness interpolation between void and solid
