@@ -21,3 +21,8 @@ tmp/*
 neuralmech.egg-info/
 __pycache__/
 /solvers/material_subroutines/_build
+projects/*/output/
+projects/*/outputs/
+*.vtu
+*.pvtu
+*.vtm
