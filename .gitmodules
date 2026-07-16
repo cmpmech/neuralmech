@@ -1,6 +1,3 @@
-[submodule "neuralmechbench"]
-	path = neuralmechbench
-	url = git@github.com:Leon-Herrmann/neuralmechbench.git
 [submodule "solvers/2025_voxelbasedmomentfitting"]
 	path = solvers/2025_voxelbasedmomentfitting
 	url = git@gitlab.com:numech/code/publications/2025_voxelbasedmomentfitting.git
