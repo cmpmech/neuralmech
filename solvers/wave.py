@@ -13,6 +13,7 @@ KERNEL_PATH = Path(__file__).parent / "kernels" / "wave.cu"
 class setup_source:
     position: cpt.NDArray[cp.int32]  # (ndim, num_sources) grid indices
     signal: cpt.NDArray  # (N, num_sources) time series
+    component: int = 0  # displacement component driven (vector formulations only)
 
 
 @dataclass
@@ -27,6 +28,7 @@ class setup_simulation:
     precision: str = "float32"  # "float32" or "float64"
 
     compile_flags = ()  # extra nvcc -D flags for compile_kernels
+    ncomp = 1  # unknowns per grid point (scalar field); elastic overrides to ndim
 
     def __post_init__(self):
         self.ndim = len(self.Nx)
@@ -38,6 +40,7 @@ class setup_simulation:
             strides[d] = strides[d + 1] * self.Nx_padded[d + 1]
         self.strides = tuple(strides)
         self.dtype = cp.float32 if self.precision == "float32" else cp.float64
+        self.comp_stride = int(np.prod(self.Nx_padded))  # offset between components
 
 
 @dataclass
@@ -101,6 +104,42 @@ class acoustic_simulation(setup_simulation):
 
     def excitation_params(self, mat):
         return mat["kappa"], self.dtype(self.dt**2)  # kappa dt^2
+
+
+@dataclass
+class elastic_simulation(setup_simulation):
+    # isotropic elastodynamics rho u_tt = div(gamma sigma), sigma = lam tr(eps) I
+    # + 2 mu eps; the design field gamma scales inertia and stiffness together, so
+    # a uniform gamma cancels and only its gradients scatter (like the scalar case)
+    density: float = None  # background density rho0
+    lame_lambda: float = None  # first Lame parameter
+    lame_mu: float = None  # second Lame parameter (shear modulus)
+
+    compile_flags = ("-DFORMULATION_ELASTIC",)
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.ncomp = self.ndim
+        if None in (self.density, self.lame_lambda, self.lame_mu):
+            raise ValueError("elastic_simulation requires density, lame_lambda, lame_mu")
+        if self.ndim not in (2, 3):
+            raise ValueError("elastic_simulation supports NDIM in {2, 3}")
+
+    def frechet_coefficients(self):
+        return -self.density, self.lame_lambda, self.lame_mu  # coef_t, lam, mu
+
+    def build_materials(self, indicator, damping=None):
+        return {"gamma": indicator}
+
+    def step_factors(self):
+        return [self.dtype(1.0 / dxk) for dxk in self.dx]  # inverse spacing per axis
+
+    def step_kernel_args(self, mat):
+        return (mat["gamma"], np.int32(self.comp_stride), self.dtype(self.lame_lambda),
+                self.dtype(self.lame_mu), self.dtype(self.density), self.dtype(self.dt**2))
+
+    def excitation_params(self, mat):
+        return mat["gamma"], self.dtype(self.dt**2 / self.density)  # dt^2 / (rho gamma)
 
 
 def compile_kernels(sim, path=KERNEL_PATH):
@@ -189,9 +228,13 @@ def define_homogeneous_Neumann_BC(sim, kernels):
     for d in range(1, sim.ndim):
         geom += [sim.Nx[d], sim.strides[d - 1]]
 
+    # each displacement component is mirrored independently: component-wise
+    # homogeneous Neumann is the simple reflective wall for the vector formulation
     def bc_step(u):
-        for axis, grid, block in launches:
-            bc_kernel(grid, block, (u, axis, *geom))
+        for c in range(sim.ncomp):
+            uc = u[c]
+            for axis, grid, block in launches:
+                bc_kernel(grid, block, (uc, axis, *geom))
         return u
 
     return bc_step
@@ -205,7 +248,7 @@ def linear_indices(sim, position):
     return lin
 
 
-def define_excitation(sim, position, kernels, mat):
+def define_excitation(sim, position, kernels, mat, component=0):
     excitation_kernel = kernels.get_function("excitation_kernel")
     threads = 256
     num_sources = position.shape[1]
@@ -217,14 +260,14 @@ def define_excitation(sim, position, kernels, mat):
         excitation_kernel(
             (blocks,),
             (threads,),
-            (u, signal[t_index], lin_index, num_sources, dt2, scale),
+            (u[component], signal[t_index], lin_index, num_sources, dt2, scale),
         )
         return u
 
     return excitation_step
 
 
-def define_get_signal(sim, sensors, kernels):
+def define_get_signal(sim, sensors, kernels, component=0):
     get_signal_kernel = kernels.get_function("get_signal_kernel")
     threads = 256
     num_sensors = sensors.shape[1]
@@ -232,25 +275,29 @@ def define_get_signal(sim, sensors, kernels):
     lin_index = linear_indices(sim, sensors)
 
     def get_signal_step(u, um_t):
-        get_signal_kernel((blocks,), (threads,), (u, um_t, lin_index, num_sensors))
+        get_signal_kernel((blocks,), (threads,), (u[component], um_t, lin_index, num_sensors))
         return um_t
 
     return get_signal_step
 
 
-def simulate(sim, source, indicator, damping=None, sensors=None, record_every=None):
-    U = cp.zeros((2, *sim.Nx_padded), dtype=sim.dtype)
+def simulate(sim, source, indicator, damping=None, sensors=None, record_every=None,
+             sensor_component=0):
+    # field carries sim.ncomp components (1 for scalar/acoustic, ndim for elastic);
+    # the component axis collapses transparently so scalar callers see a plain field
+    U = cp.zeros((2, sim.ncomp, *sim.Nx_padded), dtype=sim.dtype)
     u0, u1 = U[0], U[1]
 
     mat = sim.build_materials(indicator, damping)
     kernels = compile_kernels(sim)
     fd_step = define_step_method(sim, kernels, mat)
     bc_step = define_homogeneous_Neumann_BC(sim, kernels)
-    excitation_step = define_excitation(sim, source.position, kernels, mat)
+    excitation_step = define_excitation(sim, source.position, kernels, mat, source.component)
     if sensors is not None:
-        get_signal = define_get_signal(sim, sensors, kernels)
+        get_signal = define_get_signal(sim, sensors, kernels, sensor_component)
         um = cp.zeros((sim.N, sensors.shape[1]), dtype=sim.dtype)
     interior = tuple(slice(0, n) for n in sim.Nx)
+    field = lambda u: u[0][interior] if sim.ncomp == 1 else u[(slice(None), *interior)]
     snapshots = []
 
     for t in tqdm(range(sim.N)):
@@ -261,12 +308,12 @@ def simulate(sim, source, indicator, damping=None, sensors=None, record_every=No
         if sensors is not None:
             um[t] = get_signal(u1, um[t])
         if record_every is not None and t % record_every == 0:
-            snapshots.append(u1[interior].get())
+            snapshots.append(field(u1).get())
 
     if sensors is not None and record_every is not None:
-        return u1[interior], um, np.stack(snapshots)
+        return field(u1), um, np.stack(snapshots)
     if sensors is not None:
-        return u1[interior], um
+        return field(u1), um
     if record_every is not None:
-        return u1[interior], np.stack(snapshots)
-    return u1[interior]
+        return field(u1), np.stack(snapshots)
+    return field(u1)

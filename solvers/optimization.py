@@ -10,15 +10,13 @@ Three reusable pieces:
 * :class:`StructuredFEM` / :class:`ComplexStructuredFEM` -- the forward solvers,
   sharing the :class:`_StructuredFEM` assembly core (dimension-agnostic grid<->element
   reshaping and the design-independent free-dof sparsity, so a SIMP loop assembles by
-  gather + segmented sum into fixed CSC). ``StructuredFEM`` adds a real SPD solve with
-  one reused CHOLMOD factorization; ``ComplexStructuredFEM`` adds a complex Helmholtz
-  system ``a K + b M`` solved with a fresh sparse LU each design. The ``Pardiso*``
-  variants are drop-in replacements backed by MKL pardiso (``solvers/mklwrapper.py``),
-  which analyzes the sparsity once and only refactorizes as the design changes --
-  multithreaded, so keep OPENBLAS pinned to one thread to avoid oversubscription.
-  ``CGStructuredFEM`` drops the factorization entirely and solves each design with
-  Jacobi-preconditioned CG (mlhp on the CPU or cupyx on the GPU), warm-started
-  from the previous design's solution.
+  gather + segmented sum into fixed CSC). Both solve with MKL pardiso
+  (``solvers/mklwrapper.py``), which analyzes the sparsity once and only refactorizes
+  as the design changes: ``StructuredFEM`` the real SPD system, ``ComplexStructuredFEM``
+  the complex Helmholtz system ``a K + b M``. Pardiso is multithreaded, so keep OPENBLAS
+  pinned to one thread to avoid oversubscription. ``CGStructuredFEM`` drops the
+  factorization entirely and solves each design with Jacobi-preconditioned CG (mlhp on
+  the CPU or cupyx on the GPU), warm-started from the previous design's solution.
 * :class:`DensityFilter` and :func:`projection` / :func:`dprojection` -- the
   regularization: conic density filtering (with its adjoint and the classic OC
   sensitivity variant) and the smoothed-Heaviside projection pair.
@@ -28,7 +26,6 @@ import math
 
 import numpy as np
 import scipy.sparse
-import scipy.sparse.linalg
 
 # asymptote heuristics (Svanberg's defaults): initial span, shrink/grow factors,
 # span bounds, and the small terms keeping the approximation strictly convex
@@ -244,52 +241,12 @@ class _StructuredFEM:
 class StructuredFEM(_StructuredFEM):
     """Penalized real-SPD FEM assemble-and-solve on a structured grid, free dofs only.
 
-    One symbolic CHOLMOD factorization is reused across the SIMP loop; each call
-    refreshes only the matrix values as the design changes. ``K_locals`` are the
-    unit-material element matrices, so the same object serves scalar (heat) and
-    vector (elasticity) problems. See :class:`_StructuredFEM` for the shared arguments.
-    """
-
-    def __init__(self, efts, free, ndof, K_locals, grid_shape, sub_voxels=1):
-        super().__init__(efts, free, ndof, grid_shape, sub_voxels)
-        import cvxopt
-        import cvxopt.cholmod
-
-        self._cvxopt = cvxopt
-        self._cholmod = cvxopt.cholmod
-        self.K_locals = K_locals
-
-        # the sparsity is design-independent, so factor it symbolically once
-        K_free = self.assemble(np.ones(self.grid_shape), K_locals)
-        self._A = cvxopt.spmatrix(
-            cvxopt.matrix(K_free.data),
-            cvxopt.matrix(K_free.indices.tolist()),
-            cvxopt.matrix(np.repeat(np.arange(self.nfree), np.diff(K_free.indptr)).tolist()),
-            (self.nfree, self.nfree),
-        )
-        self._factor = cvxopt.cholmod.symbolic(self._A)
-
-    def solve(self, material, rhs_free, spring_diag=None):  # K(material) u = rhs, free dofs
-        data = self.assemble(material, self.K_locals).data
-        if spring_diag is not None:  # add nodal springs onto the diagonal (mechanisms)
-            data[self._diag_idx] += spring_diag
-        self._A.V = self._cvxopt.matrix(data)
-        self._cholmod.numeric(self._A, self._factor)
-        b = self._cvxopt.matrix(np.asarray(rhs_free, dtype=float))
-        self._cholmod.solve(self._factor, b)  # rhs_free may stack several rhs columns
-        return np.array(b).ravel() if np.ndim(rhs_free) == 1 else np.array(b)
-
-    def element_energy(self, u):  # grid-shaped unit-material energy u^T K_local u
-        return self.bilinear(self.K_locals, u, u)
-
-
-class PardisoStructuredFEM(_StructuredFEM):
-    """Drop-in :class:`StructuredFEM` variant backed by MKL pardiso.
-
-    Pardiso registers its analysis on the first assembled system and only
-    refactorizes as the design changes, mirroring the CHOLMOD symbolic reuse.
-    Pardiso runs on MKL threads, so drivers should pin OPENBLAS to one thread
-    instead of pinning everything. See :class:`StructuredFEM` for the arguments.
+    Backed by MKL pardiso: it registers its analysis on the first assembled system
+    and only refactorizes as the design changes, so each SIMP step refreshes just the
+    matrix values. ``K_locals`` are the unit-material element matrices, so the same
+    object serves scalar (heat) and vector (elasticity) problems. Pardiso runs on MKL
+    threads, so drivers should pin OPENBLAS to one thread. See :class:`_StructuredFEM`
+    for the shared arguments.
     """
 
     def __init__(self, efts, free, ndof, K_locals, grid_shape, sub_voxels=1):
@@ -392,20 +349,24 @@ class CGStructuredFEM(_StructuredFEM):
 
 
 class ComplexStructuredFEM(_StructuredFEM):
-    """Complex Helmholtz assemble-and-solve on a structured grid.
+    """Complex Helmholtz assemble-and-solve on a structured grid, backed by MKL pardiso.
 
     The system ``S = a K + b M`` mixes a stiffness (K) and a mass (M) element matrix,
     each scaled by its own per-voxel coefficient field, with ``b`` allowed complex
-    (e.g. a damped ``-(i omega eta + omega^2) kappa^-1``). S is complex and indefinite,
-    so it is refactored with a fresh sparse LU each design -- there is no symbolic
-    reuse to exploit as in the real SPD case. The constant ``dS/dvar`` operator is left
-    to the caller, who builds it from ``K_locals``/``M_locals`` and feeds it to
+    (e.g. a damped ``-(i omega eta + omega^2) kappa^-1``). Its sparsity is
+    design-independent, so pardiso analyzes it once and only refactorizes per design
+    (complex structurally symmetric). The constant ``dS/dvar`` operator is left to the
+    caller, who builds it from ``K_locals``/``M_locals`` and feeds it to
     :meth:`bilinear` for the adjoint sensitivity. See :class:`_StructuredFEM` for the
     shared arguments.
     """
 
     def __init__(self, efts, free, ndof, K_locals, M_locals, grid_shape, sub_voxels=1):
         super().__init__(efts, free, ndof, grid_shape, sub_voxels)
+        from solvers.mklwrapper import pardisoFactorize
+
+        self._pardiso = pardisoFactorize
+        self._factor = None
         self.K_locals = K_locals
         self.M_locals = M_locals
 
@@ -413,26 +374,6 @@ class ComplexStructuredFEM(_StructuredFEM):
         return (
             self.assemble(coeff_k, self.K_locals) + self.assemble(coeff_m, self.M_locals)
         ).tocsc()
-
-    def factorize(self, matrix):  # complex sparse LU (no symbolic reuse across designs)
-        return scipy.sparse.linalg.splu(matrix)
-
-
-class PardisoComplexStructuredFEM(ComplexStructuredFEM):
-    """Drop-in :class:`ComplexStructuredFEM` variant backed by MKL pardiso.
-
-    The sparsity of ``a K + b M`` is design-independent, so pardiso analyzes it once
-    and only refactorizes per design (complex structurally symmetric) -- unlike the
-    fresh sparse LU scipy needs each time. The returned factorization exposes
-    ``.solve`` like scipy's splu. See :class:`ComplexStructuredFEM` for the arguments.
-    """
-
-    def __init__(self, efts, free, ndof, K_locals, M_locals, grid_shape, sub_voxels=1):
-        super().__init__(efts, free, ndof, K_locals, M_locals, grid_shape, sub_voxels)
-        from solvers.mklwrapper import pardisoFactorize
-
-        self._pardiso = pardisoFactorize
-        self._factor = None
 
     def factorize(self, matrix):  # pardiso refactorization on the fixed sparsity
         # S is symmetric, so its CSC transpose is a free CSR view of the same system

@@ -1,12 +1,13 @@
 import argparse
+import math
 import time
 from pathlib import Path
 
 import cupy as cp
+import cupyx.scipy.ndimage as ndi
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-
 from analog_rnn_fixture import (
     RESOLUTION,
     N,
@@ -21,8 +22,8 @@ from analog_rnn_fixture import (
     sponge,
     to_index,
 )
+
 from postprocessing import save_csv, save_temp_fig
-from solvers.optimization import DensityFilter, dprojection, projection
 from solvers.wave import (
     compile_kernels,
     define_excitation,
@@ -54,22 +55,42 @@ DESIGN_X = (50.0, 150.0)  # wider (20, 180) plateaued at 0.93 accuracy for 5/cla
 # DESIGN_X = (20.0, 180.0)
 
 # optimization
-SAMPLES_PER_CLASS = 6  # -1 keeps all clips
-BATCH_SIZE = 2
+SAMPLES_PER_CLASS = 4  # 2 #6 # TODO increase to 5-10
+BATCH_SIZE = 1  # 2 #2 #2 # TODO increase to 2
 EPOCHS = 200
 LR = 2e-2
-RMIN = 4.0  # 2.0
-AMPLITUDE_PENALTY = 0.4  # 0.0 -> pure cross-entropy -log p[label]
+RMIN = 2.0  # 4.0 #2.0  # TODO test
+AMPLITUDE_PENALTY = (
+    0.1  # 0.4 #0.0  # magnitude penalty off -> pure cross-entropy -log p[label]
+)
 
 # projection: beta grows slowly (per epoch) so the medium binarizes late in training
 ETA = 0.5
 BETA0 = 1.0
-BETA_GROWTH = 2.0
-BETA_STEP = 16
+BETA_GROWTH = 2.0  # 1.1 #2.0
+BETA_STEP = 16  # 4 #16
 BETA_MAX = 64.0
 
 
-# --------------------------------------- helper --------------------------------------
+# -------------------------------------- helper ---------------------------------------
+def density_filter(x):
+    return ndi.convolve(x, KERNEL, mode="constant", cval=0.0) / HS
+
+
+def filter_adjoint(g):
+    return ndi.convolve(g / HS, KERNEL, mode="constant", cval=0.0)
+
+
+def projection(x, beta, eta):
+    a, b = math.tanh(beta * eta), math.tanh(beta * (1.0 - eta))
+    return (a + cp.tanh(beta * (x - eta))) / (a + b)
+
+
+def dprojection(x, beta, eta):
+    a, b = math.tanh(beta * eta), math.tanh(beta * (1.0 - eta))
+    return beta * (1.0 - cp.tanh(beta * (x - eta)) ** 2) / (a + b)
+
+
 def physical(xval, beta):
     full = cp.zeros(sim.Nx_padded, dtype=sim.dtype).ravel()
     full[active] = cp.asarray(xval.ravel(), dtype=sim.dtype)
@@ -105,7 +126,14 @@ design[x_lo:x_hi, y_lo:y_hi] = 1.0
 active = cp.where(design.ravel() > 0)[0]
 
 # conic density filter
-density_filter = DensityFilter(RMIN, sim.Nx_padded, xp=cp, dtype=sim.dtype)
+ceil_r = int(math.ceil(RMIN))
+ki, kj = cp.meshgrid(
+    cp.arange(-ceil_r, ceil_r + 1), cp.arange(-ceil_r, ceil_r + 1), indexing="ij"
+)
+KERNEL = cp.maximum(0.0, RMIN - cp.sqrt(ki**2 + kj**2)).astype(sim.dtype)
+HS = ndi.convolve(
+    cp.ones(sim.Nx_padded, dtype=sim.dtype), KERNEL, mode="constant", cval=0.0
+)
 
 beta_of = lambda epoch: min(BETA0 * BETA_GROWTH ** (epoch // BETA_STEP), BETA_MAX)
 
@@ -162,7 +190,12 @@ for epoch in range(EPOCHS):
             w = float(class_weights[label])
             source = setup_source(source_position, signals[i])
             loss, probs, grad = compute_sensitivity_classification(
-                sim, gamma, source, sensors, sponge, label,
+                sim,
+                gamma,
+                source,
+                sensors,
+                sponge,
+                label,
                 amplitude_penalty=AMPLITUDE_PENALTY,
             )
             grad_gamma += w * grad
@@ -171,7 +204,7 @@ for epoch in range(EPOCHS):
         grad_gamma /= len(batch)
 
         dpx = dprojection(x_tilde, beta, ETA) * design
-        grad_obj = density_filter.adjoint(grad_gamma * dpx).ravel()[active].get()
+        grad_obj = filter_adjoint(grad_gamma * dpx).ravel()[active].get()
 
         grad_scale = np.abs(grad_obj).max() if grad_scale is None else grad_scale
         x.grad = torch.as_tensor(grad_obj / grad_scale, dtype=x.dtype, device=device)

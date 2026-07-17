@@ -6,8 +6,8 @@ import cmasher as cmr
 import cupy as cp
 import matplotlib.pyplot as plt
 import numpy as np
-
 from numeric import sineburst
+
 from solvers.wave import scalar_simulation, setup_source, simulate
 
 BASE_DIR = Path(__file__).parent
@@ -57,7 +57,9 @@ source_pos = cp.asarray(source_pos, dtype=cp.int32)
 
 t = np.linspace(0, (N - 1) * dt, N)
 signal_np = sineburst(t, AMPLITUDE, frequency, CYCLES) / np.prod(dx)  # for the dirac
-signal = cp.asarray(np.tile(signal_np[:, None], (1, source_pos.shape[1])), dtype=sim.dtype)
+signal = cp.asarray(
+    np.tile(signal_np[:, None], (1, source_pos.shape[1])), dtype=sim.dtype
+)
 source = setup_source(source_pos, signal)
 
 indicator_padded = cp.ones(sim.Nx_padded, dtype=sim.dtype)

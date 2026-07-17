@@ -39,18 +39,31 @@ def sponge_indices(sim, damping):
 def define_integrand(sim, kernels):
     integrand_kernel = kernels.get_function("integrand_step_kernel")
     grid, block = grid_block(sim)
-    coef_t, coef_grad = sim.frechet_coefficients()
     geom = axis_geometry(sim, [sim.dtype(d) for d in sim.dx])
+    coeffs = sim.frechet_coefficients()
 
-    def increment_integrand(kernel, u0, u1, u2, l0, l1, l2, scale):
-        integrand_kernel(grid, block,
-                        (kernel, u0, u1, u2, l0, l1, l2, sim.dtype(sim.dt),
-                         sim.dtype(coef_t), sim.dtype(coef_grad), sim.dtype(scale), *geom))
-        return kernel
+    if sim.ncomp == 1:  # scalar / acoustic: coef_t (du/dt dl/dt) + coef_grad (grad.grad)
+        coef_t, coef_grad = coeffs
+
+        def increment_integrand(kernel, u0, u1, u2, l0, l1, l2, scale):
+            integrand_kernel(grid, block,
+                            (kernel, u0, u1, u2, l0, l1, l2, sim.dtype(sim.dt),
+                             sim.dtype(coef_t), sim.dtype(coef_grad), sim.dtype(scale), *geom))
+            return kernel
+    else:  # elastic: coef_t (du/dt.dl/dt) + eps(u):C:eps(l), C from (lam, mu)
+        coef_t, lam, mu = coeffs
+        cs = np.int32(sim.comp_stride)
+
+        def increment_integrand(kernel, u0, u1, u2, l0, l1, l2, scale):
+            integrand_kernel(grid, block,
+                            (kernel, u0, u1, u2, l0, l1, l2, sim.dtype(sim.dt),
+                             sim.dtype(coef_t), sim.dtype(lam), sim.dtype(mu), cs,
+                             sim.dtype(scale), *geom))
+            return kernel
     return increment_integrand
 
 
-def define_adjoint_source(sim, sensors, kernels):
+def define_adjoint_source(sim, sensors, kernels, component=0):
     adjoint_source_kernel = kernels.get_function("adjoint_source_step_kernel")
     threads = 256
     num_sensors = sensors.shape[1]
@@ -59,14 +72,17 @@ def define_adjoint_source(sim, sensors, kernels):
 
     def adjoint_source(fadjoint, fadjoint_squared, u, um_t):
         adjoint_source_kernel((blocks,), (threads,),
-                              (fadjoint, fadjoint_squared, u, um_t, lin_index, num_sensors))
+                              (fadjoint, fadjoint_squared, u[component], um_t, lin_index,
+                               num_sensors))
         return fadjoint, fadjoint_squared
     return adjoint_source
 
 
 def compute_subtracted_kernels(subtracted_kernels, sim, source, indicator,
-                               um, sensors, k_factor):
-    U = cp.zeros((3, *sim.Nx_padded), dtype=sim.dtype)
+                               um, sensors, k_factor, sensor_component=0):
+    # subtracted_kernels is the per-node design sensitivity (scalar over Nx_padded)
+    # even for the elastic formulation; the field carries sim.ncomp components
+    U = cp.zeros((3, sim.ncomp, *sim.Nx_padded), dtype=sim.dtype)
     u0, u1, u2 = U[0], U[1], U[2]
     num_sensors = sensors.shape[1]
 
@@ -77,10 +93,10 @@ def compute_subtracted_kernels(subtracted_kernels, sim, source, indicator,
     sens_kernels = compile_kernels(sim, SENS_KERNEL_PATH)
 
     increment_integrand = define_integrand(sim, sens_kernels)
-    adjoint_source = define_adjoint_source(sim, sensors, sens_kernels)
+    adjoint_source = define_adjoint_source(sim, sensors, sens_kernels, sensor_component)
     fd_step = define_step_method(sim, kernels, mat)
     bc_step = define_homogeneous_Neumann_BC(sim, kernels)
-    excitation_step = define_excitation(sim, source.position, kernels, mat)
+    excitation_step = define_excitation(sim, source.position, kernels, mat, source.component)
 
     fadjoint = cp.zeros((sim.N, num_sensors), dtype=sim.dtype)
     fadjoint_squared = cp.zeros(num_sensors, dtype=sim.dtype)
@@ -98,8 +114,8 @@ def compute_subtracted_kernels(subtracted_kernels, sim, source, indicator,
         u0, u1, u2 = u1, u2, u0
 
     fadjoint *= sim.dtype(k_factor)
-    adjoint = setup_source(sensors, fadjoint)
-    adjoint_excitation = define_excitation(sim, adjoint.position, kernels, mat)
+    adjoint = setup_source(sensors, fadjoint, sensor_component)
+    adjoint_excitation = define_excitation(sim, adjoint.position, kernels, mat, sensor_component)
 
     # backward simulation of the superposed field u^s = u + k u^dagger;
     # accumulate K(u^s, u^s) (reversibility lets us re-integrate without storing u)
@@ -143,21 +159,23 @@ def _sensitivity_pml_core(sim, design, source, sensors, um, sponge, num_sources,
     fd_damped = define_step_method(sim, kernels, mat_damped)
     fd_lossless = define_step_method(sim, kernels, mat_lossless)
     bc_step = define_homogeneous_Neumann_BC(sim, kernels)
-    excitation_step = define_excitation(sim, source.position, kernels, mat_damped)
+    excitation_step = define_excitation(sim, source.position, kernels, mat_damped,
+                                        source.component)
     get_signal = define_get_signal(sim, sensors, kernels)
     increment_integrand = define_integrand(sim, sens_kernels)
     adjoint_source = define_adjoint_source(sim, sensors, sens_kernels)
 
     # forward pass: damped sim, record the strip over time + the final two snapshots,
-    # the per-step sensor residuals (reversed for the adjoint), and the cost
-    U = cp.zeros((3, *sim.Nx_padded), dtype=sim.dtype)
+    # the per-step sensor residuals (reversed for the adjoint), and the cost. fields
+    # carry sim.ncomp components (1 for scalar/acoustic); strip/seed act per component
+    U = cp.zeros((3, sim.ncomp, *sim.Nx_padded), dtype=sim.dtype)
     u0, u1, u2 = U[0], U[1], U[2]
     strip_store = cp.zeros((sim.N, n_strip), dtype=sim.dtype)
     fadjoint = cp.zeros((sim.N, num_sensors), dtype=sim.dtype)
     fadjoint_squared = cp.zeros(num_sensors, dtype=sim.dtype)
     um_t = cp.zeros(num_sensors, dtype=sim.dtype)
-    seed_last = cp.zeros(sim.Nx_padded, dtype=sim.dtype)
-    seed_prev = cp.zeros(sim.Nx_padded, dtype=sim.dtype)
+    seed_last = cp.zeros((sim.ncomp, *sim.Nx_padded), dtype=sim.dtype)
+    seed_prev = cp.zeros((sim.ncomp, *sim.Nx_padded), dtype=sim.dtype)
 
     for t in range(sim.N):
         u2 = fd_damped(u0, u1, u2)
@@ -183,11 +201,11 @@ def _sensitivity_pml_core(sim, design, source, sensors, um, sponge, num_sources,
     # backward pass: reconstruct the lossless interior (source re-injected in reverse
     # time, strip replayed from storage) while propagating the absorbed adjoint field,
     # accumulating the bilinear Frechet kernel K(u, lambda)
-    R = cp.zeros((3, *sim.Nx_padded), dtype=sim.dtype)
+    R = cp.zeros((3, sim.ncomp, *sim.Nx_padded), dtype=sim.dtype)
     r0, r1, r2 = R[0], R[1], R[2]
     r0[...] = seed_last                                # u at t = N - 1
     r1[...] = seed_prev                                # u at t = N - 2
-    L = cp.zeros((3, *sim.Nx_padded), dtype=sim.dtype)
+    L = cp.zeros((3, sim.ncomp, *sim.Nx_padded), dtype=sim.dtype)
     l0, l1, l2 = L[0], L[1], L[2]
 
     kernel = cp.zeros(sim.Nx_padded, dtype=sim.dtype)

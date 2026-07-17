@@ -61,6 +61,22 @@ topology-optimization drivers built on top of them.
 `waveND.py`
     Scalar wave equation via the finite-difference CuPy wave solver.
 
+`wave_3Dblock.py`
+    Ultrasonic through-transmission of a scalar wave across a concrete block with a
+    drilled duct, showing the void scattering the field.
+
+`wave_3Dblock_gradient.py`
+    Sensitivity of the received energy to the material field for the same block,
+    from the lossless superposition adjoint of the CuPy FD wave solver.
+
+`wave_3Dblock_elastic.py`
+    The same block driven by the isotropic elastic wave equation (vector
+    displacement, P and S waves), with the duct as a soft scatterer.
+
+`wave_3Dblock_elastic_gradient.py`
+    Elastic counterpart of the block sensitivity: received-energy gradient with
+    respect to the material field via the same superposition adjoint.
+
 `heatND.py`
     Implicit (backward-Euler) transient heat conduction on an N-D mlhp
     finite-element mesh; an initial hot-spot diffuses to zero.
@@ -84,12 +100,6 @@ topology-optimization drivers built on top of them.
 `topopt_helmholtz2D.py`
     Ceiling acoustic topology optimization minimizing the mean square pressure in a
     quiet box (time-harmonic, own complex FEM assembly, Adam on the adjoint gradient).
-
-`topopt_elasticity2D_pardiso.py`, `topopt_poisson2D_pardiso.py`,
-`topopt_mechanism2D_pardiso.py`, `topopt_helmholtz2D_pardiso.py`
-    The same four drivers solved with MKL pardiso (solvers/mklwrapper.py) instead of
-    CHOLMOD/splu: one analysis of the design-independent sparsity, refactorization per
-    design. Largest gain for the complex Helmholtz system (about 6x per iteration).
 
 `topopt_elasticity2D_cg.py`
     The MBB driver solved with Jacobi-preconditioned conjugate gradients instead of a

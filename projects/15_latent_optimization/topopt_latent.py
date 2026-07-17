@@ -1,8 +1,8 @@
 import argparse
 import os
 
-# pardiso runs on MKL threads; the numpy assembly is too small for BLAS threads,
-# which would only oversubscribe against MKL's pool
+# pardiso runs on MKL threads; keep the small numpy assembly off BLAS threads so
+# it does not oversubscribe against MKL's pool
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import time
@@ -11,14 +11,22 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import mlhp
 import numpy as np
+import torch
+from torch import nn
 from tqdm import tqdm
 
 from solvers.optimization import DensityFilter, StructuredFEM
 
 BASE_DIR = Path(__file__).parent
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+MODEL_DIR = (BASE_DIR / "../../models").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
-ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_mbb"
+ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_latent"
+
+torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
+device = torch.device("cpu")  # small autoencoder; FEM runs on cpu, so avoid the bounce
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -26,31 +34,67 @@ parser.add_argument("--animate", action="store_true")
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
-# half MBB beam (left edge is the symmetry plane)
-# geometry
-LENGTHS = [4.0, 1.0]
+# half MBB beam optimized inside the fiber-microstructure manifold of an autoencoder:
+# the design is decoded from a latent vector, so it can only be an arrangement of
+# circular fibers. fibers are read as holes, so the matrix stays connected and load-
+# bearing (fibers as material would be disconnected blobs with no load path).
+# geometry (the autoencoder fixes the design grid to a 256 x 256 unit square)
+RESOLUTION = 256
+LENGTHS = [1.0, 1.0]
 
 # discretization
-NX, NY = np.array(LENGTHS).astype(int) * 150
-SUB_VOXELS = 6
+NX, NY = RESOLUTION, RESOLUTION
+SUB_VOXELS = 4
 DEGREE = 3
 QUAD_ORDER = DEGREE + 1  # integration
 
 # physics
-VOLFRAC = 0.5
-PENAL = 3.0
+VOLFRAC = 0.9  # 0.6  # material fraction; the perforated matrix is nearly solid
 RMIN = 2
 E0, EMIN, NU = 1.0, 1e-9, 0.3
 LOAD = -1.0
 
+# SIMP penalisation continuation: ramp the exponent to sharpen the design over time
+PENAL0, PENAL_INC, PENAL_MAX = 3.0, 0.02, 4.0
+
+# volume penalty continuation: grow the quadratic constraint weight with iterations
+PENALTY0, PENALTY_INC, PENALTY_MAX = 1.0, 1.0, 100.0
+
 # postprocessing
 THRESHOLD = 0.5
 
-# optimization (optimality criterion)
-MOVE = 0.2
-DAMPING = 0.5
-MAX_ITER = 500
-CHANGE_TOL = 0.01
+# optimization (Adam on the latent, polynomial lr decay (BETA * iter + 1) ** ALPHA)
+MAX_ITER = 200
+LR = 5e-2
+ALPHA = -0.5
+BETA = 0.1
+CLIP = 0.1  # gradient-norm clipping
+
+# --------------------------- instantiate model & optimizer ---------------------------
+model = torch.load(
+    MODEL_DIR / "fiber_ae_1_256.pt2", weights_only=False, map_location=device
+)
+model.eval()
+standardizer = model.standardizer
+
+# start on the manifold: encode one real fiber sample and optimize its latent code
+seed = torch.from_numpy(np.load(DATA_DIR / "fibers_256.npy")[0]).float()
+seed = seed.reshape(1, 1, NX, NY).to(device)
+with torch.no_grad():
+    latent = nn.Parameter(model.encode(standardizer(seed)))
+
+
+def forward():  # latent -> decoded fibers -> material density (fibers are holes)
+    fibers = standardizer.inverse(model.decode(latent))
+    return (1.0 - fibers).clamp(0.0, 1.0)
+
+
+rho_init = forward()[0, 0].detach().cpu().numpy()  # decoded starting design
+
+optimizer = torch.optim.Adam([latent], lr=LR)
+scheduler = torch.optim.lr_scheduler.LambdaLR(
+    optimizer, lambda it: (BETA * it + 1) ** ALPHA
+)
 
 # ---------------------------------------- mesh ---------------------------------------
 assert NX % SUB_VOXELS == 0 and NY % SUB_VOXELS == 0, (
@@ -107,46 +151,49 @@ fem = StructuredFEM(efts, free, ndof, K_locals, (NX, NY), SUB_VOXELS)
 
 
 def simp(rho):  # SIMP stiffness interpolation between void and solid
-    return EMIN + rho**PENAL * (E0 - EMIN)
+    return EMIN + rho**penal * (E0 - EMIN)
 
 
 # ----------------------------------- density filter ----------------------------------
 density_filter = DensityFilter(RMIN, (NX, NY))
 
 # ------------------------------------ optimization -----------------------------------
-rho = np.full((NX, NY), VOLFRAC)
-history = []
+penal = PENAL0
+penalty = PENALTY0
+compliance0 = None
 
 if args.animate:
     ANIMATION_DIR.mkdir(parents=True, exist_ok=True)
 tic = time.time()
 pbar = tqdm(range(MAX_ITER))
 for it in pbar:
+    rho_ = forward()
+    rho = rho_[0, 0].detach().cpu().numpy()
+
     u = np.zeros(ndof)
     u[free] = fem.solve(simp(rho), force_free)
     compliance = force @ u
+    if compliance0 is None:
+        compliance0 = compliance  # normalise the compliance sensitivity once
 
-    # compliance sensitivity, mapped back to the design grid
-    dc = -PENAL * rho ** (PENAL - 1) * (E0 - EMIN) * fem.element_energy(u)
+    # compliance sensitivity on the design grid, then the classic sensitivity filter
+    dc = -penal * rho ** (penal - 1) * (E0 - EMIN) * fem.element_energy(u)
     dc = density_filter.sensitivity(rho, dc)
 
-    # optimality criterion update with bisection on the volume multiplier
-    base = rho * np.maximum(0.0, -dc) ** DAMPING
-    lo = np.maximum(0.0, rho - MOVE)
-    hi = np.minimum(1.0, rho + MOVE)
-    l1, l2 = 0.0, 1e9
-    while (l2 - l1) / (l1 + l2) > 1e-4:
-        lmid = 0.5 * (l1 + l2)
-        rho_new = np.clip(base / lmid**DAMPING, lo, hi)
-        if rho_new.mean() > VOLFRAC:
-            l1 = lmid
-        else:
-            l2 = lmid
+    # quadratic volume penalty: (mean_rho / VOLFRAC - 1) ** 2, weight grows each iter
+    mean_rho = rho.mean()
+    dv = 2 * (mean_rho / VOLFRAC - 1) / (VOLFRAC * NX * NY)
+    sensitivity = dc / compliance0 + penalty * dv
 
-    change = np.abs(rho_new - rho).max()
-    rho = rho_new
-    history.append(compliance)
-    pbar.set_postfix({"c": f"{compliance:.3e}", "change": f"{change:.2e}"})
+    optimizer.zero_grad()
+    rho_.backward(torch.from_numpy(sensitivity).reshape(1, 1, NX, NY).to(device))
+    torch.nn.utils.clip_grad_norm_([latent], CLIP)
+    optimizer.step()
+    scheduler.step()
+
+    penal = min(penal + PENAL_INC, PENAL_MAX)
+    penalty = min(penalty + PENALTY_INC, PENALTY_MAX)
+    pbar.set_postfix(c=f"{compliance:.2e}", vol=f"{mean_rho:.3f}", p=f"{penal:.2f}")
 
     if args.animate:
         fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
@@ -156,14 +203,8 @@ for it in pbar:
         plt.savefig(ANIMATION_DIR / f"frame_{it:d}.jpg")
         plt.close()
 
-    if change < CHANGE_TOL:
-        break
-
 toc = time.time()
-print(
-    f"elapsed time {toc - tic:.2f} s for {it} iter\n"
-    f"time per iter {(toc - tic) / it:.2e} s"
-)
+print(f"elapsed time {toc - tic:.2f} s for {MAX_ITER} iter")
 
 # ----------------------------------- postprocessing ----------------------------------
 rho_thresh = (rho > THRESHOLD).astype(float)
@@ -174,44 +215,30 @@ compliance_thresh = force @ u
 print(f"thresholded  c {compliance_thresh:.3e} vol {rho_thresh.mean():.3f}")
 
 if not args.book and not args.animate:
-    for field, name in ((rho, "topopt_mbb"), (rho_thresh, "topopt_mbb_thresh")):
+    for field in (rho_init, rho, rho_thresh):
         fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
         ax.imshow(
             field.T, origin="lower", cmap="binary", vmin=0.0, vmax=1.0, alpha=field.T
         )
+        ax.set_aspect("equal")
         ax.axis("off")
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         plt.show()
-
-# y-displacement evaluated on the thresholded structure (void left transparent)
-indicator_field = mlhp.scalarFieldFromVoxelData(
-    mlhp.FloatVector(rho_thresh.ravel("C").astype(np.float32)),
-    nvoxels=[NX, NY],
-    lengths=LENGTHS,
-)
-processors = [
-    mlhp.solutionProcessor(2, mlhp.DoubleVector(u.tolist()), "Displacement"),
-    mlhp.functionProcessor(indicator_field, "Indicator"),
-]
-postmesh = mlhp.gridCellMesh([DEGREE + 2, DEGREE + 2])
-acc = mlhp.DataAccumulator()
-mlhp.basisOutput(basis, postmesh, acc, processors)
-
-uy = np.array(acc.data()[0])[1::2]
-indicator = np.array(acc.data()[1])
-tri = acc.triangulation()
-tri.set_mask(indicator[tri.triangles].mean(axis=1) < 0.5)
-
-fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
-ax.tricontourf(tri, uy, cmap="turbo", levels=64)
-ax.set_aspect("equal")
-ax.axis("off")
-ax.set_rasterized(True)  # vectorized pdf too large at this mesh density
-fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-if args.book:
-    plt.savefig(RGB_PDF_DIR / "topopt_mbb_uy.pdf", transparent=True)
-    plt.close()
-elif not args.animate:
-    plt.show()
-else:
-    plt.close()
+# -------------------------------- book postprocessing --------------------------------
+elif args.book:
+    fields = (
+        (rho_init, "topopt_latent_init"),
+        (rho, "topopt_latent"),
+        (rho_thresh, "topopt_latent_thresh"),
+    )
+    for field, name in fields:
+        fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
+        ax.imshow(
+            field.T, origin="lower", cmap="binary", vmin=0.0, vmax=1.0, alpha=field.T
+        )
+        ax.set_aspect("equal")
+        ax.axis("off")
+        ax.set_rasterized(True)
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        plt.savefig(RGB_PDF_DIR / f"{name}.pdf", transparent=True)
+        plt.close()

@@ -1,9 +1,8 @@
 import argparse
 import os
 
-# small system: single-threaded BLAS beats multithreaded spawn overhead
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
+# pardiso runs on MKL threads; the numpy assembly is too small for BLAS threads,
+# which would only oversubscribe against MKL's pool
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import time
@@ -17,7 +16,12 @@ import scipy.sparse
 import torch
 from tqdm import tqdm
 
-from solvers.optimization import ComplexStructuredFEM, DensityFilter, dprojection, projection
+from solvers.optimization import (
+    ComplexStructuredFEM,
+    DensityFilter,
+    dprojection,
+    projection,
+)
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()

@@ -22,6 +22,76 @@ extern "C"
 
 // -----------------------------------------------------------------------
 
+#ifdef FORMULATION_ELASTIC
+// Elastic Frechet kernel: the design field gamma scales inertia and stiffness
+// alike (see wave.cu), so its sensitivity density is the kinetic minus strain
+// bilinear    coef_t (du/dt).(dlambda/dt) + eps(u):C:eps(lambda)
+// with coef_t = -rho, C the isotropic tensor (lam, mu), and the displacement
+// stored as NDIM component blocks of comp_stride (cs). Central differences at
+// the node; l aliased to u recovers the quadratic form for the superposition
+// variant.
+__global__ void integrand_step_kernel(real_t* __restrict__ kernel,
+                                      const real_t* __restrict__ u0,
+                                      const real_t* __restrict__ u1,
+                                      const real_t* __restrict__ u2,
+                                      const real_t* __restrict__ l0,
+                                      const real_t* __restrict__ l1,
+                                      const real_t* __restrict__ l2,
+                                      const real_t dt, const real_t coef_t,
+                                      const real_t lam, const real_t mu,
+                                      const int cs, const real_t scale,
+                                      const real_t dx0, const int N0
+#if NDIM >= 2
+                                      , const real_t dx1, const int N1, const int s0
+#endif
+#if NDIM >= 3
+                                      , const real_t dx2, const int N2, const int s1
+#endif
+                                      ){
+#if NDIM == 2
+    const int a1 = blockIdx.x * blockDim.x + threadIdx.x;
+    const int a0 = blockIdx.y * blockDim.y + threadIdx.y;
+    if(!(a0 > 0 && a0 < N0 - 1 && a1 > 0 && a1 < N1 - 1)) return;
+    const int idx = a0 * s0 + a1;
+    const int o[2] = {s0, 1};
+    const real_t hidx[2] = {0.5f / dx0, 0.5f / dx1};
+#elif NDIM == 3
+    const int a2 = blockIdx.x * blockDim.x + threadIdx.x;
+    const int a1 = blockIdx.y * blockDim.y + threadIdx.y;
+    const int a0 = blockIdx.z * blockDim.z + threadIdx.z;
+    if(!(a0 > 0 && a0 < N0 - 1 && a1 > 0 && a1 < N1 - 1 && a2 > 0 && a2 < N2 - 1)) return;
+    const int idx = a0 * s0 + a1 * s1 + a2;
+    const int o[3] = {s0, s1, 1};
+    const real_t hidx[3] = {0.5f / dx0, 0.5f / dx1, 0.5f / dx2};
+#endif
+
+    real_t gu[NDIM][NDIM], gl[NDIM][NDIM];
+#pragma unroll
+    for(int c = 0; c < NDIM; ++c)
+#pragma unroll
+        for(int a = 0; a < NDIM; ++a){
+            gu[c][a] = (u1[c * cs + idx + o[a]] - u1[c * cs + idx - o[a]]) * hidx[a];
+            gl[c][a] = (l1[c * cs + idx + o[a]] - l1[c * cs + idx - o[a]]) * hidx[a];
+        }
+    real_t thu = 0.f, thl = 0.f;
+#pragma unroll
+    for(int k = 0; k < NDIM; ++k){ thu += gu[k][k]; thl += gl[k][k]; }
+    real_t ee = 0.f;
+#pragma unroll
+    for(int i = 0; i < NDIM; ++i)
+#pragma unroll
+        for(int j = 0; j < NDIM; ++j)
+            ee += 0.25f * (gu[i][j] + gu[j][i]) * (gl[i][j] + gl[j][i]);
+    real_t kin = 0.f;
+#pragma unroll
+    for(int i = 0; i < NDIM; ++i)
+        kin += (u2[i * cs + idx] - u0[i * cs + idx]) * (l2[i * cs + idx] - l0[i * cs + idx]);
+    kin *= coef_t / (4.f * dt * dt);
+
+    kernel[idx] += scale * (kin + lam * thu * thl + 2.f * mu * ee);
+}
+#else
+
 __global__ void integrand_step_kernel(real_t* __restrict__ kernel,
                                       const real_t* __restrict__ u0,
                                       const real_t* __restrict__ u1,
@@ -79,6 +149,7 @@ __global__ void integrand_step_kernel(real_t* __restrict__ kernel,
 
     kernel[idx] += scale * (coef_t * dudt * dldt + coef_grad * graddot);
 }
+#endif // FORMULATION_ELASTIC
 
 // -----------------------------------------------------------------------
 // adjoint source = -(measured - simulated) at each sensor; sensors are addressed

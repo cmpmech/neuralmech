@@ -1,10 +1,11 @@
-// Generalized scalar/acoustic wave finite-difference kernels.
+// Generalized scalar/acoustic/elastic wave finite-difference kernels.
 //
 // Compile-time configuration (set via -D flags from wave.py):
 //   USE_FLOAT             single precision (real_t = float); default is double.
 //   NDIM = 1 | 2 | 3      spatial dimension.
-//   FORMULATION_ACOUSTIC  acoustic wave equation; default is the scalar wave
-//   eq.
+//   FORMULATION_ACOUSTIC  acoustic wave equation.
+//   FORMULATION_ELASTIC   isotropic elastic wave equation (NDIM-component vector
+//                         displacement, NDIM in {2, 3}); default is the scalar eq.
 
 #ifdef USE_FLOAT
 typedef float real_t;
@@ -12,6 +13,7 @@ typedef float real_t;
 typedef double real_t;
 #endif
 
+#ifndef FORMULATION_ELASTIC
 __device__ __forceinline__ real_t flux_axis(const real_t *__restrict__ u1,
                                             const real_t *__restrict__ mat,
                                             const int idx, const int s,
@@ -30,11 +32,58 @@ __device__ __forceinline__ real_t flux_axis(const real_t *__restrict__ u1,
 #endif
   return factor * (gp * (up - uc) - gm * (uc - um));
 }
+#endif
+
+#ifdef FORMULATION_ELASTIC
+// Isotropic elastic stress divergence via conservative half-node fluxes. The
+// displacement is stored as NDIM contiguous component blocks of comp_stride
+// (cs) each, so component c at grid offset "off" is u1[c * cs + idx + off].
+// gamma is a per-node presence field 0 < gamma <= 1 that scales BOTH inertia
+// (gamma * rho) and stiffness (gamma * C), so a uniform gamma cancels and only
+// its gradients scatter -- mirroring the scalar formulation.
+
+__device__ __forceinline__ real_t harmonic(const real_t a, const real_t b) {
+  return 2.f * a * b / (a + b);
+}
+
+// stress vector sigma_{i,j} (i = 0..NDIM-1, fixed normal axis j) on the cell face
+// between the node and its neighbour at offset nn along axis j. sgn is +1 for the
+// upper face (nn = +o[j]) and -1 for the lower face. Diagonal strains use the
+// compact normal difference; off-diagonal strains average the node and neighbour
+// central differences. gface returns the harmonic-averaged gamma on the face.
+__device__ void face_stress(const real_t *__restrict__ u1, const int idx,
+                            const int cs, const real_t *__restrict__ gamma,
+                            const int *o, const real_t *invdx, const int j,
+                            const int nn, const int sgn, const real_t lam,
+                            const real_t mu, real_t *sig, real_t *gface) {
+  real_t d[NDIM][NDIM]; // d[c][a] = d u_c / d x_a on the face
+#pragma unroll
+  for (int c = 0; c < NDIM; ++c)
+#pragma unroll
+    for (int a = 0; a < NDIM; ++a) {
+      if (a == j)
+        d[c][a] = sgn * (u1[c * cs + idx + nn] - u1[c * cs + idx]) * invdx[a];
+      else
+        d[c][a] = 0.25f * invdx[a] *
+                  ((u1[c * cs + idx + o[a]] - u1[c * cs + idx - o[a]]) +
+                   (u1[c * cs + idx + nn + o[a]] - u1[c * cs + idx + nn - o[a]]));
+    }
+  real_t theta = 0.f;
+#pragma unroll
+  for (int k = 0; k < NDIM; ++k)
+    theta += d[k][k];
+#pragma unroll
+  for (int i = 0; i < NDIM; ++i)
+    sig[i] = lam * (i == j ? theta : 0.f) + mu * (d[i][j] + d[j][i]);
+  *gface = harmonic(gamma[idx], gamma[idx + nn]);
+}
+#endif
 
 extern "C" {
 
 // ------------------------------------------------------------------------------------
 
+#ifndef FORMULATION_ELASTIC
 __global__ void fd_kernel(const real_t *__restrict__ u0,
                           const real_t *__restrict__ u1,
                           real_t *__restrict__ u2,
@@ -104,6 +153,64 @@ __global__ void fd_kernel(const real_t *__restrict__ u0,
   u2[idx] = -u0[idx] + 2.f * uc + laplacian;
 #endif
 }
+#else // FORMULATION_ELASTIC
+
+__global__ void fd_kernel(const real_t *__restrict__ u0,
+                          const real_t *__restrict__ u1,
+                          real_t *__restrict__ u2,
+                          const real_t *__restrict__ gamma, const int cs,
+                          const real_t lam, const real_t mu, const real_t rho,
+                          const real_t dt2, const real_t f0, const int N0
+#if NDIM >= 2
+                          ,
+                          const real_t f1, const int N1, const int s0
+#endif
+#if NDIM >= 3
+                          ,
+                          const real_t f2, const int N2, const int s1
+#endif
+) {
+#if NDIM == 2
+  const int a1 = blockIdx.x * blockDim.x + threadIdx.x;
+  const int a0 = blockIdx.y * blockDim.y + threadIdx.y;
+  if (!(a0 > 0 && a0 < N0 - 1 && a1 > 0 && a1 < N1 - 1))
+    return;
+  const int idx = a0 * s0 + a1;
+  const int o[2] = {s0, 1};
+  const real_t invdx[2] = {f0, f1};
+#elif NDIM == 3
+  const int a2 = blockIdx.x * blockDim.x + threadIdx.x;
+  const int a1 = blockIdx.y * blockDim.y + threadIdx.y;
+  const int a0 = blockIdx.z * blockDim.z + threadIdx.z;
+  if (!(a0 > 0 && a0 < N0 - 1 && a1 > 0 && a1 < N1 - 1 && a2 > 0 &&
+        a2 < N2 - 1))
+    return;
+  const int idx = a0 * s0 + a1 * s1 + a2;
+  const int o[3] = {s0, s1, 1};
+  const real_t invdx[3] = {f0, f1, f2};
+#endif
+
+  real_t div[NDIM];
+#pragma unroll
+  for (int i = 0; i < NDIM; ++i)
+    div[i] = 0.f;
+
+#pragma unroll
+  for (int j = 0; j < NDIM; ++j) {
+    real_t sp[NDIM], sm[NDIM], gp, gm;
+    face_stress(u1, idx, cs, gamma, o, invdx, j, o[j], 1, lam, mu, sp, &gp);
+    face_stress(u1, idx, cs, gamma, o, invdx, j, -o[j], -1, lam, mu, sm, &gm);
+#pragma unroll
+    for (int i = 0; i < NDIM; ++i)
+      div[i] += (gp * sp[i] - gm * sm[i]) * invdx[j];
+  }
+
+  const real_t scale = dt2 / (gamma[idx] * rho);
+#pragma unroll
+  for (int i = 0; i < NDIM; ++i)
+    u2[i * cs + idx] = 2.f * u1[i * cs + idx] - u0[i * cs + idx] + scale * div[i];
+}
+#endif // FORMULATION_ELASTIC
 
 // ------------------------------------------------------------------------------------
 // homogeneous Neumann: mirror each ghost face onto the interior cell two in.
