@@ -41,8 +41,10 @@ T = TRAVERSALS * 2 * LENGTH_X / WAVESPEED_P
 N = math.ceil(T / dt)
 dofs = 3 * math.prod(n - 2 for n in Nx)
 print(
-    f"mesh size {Nx}, c_p {WAVESPEED_P:.0f} m/s, c_s {WAVESPEED_S:.0f} m/s, {dofs:.2e} dofs"
+    f"mesh size {Nx}, time step size {dt:.2e} s, {N} time steps, "
+    f"c_p {WAVESPEED_P:.0f} m/s, c_s {WAVESPEED_S:.0f} m/s, {dofs:.2e} dofs"
 )
+
 
 sim = elastic_simulation(
     Nx, dx, N, dt, THREADS, density=DENSITY, lame_lambda=LAME_LAMBDA, lame_mu=LAME_MU
@@ -96,6 +98,9 @@ indicator_slice = indicator[:, :, z_mid]
 field_masked = np.ma.masked_where(indicator_slice == MIN_INDICATOR, field)
 void_masked = np.ma.masked_where(indicator_slice != MIN_INDICATOR, indicator_slice)
 scale = float(np.max(np.abs(field_masked)))  # void excitation dwarfs the solid field
+
+fig_source, ax_source = plt.subplots()
+ax_source.plot(t, signal_np)
 
 fig, ax = plt.subplots(figsize=(8, 4))
 ax.pcolormesh(x, y, field_masked, cmap=cmr.fusion, vmin=-scale, vmax=scale)

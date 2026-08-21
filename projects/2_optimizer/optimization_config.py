@@ -34,7 +34,7 @@ ackley = Problem(
         + 20
         + np.exp(1)
     ),
-    guess=[3.0, 3.0],
+    guess=[3, 3.2],
     xrange=(-4, 4),
     yrange=(-4, 4),
 )

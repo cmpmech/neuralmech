@@ -115,6 +115,4 @@ else:
     elif CASE == 1:
         save_csv(CSV_DIR / f"polynomial_regression_{CASE}_{P}.csv", **data)
     elif CASE == 2:
-        save_csv(
-            CSV_DIR / f"polynomial_regression_{CASE}_{REGULARIZATION}.csv", **data
-        )
+        save_csv(CSV_DIR / f"polynomial_regression_{CASE}_{REGULARIZATION}.csv", **data)

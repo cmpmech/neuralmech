@@ -70,8 +70,9 @@ plt.close()
 
 if args.book:
     # normalized for visualization
+    scale = (p / p.max()).sum() / (q / q.max()).sum()
     save_csv(
-        CSV_DIR / "wasserstein_distributions.csv", p=p / p.max(), q=q / q.max()
+        CSV_DIR / "wasserstein_distributions.csv", p=p / p.max(), q=q / q.max() * scale
     )
 else:
     fig, ax = plt.subplots()

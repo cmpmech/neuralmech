@@ -9,6 +9,8 @@ Worked examples for **Chapter 2 (Fundamental Machine Learning)**, covering both 
 - `gradient_optimizers.py`
   trajectories of steepest descent, momentum, Adagrad, RMSprop, Adam, and L-BFGS on
   the Rosenbrock function
+- `ackley_adam.py`
+  Adam on the multimodal Ackley function, trapped in a local minimum
 - `adam_from_scratch.py`
   Adam implemented from scratch on a 1D quartic
 - `lbfgs_from_scratch.py`

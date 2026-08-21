@@ -133,8 +133,6 @@ for angle in ANGLES:
     with torch.no_grad():
         pred = model(x_rot.to(device).unsqueeze(0))[0].cpu().numpy()
     target = rotate_fields(y_np, angle)
-    pred[:, ~mask_np] = np.nan
-    target[:, ~mask_np] = np.nan
     targets[angle] = target
     preds[angle] = pred
 
@@ -148,7 +146,22 @@ if not args.book:
     for angle in ANGLES:
         for field in (targets[angle], preds[angle]):
             fig, ax = plt.subplots()
-            ax.quiver(xs, ys, field[0][sub], field[1][sub], pivot="mid", width=0.005)
+            mag = np.sqrt(field[0] ** 2 + field[1] ** 2)
+
+            ax.contourf(x1, x2, mag, cmap="cividis", levels=64, vmin=0, vmax=1.5)
+
+            field[:, ~mask_np] = np.nan
+            # ax.quiver(xs, ys, field[0][sub], field[1][sub], pivot="mid", width=0.005)
+            ax.streamplot(
+                x1[:, 0],
+                x2[0, :],
+                field[0],
+                field[1],
+                color="k",
+                density=1,
+                linewidth=2,
+                arrowsize=0,
+            )
             ax.set_aspect("equal")
             ax.axis("off")
     plt.show()
@@ -157,11 +170,25 @@ else:
     for angle in ANGLES:
         for name, field in (("target", targets[angle]), ("prediction", preds[angle])):
             fig, ax = plt.subplots(figsize=(4, 4), dpi=200)
-            ax.quiver(xs, ys, field[0][sub], field[1][sub], pivot="mid", width=0.008)
+            mag = np.sqrt(field[0] ** 2 + field[1] ** 2)
+            ax.contourf(x1, x2, mag, cmap="cividis", levels=64, vmin=0, vmax=1.5)
+            field[:, ~mask_np] = np.nan
+            ax.streamplot(
+                x1[:, 0],
+                x2[0, :],
+                field[0],
+                field[1],
+                color="k",
+                density=0.8,
+                linewidth=2,
+                arrowsize=0,
+            )
+
             ax.set_xlim(-1.1, 1.1)
             ax.set_ylim(-1.1, 1.1)
             ax.set_aspect("equal")
             ax.axis("off")
+            ax.set_rasterized(True)
             fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
             plt.savefig(RGB_PDF_DIR / f"ESCNN_vector_{name}_{angle}_{ROTATIONS}.pdf")
             plt.close()

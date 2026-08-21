@@ -1,3 +1,5 @@
+from itertools import combinations_with_replacement
+
 import numpy as np
 
 # ----------------------- parametrized regression ------------------------
@@ -87,3 +89,44 @@ class PolynomialRegression: # limited to 1D in- & outputs
         A = (X.T@X) + (self.regularization * I)
         b = X.T@y
         self.w = np.linalg.solve(A, b)
+
+class BayesianPolynomialRegression: # limited to 1D outputs
+    """Bayesian polynomial regression with a closed-form Gaussian posterior.
+
+    A Gaussian prior N(0, regularization^-1) on the weights and Gaussian
+    observation noise of standard deviation `noise` give a Gaussian posterior over
+    the weights. Its mean is the ridge solution, its covariance is the epistemic
+    uncertainty, and `noise` is the aleatoric uncertainty.
+    """
+
+    def __init__(self, p: int, regularization: float, noise: float):
+        self.p = p
+        self.regularization = regularization # prior precision of the weights
+        self.noise = noise # aleatoric standard deviation, in units of y
+        self.w = None
+        self.covariance = None
+
+    def feature_matrix(self, X: np.ndarray) -> np.ndarray:
+        """Expand (N, D) inputs into all monomials up to degree p, cross terms
+        included."""
+        columns = [np.ones(X.shape[0])]
+        for degree in range(1, self.p + 1):
+            for ids in combinations_with_replacement(range(X.shape[1]), degree):
+                columns.append(np.prod(X[:, ids], axis=1))
+        return np.stack(columns, axis=1)
+
+    def forward(self, X: np.ndarray) -> np.ndarray:
+        return self.feature_matrix(X)@self.w
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> None:
+        Phi = self.feature_matrix(X)
+        # unlike the ridge fits above the bias is penalized too, so that the prior
+        # keeps the posterior proper when there are fewer samples than monomials
+        A = (Phi.T@Phi / self.noise**2) + (self.regularization * np.eye(Phi.shape[1]))
+        self.covariance = np.linalg.inv(A)
+        self.w = self.covariance@Phi.T@y / self.noise**2
+
+    def epistemic_std(self, X: np.ndarray) -> np.ndarray:
+        """Standard deviation of the predictive mean, excluding the aleatoric noise."""
+        Phi = self.feature_matrix(X)
+        return np.sqrt(np.einsum("ij,jk,ik->i", Phi, self.covariance, Phi))

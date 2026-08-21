@@ -49,7 +49,7 @@ DEGREE = 3
 QUAD_ORDER = DEGREE + 1  # integration
 
 # physics
-VOLFRAC = 0.9  # 0.6  # material fraction; the perforated matrix is nearly solid
+VOLFRAC = 0.6  # 0.9  # 0.6  # material fraction; the perforated matrix is nearly solid
 RMIN = 2
 E0, EMIN, NU = 1.0, 1e-9, 0.3
 LOAD = -1.0
@@ -187,6 +187,10 @@ for it in pbar:
 
     optimizer.zero_grad()
     rho_.backward(torch.from_numpy(sensitivity).reshape(1, 1, NX, NY).to(device))
+
+    # latent_distance = torch.linalg.norm(latent)**2
+    # latent_distance.backward()
+
     torch.nn.utils.clip_grad_norm_([latent], CLIP)
     optimizer.step()
     scheduler.step()

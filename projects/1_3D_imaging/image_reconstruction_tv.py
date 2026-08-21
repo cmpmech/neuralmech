@@ -108,7 +108,7 @@ for i in range(EXAMPLES):
     ax.imshow(
         (1 - masks[i]).T.cpu(),
         origin="lower",
-        cmap="viridis_r",
+        cmap="viridis",
         alpha=(1 - masks[i].cpu()).T.float(),
     )
     ax.axis("off")

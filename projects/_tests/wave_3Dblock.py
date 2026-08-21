@@ -34,7 +34,7 @@ dt = CFL * min(dx) / WAVESPEED / math.sqrt(3)
 T = TRAVERSALS * 2 * LENGTH_X / WAVESPEED
 N = math.ceil(T / dt)
 dofs = math.prod(n - 2 for n in Nx)
-print(f"mesh size {Nx}, {dofs:.2e} dofs")
+print(f"mesh size {Nx}, time step size {dt:.2e} s, {N} time steps, {dofs:.2e} dofs")
 
 sim = scalar_simulation(Nx, dx, N, dt, THREADS, wavespeed=WAVESPEED, density=DENSITY)
 
@@ -85,6 +85,9 @@ indicator_slice = indicator[:, :, z_mid]
 field_masked = np.ma.masked_where(indicator_slice == MIN_INDICATOR, field)
 void_masked = np.ma.masked_where(indicator_slice != MIN_INDICATOR, indicator_slice)
 scale = float(np.max(np.abs(field_masked)))  # void excitation dwarfs the solid field
+
+fig_source, ax_source = plt.subplots()
+ax_source.plot(t, signal_np)
 
 fig, ax = plt.subplots(figsize=(8, 4))
 ax.pcolormesh(x, y, field_masked, cmap=cmr.fusion, vmin=-scale, vmax=scale)
