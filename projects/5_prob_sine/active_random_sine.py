@@ -20,14 +20,14 @@ args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
 # hyperparameters
-SAMPLES = 2  # initial random samples
-ACQUISITIONS = 18  # randomly drawn samples
-REPEATS = 20
+SAMPLES = 2  # initial design size
+ACQUISITIONS = 48  # Latin hypercube refinements
+REPEATS = 50
 RESOLUTION = 1000
 NOISE = 0.05
 
 # postprocessing
-FRAMES = [0, 2, 4, 6, 8, ACQUISITIONS]
+FRAMES = [0, 2, 4, 6, 8]
 
 # model settings
 DEGREE = 9
@@ -47,22 +47,32 @@ test_error = np.zeros((REPEATS, ACQUISITIONS + 1))
 tic = time.time()
 for repeat in tqdm(range(REPEATS)):
     rng = np.random.default_rng(repeat)
-    x_train = rng.uniform(-1, 1, (SAMPLES, 1))
-    y_train = f(x_train).squeeze() + rng.normal(0, NOISE, SAMPLES)
+    pool_x = np.empty((0, 1))
+    pool_y = np.empty(0)
 
     # keep last history
     mean_history = np.zeros((ACQUISITIONS + 1, RESOLUTION))
+    designs = []
 
     for step in range(ACQUISITIONS + 1):
+        # rebuild a Latin hypercube of size n, reusing one pooled sample per stratum
+        n = SAMPLES + step
+        strata = ((pool_x[:, 0] + 1) / 2 * n).astype(int)
+        keep = np.unique(strata, return_index=True)[1]
+        empty = np.setdiff1d(np.arange(n), strata)
+
+        x_new = (empty + rng.uniform(size=len(empty)))[:, None] / n * 2 - 1
+        y_new = f(x_new).squeeze(-1) + rng.normal(0, NOISE, len(empty))
+        pool_x = np.vstack([pool_x, x_new])
+        pool_y = np.append(pool_y, y_new)
+
+        x_train = np.vstack([pool_x[keep], x_new])
+        y_train = np.append(pool_y[keep], y_new)
+        designs.append((x_train, y_train))
+
         model.fit(x_train, y_train)
         mean_history[step] = model.forward(x_test)
         test_error[repeat, step] = np.sqrt(np.mean((mean_history[step] - y_test) ** 2))
-
-        # draw the next sample at random
-        if step < ACQUISITIONS:
-            x_new = rng.uniform(-1, 1, (1, 1))
-            x_train = np.vstack([x_train, x_new])
-            y_train = np.append(y_train, f(x_new) + rng.normal(0, NOISE))
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
@@ -93,7 +103,7 @@ if not args.book:
         )
         ax.plot(x, y_test, "k")
         ax.plot(x, mean_history[step], "b")
-        ax.plot(x_train[: SAMPLES + step], y_train[: SAMPLES + step], "ro")
+        ax.plot(*designs[step], "ro")
 
         ax.set_ylim(-1.5, 1.5)
         ax.set_xticks([])
@@ -107,8 +117,8 @@ else:
         CSV_DIR / "sine_active_random_history.csv",
         samples=samples,
         error=mean_error,
-        error_min=test_error.min(axis=0),
-        error_max=test_error.max(axis=0),
+        error_p05=np.percentile(test_error, 5, axis=0),
+        error_p95=np.percentile(test_error, 95, axis=0),
     )
 
     columns = {}
@@ -118,7 +128,9 @@ else:
 
     save_csv(
         CSV_DIR / "sine_active_random_train.csv",
-        x=x_train.squeeze(),
-        y=y_train,
-        samples=np.maximum(np.arange(1, len(x_train) + 1), SAMPLES),
+        x=np.concatenate([designs[step][0].squeeze(-1) for step in FRAMES]),
+        y=np.concatenate([designs[step][1] for step in FRAMES]),
+        samples=np.concatenate(
+            [np.full(SAMPLES + step, SAMPLES + step) for step in FRAMES]
+        ),
     )

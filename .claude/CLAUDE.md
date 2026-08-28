@@ -27,10 +27,24 @@ git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
 ```
 
 ### Submodule: mlhp
-- Path: `solvers/mlhp`
+- Path: `solvers/mlhp_source/mlhp`
 - Source: https://gitlab.com/hpfem/code/mlhp (pinned at `0.1.2`)
 - Quick install: `pip install mlhp` (advanced physics requires C++ build)
 - Init/update submodule: `git submodule update --init --recursive`
+
+### Submodule: cuwave
+- Path: `solvers/cuwave`
+- Source: https://github.com/Leon-Herrmann/cuwave
+- Install: `pip install -e solvers/cuwave` (needs a cupy matching the CUDA toolkit)
+- Imported as an installed package, so drivers write `from cuwave.wave import ...`,
+  never `from solvers.cuwave...`
+- Owns the GPU finite difference wave solver and its adjoints: `wave` (ScalarWave /
+  AcousticWave, simulate), `sensitivity` (sensitivity, reconstruction_sensitivity,
+  superposition_sensitivity), `boundary` (pad_for_sponge, sponge), `utils` (Sensors,
+  point_source, response_gradient, misfit_gradient), `geometry`, `signals`
+- Used by `projects/8_physics_drivers/{waveND,topopt_acoustic2D}.py`,
+  `projects/4_specialized_nns/analog_rnn_*.py`, `projects/16_fwi/*.py`,
+  `projects/0_conceptual_figures/4_analog_rnn.py`
 
 ## Project structure
 

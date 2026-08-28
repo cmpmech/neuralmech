@@ -7,8 +7,9 @@ import cmasher as cmr
 import cupy as cp
 import matplotlib.pyplot as plt
 import numpy as np
-
-from solvers.wave import acoustic_simulation, scalar_simulation, setup_source, simulate
+from cuwave.signals import sineburst
+from cuwave.utils import point_source
+from cuwave.wave import AcousticWave, ScalarWave, simulate, stable_dt
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
@@ -25,6 +26,7 @@ args = parser.parse_args()
 DIM = 2
 FORMULATION = "scalar"  # "scalar" or "acoustic"
 PRECISION = "float32"  # "float32" or "float64"
+SPACE_ORDER = 2  # finite difference order, any even number
 THREADS = (4, 128) if DIM == 2 else (4, 4, 64) if DIM == 3 else (128,)
 
 # physics
@@ -32,51 +34,36 @@ LENGTH = 1
 WAVESPEED = 0.5
 DENSITY = 1
 AMPLITUDE = 1e8
+FREQUENCY = 2  # bounded by WAVESPEED / (20.0 * min(dx))
 CYCLES = 5
 T = 20
 
 RESOLUTION = 500 if DIM == 2 else 100 if DIM == 3 else 400
+SAFETY = 0.95  # fraction of the stable time step
 SAVE_EVERY = 10
 
 # --------------------------------------- setup ---------------------------------------
 Nx = (RESOLUTION,) * DIM
 dx = tuple(LENGTH / (n - 3) for n in Nx)
-dt = 0.95 * min(dx) / WAVESPEED / math.sqrt(DIM)
-frequency = 2  # bounded by WAVESPEED / (20.0 * min(dx))
+dt = SAFETY * stable_dt(dx, WAVESPEED, SPACE_ORDER)
 N = math.ceil(T / dt)
 
-print(frequency)
-
 if FORMULATION == "acoustic":
-    sim = acoustic_simulation(
-        Nx, dx, N, dt, THREADS, precision=PRECISION,
+    sim = AcousticWave(
+        Nx, dx, N, dt, THREADS, precision=PRECISION, space_order=SPACE_ORDER,
         rho1=1.204, rho2=2643.0, kappa1=1.419e5, kappa2=6.87e8,
     )
 else:
-    sim = scalar_simulation(
-        Nx, dx, N, dt, THREADS, precision=PRECISION, wavespeed=WAVESPEED, density=DENSITY
+    sim = ScalarWave(
+        Nx, dx, N, dt, THREADS, precision=PRECISION, space_order=SPACE_ORDER,
+        wavespeed=WAVESPEED, density=DENSITY,
     )
 
 indicator = cp.ones(sim.Nx_padded, dtype=sim.dtype)
 
-
-# --------------------------------------- helper --------------------------------------
-def sineburst(t, amplitude, frequency, cycles):
-    mask = (t > 0) & (t <= cycles / frequency)
-    return (
-        amplitude
-        * mask
-        * np.sin(2 * np.pi * frequency * t)
-        * np.sin(np.pi * frequency * t / cycles) ** 2
-    )
-
-
-t_arr = np.linspace(0, (N - 1) * dt, N)
-signal_np = sineburst(t_arr, AMPLITUDE, frequency, CYCLES) / np.prod(dx)
-signal = cp.asarray(signal_np[:, None], dtype=sim.dtype)
-
-source_pos = cp.array([[1] for n in Nx], dtype=cp.int32)
-source = setup_source(source_pos, signal)
+# source in the origin corner, spread over the cell volume by point_source
+t = np.linspace(0, (N - 1) * dt, N)
+source = point_source(sim, (0.0,) * DIM, sineburst(t, AMPLITUDE, FREQUENCY, CYCLES))
 
 # --------------------------------------- solve ---------------------------------------
 cp.cuda.Stream.null.synchronize()
@@ -105,7 +92,7 @@ if not args.book and not args.animate:
     else:
         field = u_np if DIM == 2 else u_np[Nx[0] // 2]
         fig, ax = plt.subplots(figsize=(5, 5))
-        # ax.pcolormesh(field.T, cmap=cmr.fusion, vmin=-scale, vmax=scale)
+        ax.pcolormesh(field.T, cmap=cmr.fusion, vmin=-scale, vmax=scale)
         ax.set_aspect("equal")
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.show()

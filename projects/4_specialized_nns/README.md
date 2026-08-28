@@ -65,14 +65,15 @@ the Stanford bunny point cloud.
 - `analog_rnn_train.py` _needs `minecraft_mobs.npz`_
   analog recurrent network (Hughes et al. 2019): a trainable acoustic medium that classifies
   mob-sound clips by the wave energy each reaches at three right-wall probes, one per behaviour
-  class, trained end-to-end through the wave solver's adjoint; saves the binarized medium to
-  `models/analog_rnn_material.npy`
+  class, trained end-to-end through cuwave's boundary-reconstruction adjoint (solvers/cuwave);
+  saves the binarized medium to `models/analog_rnn_material.npy`
 - `analog_rnn_eval.py` _needs `analog_rnn_material.npy`_
   renders a wavefield snapshot plus source and probe signals for one clip propagated
   through the trained medium (or the free field)
 - `analog_rnn_fixture.py`
-  shared acoustic setup (grid, sponge, source/probe positions, clip resampling)
-  imported by the analog RNN train and eval drivers
+  shared acoustic setup (grid, sponge, source/probe positions, clip band-compression) plus
+  the probe readout and its cross-entropy objective, imported by the analog RNN train and
+  eval drivers
 
 ## Non-obvious technicalities (authored by Claude)
 

@@ -59,23 +59,8 @@ topology-optimization drivers built on top of them.
     Time-harmonic acoustics (Helmholtz) on a 2D mlhp finite-element mesh.
 
 `waveND.py`
-    Scalar wave equation via the finite-difference CuPy wave solver.
-
-`wave_3Dblock.py`
-    Ultrasonic through-transmission of a scalar wave across a concrete block with a
-    drilled duct, showing the void scattering the field.
-
-`wave_3Dblock_gradient.py`
-    Sensitivity of the received energy to the material field for the same block,
-    from the lossless superposition adjoint of the CuPy FD wave solver.
-
-`wave_3Dblock_elastic.py`
-    The same block driven by the isotropic elastic wave equation (vector
-    displacement, P and S waves), with the duct as a soft scatterer.
-
-`wave_3Dblock_elastic_gradient.py`
-    Elastic counterpart of the block sensitivity: received-energy gradient with
-    respect to the material field via the same superposition adjoint.
+    Scalar and acoustic wave equations in 1D/2D/3D on the cuwave finite-difference
+    GPU solver (solvers/cuwave).
 
 `heatND.py`
     Implicit (backward-Euler) transient heat conduction on an N-D mlhp
@@ -110,5 +95,5 @@ topology-optimization drivers built on top of them.
 `topopt_acoustic2D.py`
     Transient acoustic topology optimization: a sine burst travels down a channel and
     the material in two design blocks is shaped to silence (or amplify) a target box,
-    with adjoint sensitivities from the CuPy FD wave solver and MMA updates
-    (USE_ADAM switches to Adam).
+    with adjoint sensitivities from cuwave's boundary-reconstruction adjoint and MMA
+    updates (USE_ADAM switches to Adam).

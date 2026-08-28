@@ -4,3 +4,6 @@
 [submodule "solvers/mlhp_source/mlhp"]
 	path = solvers/mlhp_source/mlhp
 	url = git@gitlab.com:hpfem/code/mlhp.git
+[submodule "solvers/cuwave"]
+	path = solvers/cuwave
+	url = git@github.com:Leon-Herrmann/cuwave.git

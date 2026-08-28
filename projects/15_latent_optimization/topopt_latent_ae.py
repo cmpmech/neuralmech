@@ -1,8 +1,8 @@
 import argparse
 import os
 
-# pardiso runs on MKL threads; keep the small numpy assembly off BLAS threads so
-# it does not oversubscribe against MKL's pool
+# pardiso runs on mkl threads; keep the small numpy assembly off blas threads so
+# it does not oversubscribe against mkl's pool
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import time
@@ -22,11 +22,11 @@ DATA_DIR = (BASE_DIR / "../../data").resolve()
 MODEL_DIR = (BASE_DIR / "../../models").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
-ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_latent"
+ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_latent_ae"
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
-device = torch.device("cpu")  # small autoencoder; FEM runs on cpu, so avoid the bounce
+device = torch.device("cpu")  # small autoencoder; fem runs on cpu, so avoid the bounce
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -34,41 +34,41 @@ parser.add_argument("--animate", action="store_true")
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
-# half MBB beam optimized inside the fiber-microstructure manifold of an autoencoder:
+# half mbb beam optimized inside the fiber-microstructure manifold of an autoencoder:
 # the design is decoded from a latent vector, so it can only be an arrangement of
 # circular fibers. fibers are read as holes, so the matrix stays connected and load-
-# bearing (fibers as material would be disconnected blobs with no load path).
-# geometry (the autoencoder fixes the design grid to a 256 x 256 unit square)
+# bearing (fibers as material would be disconnected blobs with no load path)
+
+# geometry (the autoencoder fixes the design grid to a square unit domain)
 RESOLUTION = 256
 LENGTHS = [1.0, 1.0]
 
 # discretization
-NX, NY = RESOLUTION, RESOLUTION
 SUB_VOXELS = 4
 DEGREE = 3
-QUAD_ORDER = DEGREE + 1  # integration
+QUAD_ORDER = DEGREE + 1
 
 # physics
-VOLFRAC = 0.6  # 0.9  # 0.6  # material fraction; the perforated matrix is nearly solid
+VOLFRAC = 0.6  # material fraction; the perforated matrix is nearly solid
 RMIN = 2
 E0, EMIN, NU = 1.0, 1e-9, 0.3
 LOAD = -1.0
 
-# SIMP penalisation continuation: ramp the exponent to sharpen the design over time
+# simp penalisation continuation: ramp the exponent to sharpen the design over time
 PENAL0, PENAL_INC, PENAL_MAX = 3.0, 0.02, 4.0
 
 # volume penalty continuation: grow the quadratic constraint weight with iterations
 PENALTY0, PENALTY_INC, PENALTY_MAX = 1.0, 1.0, 100.0
 
-# postprocessing
-THRESHOLD = 0.5
-
-# optimization (Adam on the latent, polynomial lr decay (BETA * iter + 1) ** ALPHA)
-MAX_ITER = 200
+# optimization (adam on the latent, polynomial lr decay (BETA * iter + 1) ** ALPHA)
+ITERS = 200
 LR = 5e-2
 ALPHA = -0.5
 BETA = 0.1
 CLIP = 0.1  # gradient-norm clipping
+
+# postprocessing
+THRESHOLD = 0.5
 
 # --------------------------- instantiate model & optimizer ---------------------------
 model = torch.load(
@@ -78,8 +78,8 @@ model.eval()
 standardizer = model.standardizer
 
 # start on the manifold: encode one real fiber sample and optimize its latent code
-seed = torch.from_numpy(np.load(DATA_DIR / "fibers_256.npy")[0]).float()
-seed = seed.reshape(1, 1, NX, NY).to(device)
+seed = torch.from_numpy(np.load(DATA_DIR / f"fibers_{RESOLUTION}.npy")[0]).float()
+seed = seed.reshape(1, 1, RESOLUTION, RESOLUTION).to(device)
 with torch.no_grad():
     latent = nn.Parameter(model.encode(standardizer(seed)))
 
@@ -96,22 +96,18 @@ scheduler = torch.optim.lr_scheduler.LambdaLR(
     optimizer, lambda it: (BETA * it + 1) ** ALPHA
 )
 
-# ---------------------------------------- mesh ---------------------------------------
-assert NX % SUB_VOXELS == 0 and NY % SUB_VOXELS == 0, (
-    f"design grid {[NX, NY]} must be divisible by SUB_VOXELS={SUB_VOXELS}"
-)
-nelx_e, nely_e = NX // SUB_VOXELS, NY // SUB_VOXELS
-elem_lengths = [LENGTHS[0] / nelx_e, LENGTHS[1] / nely_e]
+# -------------------------------- finite element setup -------------------------------
+cells = RESOLUTION // SUB_VOXELS
+elem_lengths = [length / cells for length in LENGTHS]
 
-mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[nelx_e, nely_e], lengths=LENGTHS))
+mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[cells, cells], lengths=LENGTHS))
 basis = mlhp.makeHpTensorSpace(mesh, degree=DEGREE, nfields=2)
 ndof = basis.ndof()
 efts = np.array(basis.locationMaps())
 
-# --------------------------- preintegrate reference element --------------------------
+# all elements are identical, so one reference element is preintegrated and reused
 mesh_local = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1, 1], lengths=elem_lengths))
 basis_local = mlhp.makeHpTensorSpace(mesh_local, degree=DEGREE, nfields=2)
-ndof_e = basis_local.ndof()
 
 material = mlhp.planeStressMaterial(mlhp.scalarField(2, 1.0), mlhp.scalarField(2, NU))
 integrand = mlhp.staticDomainIntegrand(
@@ -126,7 +122,6 @@ K_locals = mlhp.integratePartitionMatrices(
 )
 
 
-# -------------------------------- boundary conditions --------------------------------
 # faces: 0=left, 1=right, 2=bottom, 3=top
 def face_dofs(face, ifield):
     bc = mlhp.integrateDirichletDofs(
@@ -140,22 +135,19 @@ roller = np.intersect1d(face_dofs(2, 1), face_dofs(1, 1))  # bottom-right corner
 load_dof = np.intersect1d(face_dofs(3, 1), face_dofs(0, 1))  # top-left corner
 
 fixed = np.unique(np.concatenate([symmetry, roller]))
-free = np.setdiff1d(np.arange(ndof), fixed)  # all non-fixed dofs
+free = np.setdiff1d(np.arange(ndof), fixed)
 
 force = np.zeros(ndof)
 force[load_dof] = LOAD
 force_free = force[free]
 
-# --------------------------- FEM assembly & solver helpers ---------------------------
-fem = StructuredFEM(efts, free, ndof, K_locals, (NX, NY), SUB_VOXELS)
+fem = StructuredFEM(efts, free, ndof, K_locals, (RESOLUTION, RESOLUTION), SUB_VOXELS)
+density_filter = DensityFilter(RMIN, (RESOLUTION, RESOLUTION))
 
 
-def simp(rho):  # SIMP stiffness interpolation between void and solid
+def simp(rho):  # simp stiffness interpolation between void and solid
     return EMIN + rho**penal * (E0 - EMIN)
 
-
-# ----------------------------------- density filter ----------------------------------
-density_filter = DensityFilter(RMIN, (NX, NY))
 
 # ------------------------------------ optimization -----------------------------------
 penal = PENAL0
@@ -165,10 +157,10 @@ compliance0 = None
 if args.animate:
     ANIMATION_DIR.mkdir(parents=True, exist_ok=True)
 tic = time.time()
-pbar = tqdm(range(MAX_ITER))
+pbar = tqdm(range(ITERS))
 for it in pbar:
-    rho_ = forward()
-    rho = rho_[0, 0].detach().cpu().numpy()
+    rho_pred = forward()
+    rho = rho_pred[0, 0].detach().cpu().numpy()
 
     u = np.zeros(ndof)
     u[free] = fem.solve(simp(rho), force_free)
@@ -182,14 +174,14 @@ for it in pbar:
 
     # quadratic volume penalty: (mean_rho / VOLFRAC - 1) ** 2, weight grows each iter
     mean_rho = rho.mean()
-    dv = 2 * (mean_rho / VOLFRAC - 1) / (VOLFRAC * NX * NY)
+    dv = 2 * (mean_rho / VOLFRAC - 1) / (VOLFRAC * RESOLUTION**2)
     sensitivity = dc / compliance0 + penalty * dv
 
+    # the sensitivity is the incoming gradient of rho, so backpropagation through the
+    # decoder turns it into a gradient on the latent code
     optimizer.zero_grad()
-    rho_.backward(torch.from_numpy(sensitivity).reshape(1, 1, NX, NY).to(device))
-
-    # latent_distance = torch.linalg.norm(latent)**2
-    # latent_distance.backward()
+    sensitivity = torch.from_numpy(sensitivity).reshape(1, 1, RESOLUTION, RESOLUTION)
+    rho_pred.backward(sensitivity.to(device))
 
     torch.nn.utils.clip_grad_norm_([latent], CLIP)
     optimizer.step()
@@ -200,7 +192,7 @@ for it in pbar:
     pbar.set_postfix(c=f"{compliance:.2e}", vol=f"{mean_rho:.3f}", p=f"{penal:.2f}")
 
     if args.animate:
-        fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
+        fig, ax = plt.subplots(figsize=(RESOLUTION / 100, RESOLUTION / 100), dpi=150)
         ax.imshow(rho.T, origin="lower", cmap="gray_r", vmin=0.0, vmax=1.0)
         ax.axis("off")
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
@@ -208,7 +200,7 @@ for it in pbar:
         plt.close()
 
 toc = time.time()
-print(f"elapsed time {toc - tic:.2f} s for {MAX_ITER} iter")
+print(f"elapsed time {toc - tic:.2f} s for {ITERS} iter")
 
 # ----------------------------------- postprocessing ----------------------------------
 rho_thresh = (rho > THRESHOLD).astype(float)
@@ -216,11 +208,11 @@ rho_thresh = (rho > THRESHOLD).astype(float)
 u = np.zeros(ndof)
 u[free] = fem.solve(simp(rho_thresh), force_free)
 compliance_thresh = force @ u
-print(f"thresholded  c {compliance_thresh:.3e} vol {rho_thresh.mean():.3f}")
+print(f"thresholded c {compliance_thresh:.3e} vol {rho_thresh.mean():.3f}")
 
 if not args.book and not args.animate:
     for field in (rho_init, rho, rho_thresh):
-        fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
+        fig, ax = plt.subplots(figsize=(RESOLUTION / 100, RESOLUTION / 100), dpi=150)
         ax.imshow(
             field.T, origin="lower", cmap="binary", vmin=0.0, vmax=1.0, alpha=field.T
         )
@@ -231,12 +223,12 @@ if not args.book and not args.animate:
 # -------------------------------- book postprocessing --------------------------------
 elif args.book:
     fields = (
-        (rho_init, "topopt_latent_init"),
-        (rho, "topopt_latent"),
-        (rho_thresh, "topopt_latent_thresh"),
+        (rho_init, "topopt_latent_ae_init"),
+        (rho, "topopt_latent_ae"),
+        (rho_thresh, "topopt_latent_ae_thresh"),
     )
     for field, name in fields:
-        fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
+        fig, ax = plt.subplots(figsize=(RESOLUTION / 100, RESOLUTION / 100), dpi=150)
         ax.imshow(
             field.T, origin="lower", cmap="binary", vmin=0.0, vmax=1.0, alpha=field.T
         )

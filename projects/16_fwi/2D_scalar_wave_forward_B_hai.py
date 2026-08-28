@@ -6,9 +6,9 @@ import cmasher as cmr
 import cupy as cp
 import matplotlib.pyplot as plt
 import numpy as np
-from numeric import sineburst
-
-from solvers.wave import scalar_simulation, setup_source, simulate
+from cuwave.signals import sineburst
+from cuwave.utils import point_source
+from cuwave.wave import ScalarWave, simulate, stable_dt
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
@@ -16,12 +16,15 @@ RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 
 # -------------------------------------- settings -------------------------------------
+SPACE_ORDER = 2  # finite difference order, any even number
+SAFETY = 0.95  # fraction of the stable time step
 THREADS = (4, 128)
 
 # physics
 WAVESPEED = 6000.0
 DENSITY = 2700.0
 AMPLITUDE = 1e8
+POINTS_PER_WAVELENGTH = 10
 CYCLES = 1
 T = 8e-5
 MIN_INDICATOR = 1e-3
@@ -39,28 +42,18 @@ indicator[indicator == 0] = MIN_INDICATOR
 
 Lx, Ly = 0.04, 0.04 * Ny / Nx
 dx = (Lx / (Nx - 3), Ly / (Ny - 3))
-dt = 0.95 * min(dx) / WAVESPEED / math.sqrt(2)
-frequency = WAVESPEED / 10.0 / dx[0]
+dt = SAFETY * stable_dt(dx, WAVESPEED, SPACE_ORDER)
+frequency = WAVESPEED / (POINTS_PER_WAVELENGTH * dx[0])
 N = math.ceil(T / dt)
 
-sim = scalar_simulation(
-    (Nx, Ny), dx, N, dt, THREADS, wavespeed=WAVESPEED, density=DENSITY
+sim = ScalarWave(
+    (Nx, Ny), dx, N, dt, THREADS, space_order=SPACE_ORDER,
+    wavespeed=WAVESPEED, density=DENSITY,
 )
 
-# source
-x = np.linspace(-dx[0], Lx + dx[0], Nx)
-y = np.linspace(-dx[1], Ly + dx[1], Ny)
-x, y = np.meshgrid(x, y, indexing="ij")
-
-source_pos = np.vstack(np.where(np.isclose(x, 0.0) & np.isclose(y, 0.0)))
-source_pos = cp.asarray(source_pos, dtype=cp.int32)
-
+# source in the origin corner, spread over the cell volume by point_source
 t = np.linspace(0, (N - 1) * dt, N)
-signal_np = sineburst(t, AMPLITUDE, frequency, CYCLES) / np.prod(dx)  # for the dirac
-signal = cp.asarray(
-    np.tile(signal_np[:, None], (1, source_pos.shape[1])), dtype=sim.dtype
-)
-source = setup_source(source_pos, signal)
+source = point_source(sim, (0.0, 0.0), sineburst(t, AMPLITUDE, frequency, CYCLES))
 
 indicator_padded = cp.ones(sim.Nx_padded, dtype=sim.dtype)
 indicator_padded[:Nx, :Ny] = cp.asarray(indicator, dtype=sim.dtype)
@@ -76,6 +69,10 @@ print(f"elapsed time {toc - tic:.2f} s ({(toc - tic) / N * 1e3:.4f} ms/step)")
 print(f"{dofs / ((toc - tic) / N) / 1e9:.2f} billion dofs/s")
 
 # ----------------------------------- postprocessing ----------------------------------
+x = np.linspace(-dx[0], Lx + dx[0], Nx)
+y = np.linspace(-dx[1], Ly + dx[1], Ny)
+x, y = np.meshgrid(x, y, indexing="ij")
+
 u_np = u.get()
 u_masked = np.ma.masked_where(indicator == MIN_INDICATOR, u_np)
 indicator_masked = np.ma.masked_where(indicator != MIN_INDICATOR, indicator)

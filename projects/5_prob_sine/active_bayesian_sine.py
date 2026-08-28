@@ -21,13 +21,13 @@ args = parser.parse_args()
 # -------------------------------------- settings -------------------------------------
 # hyperparameters
 SAMPLES = 2  # initial random samples
-ACQUISITIONS = 18  # active learning samples
-REPEATS = 20
+ACQUISITIONS = 48  # active learning samples
+REPEATS = 50
 RESOLUTION = 1000
 NOISE = 0.05
 
 # postprocessing
-FRAMES = [0, 2, 4, 6, 8, ACQUISITIONS]
+FRAMES = [0, 2, 4, 6, 8]
 
 # model settings
 DEGREE = 9
@@ -121,8 +121,8 @@ else:
         CSV_DIR / "sine_active_bayesian_history.csv",
         samples=samples,
         error=mean_error,
-        error_min=test_error.min(axis=0),
-        error_max=test_error.max(axis=0),
+        error_p05=np.percentile(test_error, 5, axis=0),
+        error_p95=np.percentile(test_error, 95, axis=0),
         epistemic=mean_epistemic,
     )
 

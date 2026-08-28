@@ -33,4 +33,6 @@ demonstrations, and the noisy $\sin$ from Chapter 3 for the regression models.
   active learning, where the next sample is measured wherever the Bayesian posterior
   is least certain, starting from 5 samples in $[-1, 1]$
 - `active_random_sine.py`
-  the same fit sampling at random, as the baseline the active strategy has to beat
+  the same fit on a Latin hypercube design, rebuilt at every budget and reusing every
+  sample that still falls in a stratum of its own, as the baseline the active strategy
+  has to beat
