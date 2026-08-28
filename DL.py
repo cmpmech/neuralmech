@@ -65,9 +65,14 @@ def init_weights(model, activation=None):
 class Normalizer(nn.Module):
     def __init__(self, X, dim=0):  # default is to have sample dim at 0
         super().__init__()
-        self.x_max = X.max(dim=dim, keepdim=True)
-        self.x_min = X.min(dim=dim, keepdim=True)
-        self.span = (self.x_max - self.x_in).clamp_min(1e-8)
+        # amin/amax, not min/max: they accept a tuple of dims and return a plain tensor
+        # instead of a (values, indices) pair
+        x_min = torch.amin(X, dim=dim, keepdim=True)
+        x_max = torch.amax(X, dim=dim, keepdim=True)
+        # buffers, not plain tensors: the statistics then reach state_dict() and
+        # follow .to(device) along with the module that carries them
+        self.register_buffer("x_min", x_min)
+        self.register_buffer("span", (x_max - x_min).clamp_min(1e-8))
 
     def __call__(self, x):
         return (x - self.x_min) / self.span
@@ -79,8 +84,8 @@ class Normalizer(nn.Module):
 class Standardizer(nn.Module):
     def __init__(self, X, dim=0):  # default is to have sample dim at 0
         super().__init__()
-        self.x_mean = X.mean(dim=dim, keepdim=True)
-        self.x_std = X.std(dim=dim, keepdim=True).clamp_min(1e-8)
+        self.register_buffer("x_mean", X.mean(dim=dim, keepdim=True))  # see above
+        self.register_buffer("x_std", X.std(dim=dim, keepdim=True).clamp_min(1e-8))
 
     def __call__(self, x):
         return (x - self.x_mean) / self.x_std

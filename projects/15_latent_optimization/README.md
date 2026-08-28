@@ -17,7 +17,7 @@ candidate is constrained to lie on the learned manifold of fiber microstructures
 `topopt_latent_vae.py`
     The same optimization carried out on the latent mean of the fiber variational
     autoencoder (`../15_anomaly/fiber_vae_train.py`,
-    `models/fiber_vae_64_3.0_256.pt2`). A quadratic penalty holds the code on the shell
+    `models/fiber_vae_64_12.0_256.pt2`). A quadratic penalty holds the code on the shell
     that the code stays probable under the prior of the variational autoencoder, so the
     design stays typical of the training set.
 
@@ -28,7 +28,7 @@ candidate is constrained to lie on the learned manifold of fiber microstructures
 ## Non-obvious technicalities (authored by Claude)
 
 The autoencoder only ever emits arrangements of circular fibers, which cover
-roughly 5-22% of the domain. Read as material, those fibers would be disconnected
+roughly 4-28% of the domain. Read as material, those fibers would be disconnected
 blobs with no load path, so the density is inverted (`rho = 1 - decoded`): the
 fibers become voids punched out of a solid plate. A decoded training sample starts
 around 0.89 material fraction; reaching the target of 0.6 forces the optimizer off

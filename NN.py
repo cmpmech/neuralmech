@@ -3,12 +3,16 @@ import math
 import torch
 import torch.nn.functional as F
 from efficient_kan import KAN
-from escnn import nn as enn
 from neuralop.models import FNO
 from torch import nn
 from torch_geometric.nn import ChebConv, GATConv, GCNConv, GINConv, SAGEConv
 from torch_geometric.nn.conv.message_passing import HookDict
 from torchdiffeq import odeint
+
+try:  # optional: only EquivariantCNN needs it, and it pins numpy < 2
+    from escnn import nn as enn
+except ImportError:
+    enn = None
 
 torch.backends.cudnn.deterministic = True
 
@@ -171,7 +175,7 @@ class EquivariantCNN(nn.Module):
         channels: field copies per layer. Endpoints carry in_repr / out_repr,
             interior layers are regular-representation fields. Example: [1, 8, 8, 1].
         activation: factory mapping a FieldType to an equivariant activation
-            module, applied after every hidden conv (e.g. ``enn.LeakyReLU``).
+            module, applied after every hidden conv. Defaults to ``enn.LeakyReLU``.
         kernel_size, padding: conv geometry; a scalar applies to every layer, or
             pass a per-layer list.
         bias: whether convs carry a bias (scalar or per-layer list).
@@ -183,7 +187,7 @@ class EquivariantCNN(nn.Module):
         self,
         gspace,
         channels: list[int],
-        activation=enn.LeakyReLU,
+        activation=None,
         kernel_size: int | list[int] = 3,
         padding: int | list[int] = 0,
         bias: bool | list[bool] = False,
@@ -191,6 +195,7 @@ class EquivariantCNN(nn.Module):
         out_repr=None,
     ) -> None:
         super().__init__()
+        activation = activation if activation is not None else enn.LeakyReLU
         in_repr = in_repr if in_repr is not None else gspace.trivial_repr
         out_repr = out_repr if out_repr is not None else gspace.trivial_repr
         reps = [in_repr, *[gspace.regular_repr] * (len(channels) - 2), out_repr]
