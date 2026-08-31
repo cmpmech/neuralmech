@@ -15,6 +15,9 @@ Toy problems for **Chapter 3 (Artificial Neural Networks)** covering multilayer 
 - `universal_approx_relu.py`
   visual universal approximation: a two-layer ReLU MLP fits $\sin(\pi x)$ by spreading
   equidistant kinks and solving the output layer by least squares
+- `universal_approx_local_min.py`
+  the same two-layer ReLU network fitted with adam instead, compared against the
+  least squares weights of `universal_approx_relu.py`
 - `mlp_expressivity.py`
   expressivity of depth versus width, visualized by mapping 2D coordinates
   $\mathbf{x} \in [-1, 1]^2$ to RGB images with randomly initialized MLPs

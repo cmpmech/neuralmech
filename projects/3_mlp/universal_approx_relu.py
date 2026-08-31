@@ -11,6 +11,7 @@ from postprocessing import save_csv
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 CSV_DIR = (RESULTS_DIR / "data").resolve()
+MODEL_DIR = (BASE_DIR / "../../models").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -56,9 +57,14 @@ def predict_hidden(x):
 
 with torch.no_grad():
     X = torch.hstack([predict_hidden(x_train), torch.ones(SAMPLES, 1)])
-    fit = torch.linalg.inv(X.T @ X) @ X.T @ y_train
+    # equivalent alternative : fit = torch.linalg.inv(X.T @ X) @ X.T @ y_train
+    # the normal equations square the condition number, qr keeps float32 accuracy
+    fit = torch.linalg.lstsq(X, y_train).solution
     model.model[2].weight.data[0, :] = fit[0:NEURONS, 0]
     model.model[2].bias.data[:] = fit[NEURONS, 0].item()
+
+# the least squares weights serve as the reference in universal_approx_local_min.py
+torch.save(model, MODEL_DIR / f"universal_approx_relu{NEURONS}.pt2")
 
 # ----------------------------------- postprocessing ----------------------------------
 x_test = torch.linspace(-1, 1, 400).unsqueeze(1)
