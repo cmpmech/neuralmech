@@ -1,3 +1,4 @@
+import math
 import time
 from functools import partial
 from pathlib import Path
@@ -12,7 +13,7 @@ from torchinfo import summary
 from tqdm import tqdm
 
 from DL import Standardizer, build_ae_cnn_config, init_weights
-from NN import DCN, MLP, VAE
+from NN import DCN, VAE, SlotDecoder, SlotEncoder
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
@@ -28,17 +29,20 @@ EPOCHS = 4000
 LR = 1e-3
 REGULARIZATION = 1e-2
 BATCH_SIZE = 32
-BETA = 1.0  # kl weight; 1 is the plain evidence lower bound
+BETA = 32.0  # kl weight; 1 is the plain evidence lower bound
 
 # define loss
 # both terms are summed per image, so BETA weighs nats against nats and BETA = 1 is the
 # evidence lower bound. with a mean reduction the weight would instead have to absorb
 # the ratio of pixel count to latent size.
 # BETA has to be read against the pixel count: the reconstruction is summed over
-# RESOLUTION**2 pixels while the rate is not, so BETA = 12 here throttles no harder than
-# BETA = 3 would on a 128 grid. raising it does not buy a better latent, it only spends
-# reconstruction: at 12 the decoder leaves two thirds more pixels undecided, while the
-# roundness of prior samples is flat across the whole range
+# RESOLUTION**2 pixels while the rate is not, so a given BETA throttles four times as
+# hard on a 128 grid as it does here.
+# unlike the flat code of v1, this latent really does trade. measured on a 128 grid, the
+# aggregate posterior sits 8.0 nats from the prior at BETA = 1 and 1.6 nats at BETA = 8,
+# while the reconstruction falls from 0.97 to 0.82 intersection over union. 8 there is
+# the knee, and it is where the prior starts producing the right number of fibers, so
+# BETA = 32 here. drop it towards 4 for reconstruction, raise it for the latent
 recon_loss = nn.BCEWithLogitsLoss(reduction="sum")
 
 
@@ -56,12 +60,20 @@ def cost_fun(x_pred, mean_pred, logvar_pred, x):
 
 
 # model settings
+# the code is a grid of GRID x GRID slots of CELL dimensions each, plus one GLOBAL
+# vector shared by the whole image. a slot is anchored to a place, so the encoder never
+# has to invent an order for the fibers, which is what forces the flat code of v1 to
+# spend 64 dimensions on a microstructure that has about 21 degrees of freedom.
+# DEPTH follows from how far it is from the slot grid up to the image
 RESOLUTION = 256
-DEPTH = 6
+GRID = 8
+CELL = 4
+GLOBAL = 4  # carries the factors that belong to the image, above all the fiber radius
+LATENT = GRID**2 * CELL + GLOBAL
+DEPTH = round(math.log2(RESOLUTION // GRID))
 CONV_LAYERS = 1
 CHANNEL_DIM = 2
 KERNEL_SIZE = 3
-LATENT = 64
 THRESHOLD = 0.5
 act = partial(nn.PReLU, init=0.2)
 
@@ -95,12 +107,8 @@ def augment(x):
 # --------------------------- instantiate model & optimizer ---------------------------
 channels, strides = build_ae_cnn_config(DEPTH, CONV_LAYERS, CHANNEL_DIM, 2)
 channels[0] = 1  # true input size (in case CHANNEL_DIM != 1)
-red_resolution = RESOLUTION // 2**DEPTH
-layers = [red_resolution**2 * channels[-1], LATENT]
 
-# the code is a flat vector: a spatial latent samples every position independently and
-# decodes into speckle rather than into whole fibers
-Encoder = nn.Sequential(
+Encoder = SlotEncoder(
     DCN(
         channels,
         [[nn.GroupNorm(1, channel), act()] for channel in channels[1:]],
@@ -109,8 +117,9 @@ Encoder = nn.Sequential(
         padding=KERNEL_SIZE // 2,
         dim=2,
     ),
-    nn.Flatten(),
-    MLP([layers[0], 2 * layers[1]]),  # mean and logvar stacked
+    channels[-1],
+    CELL,
+    GLOBAL,
 )
 
 upsamplings = [
@@ -118,19 +127,22 @@ upsamplings = [
     for s in strides[::-1]
 ]
 
-Decoder = nn.Sequential(
-    MLP(layers[::-1], post_modules=[act()]),
-    nn.Unflatten(1, (channels[-1], red_resolution, red_resolution)),
+decoder_channels = channels[::-1]
+decoder_channels[0] = CELL + GLOBAL  # the code enters as channels, not as a flat vector
+
+Decoder = SlotDecoder(
     DCN(
-        channels[::-1],
+        decoder_channels,
         # one entry short of the conv count on purpose: the last conv emits raw logits
-        [[nn.GroupNorm(1, channel), act()] for channel in channels[-2:0:-1]],
+        [[nn.GroupNorm(1, channel), act()] for channel in decoder_channels[1:-1]],
         KERNEL_SIZE,
         stride=1,
         padding=KERNEL_SIZE // 2,
         pre_modules=upsamplings,
         dim=2,
     ),
+    GRID,
+    CELL,
 )
 
 model = VAE(Encoder, Decoder).to(device)
@@ -239,7 +251,7 @@ print(
 
 # ------------------------------------ export model -----------------------------------
 model.standardizer = standardizex  # just for saving
-torch.save(model, MODEL_DIR / f"fiber_vae_{LATENT}_{BETA}_{RESOLUTION}.pt2")
+torch.save(model, MODEL_DIR / f"fiber_vae_v2_{GRID}_{CELL}_{BETA}_{RESOLUTION}.pt2")
 
 # ----------------------------------- postprocessing ----------------------------------
 fig, ax = plt.subplots()

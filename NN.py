@@ -996,6 +996,72 @@ class VAE(AE):
         return y, mean, logvar
 
 
+class SlotEncoder(nn.Module):
+    """Encoder head producing a grid of local latent slots plus a shared global vector.
+
+    ``body`` is any convolutional stack reducing the input to a coarse spatial grid.
+    A 1x1 convolution then reads one posterior per grid cell, while a linear layer
+    reads a second posterior from the pooled features. Because a slot is anchored to
+    a location, the encoder never has to impose an ordering on the objects in the
+    image, which is what makes a flat code spend far more dimensions than the data
+    has degrees of freedom.
+
+    The output is laid out as ``cat([slot_mean, glob_mean, slot_logvar, glob_logvar])``
+    so that ``VAE`` splitting it in half recovers the mean and log-variance.
+
+    Args:
+        body: Convolutional stack mapping the input to (width, grid, grid).
+        width: Channel count leaving ``body``.
+        cell: Latent dimensions per grid slot.
+        glob: Latent dimensions in the shared global vector.
+    """
+
+    def __init__(self, body: nn.Module, width: int, cell: int, glob: int) -> None:
+        super().__init__()
+        self.body = body
+        self.slots = nn.Conv2d(width, 2 * cell, 1)
+        self.shared = nn.Linear(width, 2 * glob)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Encode into stacked (mean, logvar) over slots followed by global dims."""
+        features = self.body(x)
+        slot_mean, slot_logvar = torch.chunk(self.slots(features), chunks=2, dim=1)
+        shared = self.shared(features.mean(dim=(2, 3)))
+        glob_mean, glob_logvar = torch.chunk(shared, chunks=2, dim=1)
+        return torch.cat(
+            [slot_mean.flatten(1), glob_mean, slot_logvar.flatten(1), glob_logvar],
+            dim=1,
+        )
+
+
+class SlotDecoder(nn.Module):
+    """Decoder counterpart to ``SlotEncoder``.
+
+    The leading ``grid * grid * cell`` entries of the code are reshaped back onto the
+    slot grid and the remaining entries are broadcast across every slot, so each place
+    decodes from its own code together with the one the whole image shares. ``head``
+    must accept ``cell + glob`` input channels.
+
+    Args:
+        head: Convolutional stack mapping (cell + glob, grid, grid) to the output.
+        grid: Slots per side.
+        cell: Latent dimensions per grid slot.
+    """
+
+    def __init__(self, head: nn.Module, grid: int, cell: int) -> None:
+        super().__init__()
+        self.head = head
+        self.grid = grid
+        self.cell = cell
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        """Place the slots back on their grid and broadcast the shared vector."""
+        split = self.grid**2 * self.cell
+        slots = z[:, :split].view(-1, self.cell, self.grid, self.grid)
+        shared = z[:, split:, None, None].expand(-1, -1, self.grid, self.grid)
+        return self.head(torch.cat([slots, shared], dim=1))
+
+
 class UNet(nn.Module):
     """U-Net: symmetric encoder-decoder with skip connections at each level.
 

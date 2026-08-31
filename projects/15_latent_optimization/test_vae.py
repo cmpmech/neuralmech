@@ -16,12 +16,17 @@ torch.backends.cudnn.deterministic = True
 # latent, which is what this checks
 RESOLUTION = 256
 LATENT = 64  # matches ../15_anomaly/fiber_vae_train.py
+# LATENT = 8**2 * 4 + 4  # matches ../15_anomaly/fiber_vae_train_v2.py
 THRESHOLD = 0.5
 
 # --------------------------------- instantiate model ---------------------------------
 model = torch.load(
-    MODEL_DIR / "fiber_vae_64_12.0_256.pt2", weights_only=False, map_location=device
+    MODEL_DIR / "fiber_vae_64_1.0_256.pt2", weights_only=False, map_location=device
 )
+# the slot-latent variant, swap both this and LATENT above to test it
+# model = torch.load(
+#     MODEL_DIR / "fiber_vae_v2_8_4_32.0_256.pt2", weights_only=False, map_location=device
+# )
 model.eval()
 
 # --------------------------------------- sample --------------------------------------

@@ -74,7 +74,7 @@ THRESHOLD = 0.5
 
 # --------------------------- instantiate model & optimizer ---------------------------
 model = torch.load(
-    MODEL_DIR / "fiber_vae_64_12.0_256.pt2", weights_only=False, map_location=device
+    MODEL_DIR / "fiber_vae_64_1.0_256.pt2", weights_only=False, map_location=device
 )
 model.eval()
 standardizer = model.standardizer

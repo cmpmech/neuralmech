@@ -17,7 +17,7 @@ candidate is constrained to lie on the learned manifold of fiber microstructures
 `topopt_latent_vae.py`
     The same optimization carried out on the latent mean of the fiber variational
     autoencoder (`../15_anomaly/fiber_vae_train.py`,
-    `models/fiber_vae_64_12.0_256.pt2`). A quadratic penalty holds the code on the shell
+    `models/fiber_vae_64_1.0_256.pt2`). A quadratic penalty holds the code on the shell
     that the code stays probable under the prior of the variational autoencoder, so the
     design stays typical of the training set.
 
