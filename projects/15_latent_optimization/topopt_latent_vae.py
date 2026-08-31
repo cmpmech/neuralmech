@@ -67,14 +67,17 @@ LR = 5e-2
 ALPHA = -0.5
 BETA = 0.1
 CLIP = 0.1  # gradient-norm clipping
-LATENT_PENALTY = 1e-3  # weight of the negative log density of the latent prior
+# weight of the negative log density under the prior. the learned density is far
+# sharper than the quadratic it replaces, so this is two orders of magnitude smaller and
+# still moves the code by the same amount per iteration
+LATENT_PENALTY = 1e-5
 
 # postprocessing
 THRESHOLD = 0.5
 
 # --------------------------- instantiate model & optimizer ---------------------------
 model = torch.load(
-    MODEL_DIR / "fiber_vae_64_1.0_256.pt2", weights_only=False, map_location=device
+    MODEL_DIR / "fiber_vae_260_1.0_256.pt2", weights_only=False, map_location=device
 )
 model.eval()
 standardizer = model.standardizer
@@ -160,7 +163,7 @@ def simp(rho):  # simp stiffness interpolation between void and solid
 penal = PENAL0
 penalty = PENALTY0
 compliance0 = None
-distance_history = [0] * ITERS
+rarity_history = [0] * ITERS
 
 if args.animate:
     ANIMATION_DIR.mkdir(parents=True, exist_ok=True)
@@ -191,12 +194,13 @@ for it in pbar:
     sensitivity = torch.from_numpy(sensitivity).reshape(1, 1, RESOLUTION, RESOLUTION)
     rho_pred.backward(sensitivity.to(device))
 
-    # the latent is trained to follow a standard normal distribution, so the squared
-    # distance is its negative log density and the design becomes a maximum a posteriori
-    # estimate: the most probable code that still carries the load
-    latent_distance = torch.linalg.norm(latent)
-    (LATENT_PENALTY * latent_distance**2).backward()
-    distance_history[it] = latent_distance.item()
+    # the code carries a prior fitted to the codes themselves, so its negative log
+    # density is available exactly and the design becomes a maximum a posteriori
+    # estimate: the most probable code that still carries the load. the norm of the code
+    # would not do, because this latent is not trained onto a standard normal
+    rarity = -model.prior.log_prob(latent)[0]
+    (LATENT_PENALTY * rarity).backward()
+    rarity_history[it] = rarity.item()
 
     torch.nn.utils.clip_grad_norm_([latent], CLIP)
     optimizer.step()
@@ -208,7 +212,7 @@ for it in pbar:
         c=f"{compliance:.2e}",
         vol=f"{mean_rho:.3f}",
         p=f"{penal:.2f}",
-        d=f"{distance_history[it]:.1f}",
+        d=f"{rarity_history[it]:.1f}",
     )
 
     if args.animate:
@@ -229,13 +233,13 @@ u = np.zeros(ndof)
 u[free] = fem.solve(simp(rho_thresh), force_free)
 compliance_thresh = force @ u
 print(f"thresholded c {compliance_thresh:.3e} vol {rho_thresh.mean():.3f}")
-print(f"latent distance {distance_history[0]:.3e} -> {distance_history[-1]:.3e}")
+print(f"latent rarity {rarity_history[0]:.3e} -> {rarity_history[-1]:.3e}")
 
 if not args.book and not args.animate:
     fig, ax = plt.subplots()
-    ax.plot(distance_history, "k")
+    ax.plot(rarity_history, "k")
     ax.set_xlabel("iteration")
-    ax.set_ylabel("latent distance")
+    ax.set_ylabel("negative log density")
     plt.show()
 
     for field in (rho_init, rho, rho_thresh):

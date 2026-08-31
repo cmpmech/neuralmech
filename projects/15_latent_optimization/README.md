@@ -17,13 +17,13 @@ candidate is constrained to lie on the learned manifold of fiber microstructures
 `topopt_latent_vae.py`
     The same optimization carried out on the latent mean of the fiber variational
     autoencoder (`../15_anomaly/fiber_vae_train.py`,
-    `models/fiber_vae_64_1.0_256.pt2`). A quadratic penalty holds the code on the shell
-    that the code stays probable under the prior of the variational autoencoder, so the
-    design stays typical of the training set.
+    `models/fiber_vae_260_1.0_256.pt2`). A penalty on the negative log density under the
+    learned prior keeps the code probable, so the design stays typical of the training
+    set.
 
 `test_vae.py`
-    Decodes a single code drawn from the prior of the variational autoencoder, which
-    tests whether the model generates rather than only reconstructs.
+    Decodes one code drawn from a standard normal next to one drawn from the learned
+    prior, which tests whether the model generates rather than only reconstructs.
 
 ## Non-obvious technicalities (authored by Claude)
 
@@ -48,16 +48,17 @@ entropy on logits, so its output passes through a sigmoid instead, which also bo
 the density to $(0, 1)$ without an explicit clamp. Only the latent mean is optimized;
 sampling is switched off, so the design stays deterministic.
 
-The latent penalty is $w \|z\|^2$, which for a latent that follows a standard normal
-distribution is its negative log density up to a constant. The optimization therefore
-returns a maximum a posteriori design: the most probable code that still carries the
-load. The penalty is added before the gradient is clipped, so it competes with the
-compliance sensitivity inside the same clipping budget rather than on top of it.
+The latent penalty is $-w \log p(z)$ under the prior that the training driver fits to
+the codes themselves. The optimization therefore returns a maximum a posteriori design:
+the most probable code that still carries the load. The penalty is added before the
+gradient is clipped, so it competes with the compliance sensitivity inside the same
+clipping budget rather than on top of it.
 
-The interpretation depends on the latent actually matching the prior, which is what
-`BETA` in the training driver buys. It also assumes the penalty stays weak: a normal
-distribution in $H$ dimensions carries its mass on a shell of radius $\sqrt{H}$ rather
-than at the origin, so a strong penalty pulls the code inside that shell and decodes
-toward a blurred average microstructure. With $w = 10^{-3}$ the code moves from $8.5$ to
-$7.1$ against a shell radius of $8$, which is about one standard deviation of the radius
-and still an ordinary code.
+Reading $\|z\|^2$ as the negative log density instead would require the codes to follow
+a standard normal, and they do not: the trained prior scores a real code at $+664$ nats
+and a draw from $\mathcal{N}(0, I)$ at $-1016$ nats, about $1700$ nats apart, so a
+penalty on the norm would pull the design toward codes the decoder has never seen. The
+learned density is far sharper than the quadratic it replaces, hence $w = 10^{-5}$
+rather than $10^{-3}$; the two move the code by about the same amount per iteration.
+Over a run the code still travels from $-644$ to $+765$ nats, because reaching the
+volume target of $0.6$ means leaving the strict fiber manifold.
