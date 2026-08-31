@@ -12,6 +12,13 @@ def generate_circles(N, num_circles, radius=0.1, domain_length=1):
     x, y = np.meshgrid(x, y, indexing="ij")
 
     for i in range(num_circles):
+        # TODO enable to give every fiber its own radius. the caller draws one radius
+        # per image, so today every fiber in an image is the same size; drawing it here
+        # instead varies the size within the image. two things follow: the anomaly sets
+        # below get varying circles too (their squares keep half_width), and a large
+        # radius drawn into an already crowded domain can leave the placement loop
+        # spinning, so cap the count or shrink the range if it stalls
+        # radius = np.random.uniform(0.05, 0.1)
         overlap = True
         while overlap == True:
             xc = np.random.uniform(radius, domain_length - radius)
