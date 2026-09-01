@@ -1177,6 +1177,60 @@ class SlotPrior(nn.Module):
         return self.detokenize(tokens[:, 1:])
 
 
+class TwoStagePrior(nn.Module):
+    """Learned prior that is itself a variational autoencoder over the codes.
+
+    The two-stage construction of Dai and Wipf (2019): the first autoencoder is trained
+    for reconstruction alone, and a second, much smaller one is fitted to the codes it
+    produced. Sampling draws from the standard normal of the second stage and decodes
+    twice. Unlike ``SlotPrior`` this ignores the spatial layout of the code and holds no
+    attention, which is what makes it simple; the price is that it has to model the
+    whole code at once instead of one slot at a time, so it needs a code small enough
+    for that to be possible.
+
+    ``log_prob`` returns the evidence lower bound rather than an exact density, which is
+    all a penalty holding a latent optimization on the manifold needs. In evaluation
+    mode the bound is taken at the posterior mean, so the penalty is deterministic.
+
+    Args:
+        codes: Encoded means the prior is fitted to; only their scale is read here.
+        inner: Latent size of the second stage.
+        width: Hidden width of both second-stage networks.
+    """
+
+    def __init__(self, codes: torch.Tensor, inner: int = 64, width: int = 512) -> None:
+        super().__init__()
+        latent = codes.shape[1]
+        self.register_buffer("code_mean", codes.mean(dim=0))
+        self.register_buffer("code_std", codes.std(dim=0) + 1e-6)
+        self.inner = inner
+        self.model = VAE(
+            MLP([latent, width, width, 2 * inner], [nn.SiLU(), nn.SiLU(), None]),
+            MLP([inner, width, width, latent], [nn.SiLU(), nn.SiLU(), None]),
+        )
+        self.logvar = nn.Parameter(torch.zeros(1))  # spread of the decoded code
+
+    def log_prob(self, z: torch.Tensor) -> torch.Tensor:
+        """Evidence lower bound on the log density, differentiable in ``z``."""
+        u = (z - self.code_mean) / self.code_std
+        u_pred, mean, logvar = self.model(u)
+        spread = self.logvar.clamp(-10, 10)
+        recon = -0.5 * (
+            (u - u_pred) ** 2 / spread.exp() + spread + math.log(2 * math.pi)
+        )
+        kl = 0.5 * (logvar.clamp(-10, 10).exp() + mean**2 - logvar.clamp(-10, 10) - 1)
+        # the standardization is a change of variables, so its jacobian belongs here
+        return recon.sum(dim=1) - kl.sum(dim=1) - self.code_std.log().sum()
+
+    @torch.no_grad()
+    def sample(self, samples: int) -> torch.Tensor:
+        """Decode a draw from the standard normal of the second stage."""
+        seed = torch.randn(samples, self.inner, device=self.code_mean.device)
+        u = self.model.decode(seed)
+        u = u + (0.5 * self.logvar).exp() * torch.randn_like(u)
+        return u * self.code_std + self.code_mean
+
+
 class UNet(nn.Module):
     """U-Net: symmetric encoder-decoder with skip connections at each level.
 

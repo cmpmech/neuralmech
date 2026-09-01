@@ -16,12 +16,19 @@ torch.backends.cudnn.deterministic = True
 # is the prior alone, and the standard normal is the one that decodes into merged worms
 RESOLUTION = 256
 LATENT = 8**2 * 4 + 4  # matches ../15_anomaly/fiber_vae_train.py
+# LATENT = 4**2 * 8 + 4  # matches ../15_anomaly/fiber_vae_train_v2.py
 THRESHOLD = 0.5
 
 # --------------------------------- instantiate model ---------------------------------
 model = torch.load(
     MODEL_DIR / "fiber_vae_260_1.0_256.pt2", weights_only=False, map_location=device
 )
+# the variant whose prior is a second variational autoencoder rather than an
+# autoregressive one, swap both this and LATENT above to compare the two
+# model = torch.load(
+#     MODEL_DIR / "fiber_vae_v2_132_1.0_256.pt2", weights_only=False,
+#     map_location=device
+# )
 model.eval()
 
 # --------------------------------------- sample --------------------------------------
