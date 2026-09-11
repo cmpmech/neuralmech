@@ -50,7 +50,7 @@ DEGREE = 3
 QUAD_ORDER = DEGREE + 1
 
 # physics
-VOLFRAC = 0.6  # material fraction; the perforated matrix is nearly solid
+VOLFRAC = 0.7  # 0.6  # material fraction; the perforated matrix is nearly solid
 RMIN = 2
 E0, EMIN, NU = 1.0, 1e-9, 0.3
 LOAD = -1.0
@@ -77,29 +77,34 @@ THRESHOLD = 0.5
 
 # --------------------------- instantiate model & optimizer ---------------------------
 model = torch.load(
-<<<<<<< HEAD
-    MODEL_DIR / "fiber_vae_260_1.0_256.pt2", weights_only=False, map_location=device
-=======
-<<<<<<< HEAD
-    MODEL_DIR / "fiber_vae_64_1.0_256.pt2", weights_only=False, map_location=device
-=======
-    MODEL_DIR / "fiber_vae_64_12.0_256.pt2", weights_only=False, map_location=device
->>>>>>> eb9b070 (local minimum)
->>>>>>> afb0bd9 (local minimum)
+    MODEL_DIR / "fiber_vae_v2_132_1.0_256.pt2", weights_only=False, map_location=device
 )
+
+# <<<<<<< HEAD
+#     MODEL_DIR / "fiber_vae_260_1.0_256.pt2", weights_only=False, map_location=device
+# =======
+# <<<<<<< HEAD
+#     MODEL_DIR / "fiber_vae_64_1.0_256.pt2", weights_only=False, map_location=device
+# =======
+#     MODEL_DIR / "fiber_vae_64_12.0_256.pt2", weights_only=False, map_location=device
+# >>>>>>> eb9b070 (local minimum)
+# >>>>>>> afb0bd9 (local minimum)
+# )
 model.eval()
-standardizer = model.standardizer
 
-# start on the manifold: encode one real fiber sample and optimize its latent code
-# TODO REMOVE THIS IN THE FUTURE
-seed = torch.from_numpy(np.load(DATA_DIR / f"fibers_{RESOLUTION}.npy")[0]).float()
-seed = seed.reshape(1, 1, RESOLUTION, RESOLUTION).to(device)
+# start on the manifold: draw one code from the learned prior and optimize it. the
+# design variable is the code itself, so it carries the latent size, not the image size
+latent = nn.Parameter(model.prior.sample(1).to(device))
 
-# the encoder stacks mean and logvar along the channel dimension; optimizing the mean
-# keeps the design deterministic, no sampling during the optimization
-with torch.no_grad():
-    mean, logvar = torch.chunk(model.encode(standardizer(seed)), chunks=2, dim=1)
-latent = nn.Parameter(mean)
+# alternative start: encode one real fiber sample instead of sampling the prior. the
+# encoder stacks mean and logvar along the channel dimension; optimizing the mean keeps
+# the design deterministic, no sampling during the optimization
+# standardizer = model.standardizer
+# seed = torch.from_numpy(np.load(DATA_DIR / f"fibers_{RESOLUTION}.npy")[0]).float()
+# seed = seed.reshape(1, 1, RESOLUTION, RESOLUTION).to(device)
+# with torch.no_grad():
+#     mean, logvar = torch.chunk(model.encode(standardizer(seed)), chunks=2, dim=1)
+# latent = nn.Parameter(mean)
 
 
 def forward():  # latent -> decoded fibers -> material density (fibers are holes)

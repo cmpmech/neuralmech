@@ -15,28 +15,30 @@ torch.backends.cudnn.deterministic = True
 # the codes. the decoder is the same in both, so whatever differs between the two images
 # is the prior alone, and the standard normal is the one that decodes into merged worms
 RESOLUTION = 256
-LATENT = 8**2 * 4 + 4  # matches ../15_anomaly/fiber_vae_train.py
-# LATENT = 4**2 * 8 + 4  # matches ../15_anomaly/fiber_vae_train_v2.py
+# LATENT = 8**2 * 4 + 4  # matches ../15_anomaly/fiber_vae_train.py
+LATENT = 4**2 * 8 + 4  # matches ../15_anomaly/fiber_vae_train_v2.py
 THRESHOLD = 0.5
 
 # --------------------------------- instantiate model ---------------------------------
-model = torch.load(
-<<<<<<< HEAD
-    MODEL_DIR / "fiber_vae_260_1.0_256.pt2", weights_only=False, map_location=device
-=======
-<<<<<<< HEAD
-    MODEL_DIR / "fiber_vae_64_1.0_256.pt2", weights_only=False, map_location=device
-=======
-    MODEL_DIR / "fiber_vae_64_12.0_256.pt2", weights_only=False, map_location=device
->>>>>>> eb9b070 (local minimum)
->>>>>>> afb0bd9 (local minimum)
-)
+# model = torch.load(
+#     MODEL_DIR / "fiber_vae_v2_132_1.0_256.pt2",
+#     weights_only=False,
+#     map_location=device,
+# <<<<<<< HEAD
+#     MODEL_DIR / "fiber_vae_260_1.0_256.pt2", weights_only=False, map_location=device
+# =======
+# <<<<<<< HEAD
+#     MODEL_DIR / "fiber_vae_64_1.0_256.pt2", weights_only=False, map_location=device
+# =======
+#     MODEL_DIR / "fiber_vae_64_12.0_256.pt2", weights_only=False, map_location=device
+# >>>>>>> eb9b070 (local minimum)
+# >>>>>>> afb0bd9 (local minimum)
+# )
 # the variant whose prior is a second variational autoencoder rather than an
 # autoregressive one, swap both this and LATENT above to compare the two
-# model = torch.load(
-#     MODEL_DIR / "fiber_vae_v2_132_1.0_256.pt2", weights_only=False,
-#     map_location=device
-# )
+model = torch.load(
+    MODEL_DIR / "fiber_vae_v2_132_1.0_256.pt2", weights_only=False, map_location=device
+)
 model.eval()
 
 # --------------------------------------- sample --------------------------------------
