@@ -1,8 +1,6 @@
 import argparse
 import os
 
-# pardiso runs on MKL threads; the numpy assembly is too small for BLAS threads,
-# which would only oversubscribe against MKL's pool
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import time
@@ -14,7 +12,7 @@ import numpy as np
 from matplotlib.tri import Triangulation
 from tqdm import tqdm
 
-from solvers.optimization import MMA, DensityFilter, StructuredFEM
+from solvers.optimization import MMA, DensityFilter, StructuredFEM, dsimp, simp
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
@@ -53,9 +51,7 @@ PORT = 12  # passive solid patch (design voxels) anchoring each port to the stru
 # postprocessing
 THRESHOLD = 0.5
 
-# optimization (MMA) with penalization continuation: a mechanism cannot be grown
-# from a fully penalized gray start (the springs dominate the near-void stiffness and
-# the design just dissolves), so SIMP starts near-linear and stiffens over the run
+# optimization (MMA) with penalization continuation
 MAX_ITER = 200
 CHANGE_TOL = 0.005
 MMA_MOVE = 0.1  # MMA step move limit
@@ -85,7 +81,10 @@ integrand = mlhp.staticDomainIntegrand(
 )
 quadrature = mlhp.gridQuadrature(nsubcells=[SUB_VOXELS, SUB_VOXELS])
 K_locals = mlhp.integratePartitionMatrices(
-    basis_local, integrand, quadrature, mlhp.absoluteQuadratureOrder([QUAD_ORDER, QUAD_ORDER])
+    basis_local,
+    integrand,
+    quadrature,
+    mlhp.absoluteQuadratureOrder([QUAD_ORDER, QUAD_ORDER]),
 )
 
 
@@ -134,10 +133,6 @@ passive[NX - PORT :, :PORT] = True  # output port (bottom-right)
 fem = StructuredFEM(efts, free, ndof, K_locals, (NX, NY), SUB_VOXELS)
 
 
-def simp(rho, penal):  # SIMP stiffness interpolation between void and solid
-    return EMIN + rho**penal * (E0 - EMIN)
-
-
 # ----------------------------------- density filter ----------------------------------
 density_filter = DensityFilter(RMIN, (NX, NY))
 
@@ -163,11 +158,13 @@ for it in pbar:
     u = np.zeros(ndof)
     lam = np.zeros(ndof)
     rhs = np.column_stack([force_free, probe_free])
-    u[free], lam[free] = fem.solve(simp(rho, penal), rhs, spring_diag=spring_free).T
+    u[free], lam[free] = fem.solve(
+        simp(rho, penal, EMIN, E0), rhs, spring_diag=spring_free
+    ).T
     u_out = probe @ u
 
     # d(u_out)/d(rho) = -lam^T (dK/drho) u, mapped back through the filter
-    dudout = -penal * rho ** (penal - 1) * (E0 - EMIN) * fem.bilinear(K_locals, lam, u)
+    dudout = -dsimp(rho, penal, EMIN, E0) * fem.bilinear(K_locals, lam, u)
     dc = density_filter.adjoint(dudout)
 
     vol = rho.mean()
@@ -217,9 +214,11 @@ rho = density_filter(x)
 rho_thresh = (rho > THRESHOLD).astype(float)
 
 u = np.zeros(ndof)
-u[free] = fem.solve(simp(rho, penal), force_free, spring_diag=spring_free)
+u[free] = fem.solve(simp(rho, penal, EMIN, E0), force_free, spring_diag=spring_free)
 u_out_int = probe @ u
-u[free] = fem.solve(simp(rho_thresh, penal), force_free, spring_diag=spring_free)
+u[free] = fem.solve(
+    simp(rho_thresh, penal, EMIN, E0), force_free, spring_diag=spring_free
+)
 u_out_thresh = probe @ u
 u_in_thresh = force @ u / F_IN  # input-port displacement (work-conjugate to F_IN)
 print(
@@ -264,7 +263,7 @@ fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
 ax.tricontourf(tri, ux, cmap="turbo", levels=64)
 ax.set_aspect("equal")
 ax.axis("off")
-ax.set_rasterized(True)  # vectorized pdf too large at this mesh density
+ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
     plt.savefig(RGB_PDF_DIR / "topopt_mechanism_ux.pdf", transparent=True)

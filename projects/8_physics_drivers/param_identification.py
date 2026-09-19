@@ -54,6 +54,7 @@ A_aug = np.vstack([A, np.sqrt(REGULARIZATION) * D2])  # D1 or D2
 b_aug = np.concatenate([b, np.zeros(SAMPLES)])
 EA = np.linalg.lstsq(A_aug, b_aug, rcond=None)[0]
 
+# without regularization
 # EA = np.linalg.solve(A, b)
 # EA = np.linalg.lstsq(A, b, rcond=None)[0]
 
@@ -66,5 +67,5 @@ EA_test = EA_fun(x_test)
 
 fig, ax = plt.subplots()
 ax.plot(x_test, EA_test, "k")
-ax.plot(x, EA, "ro")
+ax.plot(x, EA, "ro-")
 plt.show()

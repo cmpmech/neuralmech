@@ -1,26 +1,4 @@
-"""Shared building blocks for the structured-grid topology-optimization drivers.
-
-Three reusable pieces:
-
-* :class:`MMA` / :class:`ReferenceMMA` -- the optimizer. Single-constraint Method
-  of Moving Asymptotes (Svanberg 1987): each step updates the moving asymptotes
-  from the iterate history, builds the convex separable approximation, and either
-  solves the one-constraint dual in closed form (``MMA``) or defers to ``mmapy``'s
-  interior point (``ReferenceMMA``).
-* :class:`StructuredFEM` / :class:`ComplexStructuredFEM` -- the forward solvers,
-  sharing the :class:`_StructuredFEM` assembly core (dimension-agnostic grid<->element
-  reshaping and the design-independent free-dof sparsity, so a SIMP loop assembles by
-  gather + segmented sum into fixed CSC). Both solve with MKL pardiso
-  (``solvers/mklwrapper.py``), which analyzes the sparsity once and only refactorizes
-  as the design changes: ``StructuredFEM`` the real SPD system, ``ComplexStructuredFEM``
-  the complex Helmholtz system ``a K + b M``. Pardiso is multithreaded, so keep OPENBLAS
-  pinned to one thread to avoid oversubscription. ``CGStructuredFEM`` drops the
-  factorization entirely and solves each design with Jacobi-preconditioned CG (mlhp on
-  the CPU or cupyx on the GPU), warm-started from the previous design's solution.
-* :class:`DensityFilter` and :func:`projection` / :func:`dprojection` -- the
-  regularization: conic density filtering (with its adjoint and the classic OC
-  sensitivity variant) and the smoothed-Heaviside projection pair.
-"""
+"""Shared building blocks for the structured-grid topology-optimization drivers."""
 
 import math
 
@@ -146,9 +124,26 @@ class ReferenceMMA:
         fval = np.atleast_2d(np.asarray(fval, dtype=float)).reshape(1, 1)
         dfdx = np.asarray(dfdx, dtype=float).reshape(1, self.n)
         xmma, _, _, _, _, _, _, _, _, self.low, self.upp = self._mmasub(
-            1, self.n, self.iter, xval, self.xmin, self.xmax, self.xold1, self.xold2,
-            f0val, df0dx, fval, dfdx, self.low, self.upp, self.a0, self.a, self.c,
-            self.d, move=self.move)
+            1,
+            self.n,
+            self.iter,
+            xval,
+            self.xmin,
+            self.xmax,
+            self.xold1,
+            self.xold2,
+            f0val,
+            df0dx,
+            fval,
+            dfdx,
+            self.low,
+            self.upp,
+            self.a0,
+            self.a,
+            self.c,
+            self.d,
+            move=self.move,
+        )
         self.xold2, self.xold1 = self.xold1, xval
         return xmma
 
@@ -222,7 +217,9 @@ class _StructuredFEM:
         perm = [ax for d in range(self.dim) for ax in (d, self.dim + d)]
         return field.reshape(shape).transpose(perm).reshape(self.grid_shape)
 
-    def assemble(self, coeff, local_mats):  # per-voxel-scaled local_mats -> free-free CSC
+    def assemble(
+        self, coeff, local_mats
+    ):  # per-voxel-scaled local_mats -> free-free CSC
         scale_e = self.grid_to_elements(coeff)
         mat_e = np.einsum("es,sij->eij", scale_e, local_mats, optimize=True)
         data = np.add.reduceat(mat_e.ravel()[self._data_idx], self._seg)
@@ -257,7 +254,9 @@ class StructuredFEM(_StructuredFEM):
         self._factor = None
         self.K_locals = K_locals
 
-    def solve(self, material, rhs_free, spring_diag=None):  # K(material) u = rhs, free dofs
+    def solve(
+        self, material, rhs_free, spring_diag=None
+    ):  # K(material) u = rhs, free dofs
         K = self.assemble(material, self.K_locals)
         if spring_diag is not None:  # add nodal springs onto the diagonal (mechanisms)
             K.data[self._diag_idx] += spring_diag
@@ -290,8 +289,18 @@ class CGStructuredFEM(_StructuredFEM):
         maxiter: CG iteration cap per solve.
     """
 
-    def __init__(self, efts, free, ndof, K_locals, grid_shape, sub_voxels=1,
-                 use_cupy=False, rtol=1e-8, maxiter=10000):
+    def __init__(
+        self,
+        efts,
+        free,
+        ndof,
+        K_locals,
+        grid_shape,
+        sub_voxels=1,
+        use_cupy=False,
+        rtol=1e-8,
+        maxiter=10000,
+    ):
         super().__init__(efts, free, ndof, grid_shape, sub_voxels)
         self.K_locals = K_locals
         self.use_cupy = use_cupy
@@ -312,7 +321,9 @@ class CGStructuredFEM(_StructuredFEM):
 
             self._mlhp = mlhp
 
-    def solve(self, material, rhs_free, spring_diag=None):  # K(material) u = rhs, free dofs
+    def solve(
+        self, material, rhs_free, spring_diag=None
+    ):  # K(material) u = rhs, free dofs
         K = self.assemble(material, self.K_locals)
         if spring_diag is not None:  # add nodal springs onto the diagonal (mechanisms)
             K.data[self._diag_idx] += spring_diag
@@ -324,22 +335,33 @@ class CGStructuredFEM(_StructuredFEM):
             if self._K_gpu is None:
                 self._K_gpu = self._cpx_sparse.csr_matrix(
                     (cp.asarray(K.data), cp.asarray(K.indices), cp.asarray(K.indptr)),
-                    shape=K.shape)
+                    shape=K.shape,
+                )
             else:
                 self._K_gpu.data[:] = cp.asarray(K.data)
             inv_diag = 1.0 / cp.asarray(diag)
             M = self._cpx_linalg.LinearOperator(K.shape, matvec=lambda x: inv_diag * x)
             u, info = self._cpx_linalg.cg(
-                self._K_gpu, cp.asarray(rhs), x0=cp.asarray(self._x0),
-                rtol=self.rtol, maxiter=self.maxiter, M=M)
+                self._K_gpu,
+                cp.asarray(rhs),
+                x0=cp.asarray(self._x0),
+                rtol=self.rtol,
+                maxiter=self.maxiter,
+                M=M,
+            )
             u = cp.asnumpy(u)
         else:
             mlhp = self._mlhp
             A = mlhp.linearOperator_array(lambda x, out: np.copyto(out, K @ x))
             M = mlhp.linearOperator_array(lambda x, out: np.divide(x, diag, out=out))
             u = mlhp.cg(
-                A, mlhp.DoubleVector(rhs.tolist()), x0=mlhp.DoubleVector(self._x0.tolist()),
-                rtol=self.rtol, maxiter=self.maxiter, M=M)
+                A,
+                mlhp.DoubleVector(rhs.tolist()),
+                x0=mlhp.DoubleVector(self._x0.tolist()),
+                rtol=self.rtol,
+                maxiter=self.maxiter,
+                M=M,
+            )
             u = np.array(u.array)
         self._x0 = u
         return u
@@ -372,7 +394,8 @@ class ComplexStructuredFEM(_StructuredFEM):
 
     def system(self, coeff_k, coeff_m):  # a(x) K + b(x) M as a complex CSC
         return (
-            self.assemble(coeff_k, self.K_locals) + self.assemble(coeff_m, self.M_locals)
+            self.assemble(coeff_k, self.K_locals)
+            + self.assemble(coeff_m, self.M_locals)
         ).tocsc()
 
     def factorize(self, matrix):  # pardiso refactorization on the fixed sparsity
@@ -420,6 +443,16 @@ class DensityFilter:
     def sensitivity(self, rho, dc):  # classic OC sensitivity filter (Sigmund 2001)
         num = self.ndi.convolve(rho * dc, self.kernel, mode="constant", cval=0.0)
         return num / (self.xp.maximum(rho, 1e-3) * self.Hs)
+
+
+def simp(x, penal, v_min, v_max):
+    """Solid isotropic material with penalization: interpolate v_min to v_max."""
+    return v_min + x**penal * (v_max - v_min)
+
+
+def dsimp(x, penal, v_min, v_max):
+    """Derivative of :func:`simp` with respect to ``x``."""
+    return penal * x ** (penal - 1) * (v_max - v_min)
 
 
 def projection(x, beta, eta):

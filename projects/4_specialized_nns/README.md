@@ -11,7 +11,7 @@ the Stanford bunny point cloud.
   noisy sine and its derivative sampled on grids of several resolutions
 - `deeponet_sine_gen.py` -> `data/deeponet_sine_{32,64,128,256}.npz`
   shifted sines with a fixed sensor sampling and random query coordinates
-- `hom_dmn_gen.py` -> `data/hom_dmn.npz`
+- `dmn_hom_gen.py` -> `data/hom_dmn.npz`
   finite-cell homogenized effective stiffness of a two-phase circular-inclusion cell for
   many sampled phase moduli, plus a nonlinear-elastic FE reference of the same cell under a
   uniaxial macro-strain path (uses `solvers/homogenization.py` and the nonlinear-elastic
@@ -65,7 +65,7 @@ the Stanford bunny point cloud.
 - `analog_rnn_train.py` _needs `minecraft_mobs.npz`_
   analog recurrent network (Hughes et al. 2019): a trainable acoustic medium that classifies
   mob-sound clips by the wave energy each reaches at three right-wall probes, one per behaviour
-  class, trained end-to-end through cuwave's boundary-reconstruction adjoint (solvers/cuwave);
+  class, trained end-to-end through cuwave's boundary-reconstruction adjoint (the `cuwave` package);
   saves the binarized medium to `models/analog_rnn_material.npy`
 - `analog_rnn_eval.py` _needs `analog_rnn_material.npy`_
   renders a wavefield snapshot plus source and probe signals for one clip propagated

@@ -7,8 +7,9 @@ from torch.autograd import grad
 from NN import SIRENsine
 
 
-# ------------------------ weight initialization -------------------------
+# ------------------------------- weight initialization -------------------------------
 def init_weights(model, activation=None):
+    """Initialize all linear and convolutional weights to suit the activation."""
     for m in model.modules():
         if isinstance(m, (nn.Linear, nn.Conv1d, nn.Conv2d, nn.Conv3d)):
             if isinstance(
@@ -61,16 +62,14 @@ def init_weights(model, activation=None):
                 nn.init.zeros_(m.bias)
 
 
-# ----------------- data normalization & standardization -----------------
+# ------------------------ data normalization & standardization -----------------------
 class Normalizer(nn.Module):
+    """Map data to [0, 1] along dim, with inverse() to undo it."""
+
     def __init__(self, X, dim=0):  # default is to have sample dim at 0
         super().__init__()
-        # amin/amax, not min/max: they accept a tuple of dims and return a plain tensor
-        # instead of a (values, indices) pair
         x_min = torch.amin(X, dim=dim, keepdim=True)
         x_max = torch.amax(X, dim=dim, keepdim=True)
-        # buffers, not plain tensors: the statistics then reach state_dict() and
-        # follow .to(device) along with the module that carries them
         self.register_buffer("x_min", x_min)
         self.register_buffer("span", (x_max - x_min).clamp_min(1e-8))
 
@@ -82,6 +81,8 @@ class Normalizer(nn.Module):
 
 
 class Standardizer(nn.Module):
+    """Map data to zero mean and unit variance along dim, with inverse() to undo it."""
+
     def __init__(self, X, dim=0):  # default is to have sample dim at 0
         super().__init__()
         self.register_buffer("x_mean", X.mean(dim=dim, keepdim=True))  # see above
@@ -94,8 +95,10 @@ class Standardizer(nn.Module):
         return x * self.x_std + self.x_mean
 
 
-# ------------------------ network configurations ------------------------
+# ------------------------------- network configurations ------------------------------
 def build_ae_cnn_config(depth, conv_layers, channel_dim, base):
+    """Channels and strides of a convolutional encoder halving the resolution per
+    depth."""
     channels, strides = [], []
 
     for i in range(depth + 1):
@@ -113,8 +116,9 @@ def build_ae_cnn_config(depth, conv_layers, channel_dim, base):
     return channels, strides[:-1]
 
 
-# ----------------- optimization landscape visualization -----------------
+# ------------------------ optimization landscape visualization -----------------------
 def get_params(model: nn.Module, kind: str = "all") -> list[torch.Tensor]:
+    """Copy the model parameters, either all of them or only the weights or biases."""
     if kind == "all":
         return [p.detach().clone() for p in model.parameters()]
     if kind == "weights":
@@ -133,16 +137,19 @@ def get_params(model: nn.Module, kind: str = "all") -> list[torch.Tensor]:
 
 
 def set_params(model: nn.Module, params: list[torch.Tensor]) -> None:
+    """Overwrite the model parameters in place."""
     with torch.no_grad():
         for p, v in zip(model.parameters(), params):
             p.copy_(v)
 
 
 def flatten_params(params: list[torch.Tensor]) -> torch.Tensor:
+    """Concatenate a parameter list into a single vector."""
     return torch.cat([p.view(-1) for p in params])
 
 
 def unflatten_params(vec: torch.Tensor, ref: list[torch.Tensor]) -> list[torch.Tensor]:
+    """Split a parameter vector back into the shapes of the reference list."""
     out, i = [], 0
     for p in ref:
         n = p.numel()
@@ -154,8 +161,9 @@ def unflatten_params(vec: torch.Tensor, ref: list[torch.Tensor]) -> list[torch.T
 def filter_normalize_direction(
     direction: list[torch.Tensor], reference: list[torch.Tensor]
 ) -> list[torch.Tensor]:
-    """Scale each filter (inputs to each output neuron) in direction to match the norm of the corresponding filter
-    in reference. Makes alpha meaningful across architectures."""
+    """Scale each filter (inputs to each output neuron) in direction to match the norm
+    of the corresponding filter in reference. Makes alpha meaningful across
+    architectures."""
     normed = []
     for d, w in zip(direction, reference):
         if d.dim() >= 2:
@@ -167,8 +175,9 @@ def filter_normalize_direction(
     return normed
 
 
-# ----------------------------- KAN helpers ------------------------------
+# ------------------------------------ KAN helpers ------------------------------------
 def count_kan_params(model):
+    """Count the base and spline parameters of a Kolmogorov-Arnold network."""
     base_params = 0
     spline_params = 0
 
@@ -182,6 +191,7 @@ def count_kan_params(model):
 
 
 def get_kan_edge_activations(model, layer_id, resolution=200):
+    """Sample the univariate activation on each edge of a Kolmogorov-Arnold layer."""
     layer = model.layers[layer_id]
     dev = layer.grid.device
 
@@ -219,7 +229,7 @@ def get_kan_edge_activations(model, layer_id, resolution=200):
     return x, activations
 
 
-# ------------------------ differentiation helpers -----------------------
+# ------------------------------ differentiation helpers ------------------------------
 def differentiate(y, x, n=1, graph=True):
     """Compute the nth order derivative of y = f(x) with respect to x."""
 

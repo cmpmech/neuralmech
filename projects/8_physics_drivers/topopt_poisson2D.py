@@ -1,8 +1,6 @@
 import argparse
 import os
 
-# pardiso runs on MKL threads; the numpy assembly is too small for BLAS threads,
-# which would only oversubscribe against MKL's pool
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import time
@@ -20,7 +18,9 @@ from solvers.optimization import (
     ReferenceMMA,
     StructuredFEM,
     dprojection,
+    dsimp,
     projection,
+    simp,
 )
 
 BASE_DIR = Path(__file__).parent
@@ -86,7 +86,10 @@ ndof_e = basis_local.ndof()
 integrand = mlhp.poissonIntegrand(mlhp.scalarField(2, 1.0), mlhp.scalarField(2, 0.0))
 quadrature = mlhp.gridQuadrature(nsubcells=[SUB_VOXELS, SUB_VOXELS])
 K_locals = mlhp.integratePartitionMatrices(
-    basis_local, integrand, quadrature, mlhp.absoluteQuadratureOrder([QUAD_ORDER, QUAD_ORDER])
+    basis_local,
+    integrand,
+    quadrature,
+    mlhp.absoluteQuadratureOrder([QUAD_ORDER, QUAD_ORDER]),
 )
 
 # -------------------------------- boundary conditions --------------------------------
@@ -120,10 +123,6 @@ force_free = force[free]
 fem = StructuredFEM(efts, free, ndof, K_locals, (NX, NY), SUB_VOXELS)
 
 
-def simp(rho):  # SIMP conductivity interpolation between void and solid
-    return KMIN + rho**PENAL * (K0 - KMIN)
-
-
 # --------------------------- density filter & Heaviside projection -------------------
 density_filter = DensityFilter(RMIN, (NX, NY))
 
@@ -148,16 +147,12 @@ for it in pbar:
     x_d = projection(x_tilde, beta, ETA_D)
 
     u = np.zeros(ndof)
-    u[free] = fem.solve(simp(x_e), force_free)
+    u[free] = fem.solve(simp(x_e, PENAL, KMIN, K0), force_free)
     compliance = force @ u
     c_ref = compliance if c_ref is None else c_ref
     ce = fem.element_energy(u)
     dc = density_filter.adjoint(
-        -PENAL
-        * x_e ** (PENAL - 1)
-        * (K0 - KMIN)
-        * ce
-        * dprojection(x_tilde, beta, ETA_E)
+        -dsimp(x_e, PENAL, KMIN, K0) * ce * dprojection(x_tilde, beta, ETA_E)
     )
 
     vfrac_d *= VOLFRAC / x_i.mean()  # intermediate -> VOLFRAC
@@ -204,9 +199,9 @@ x_int = projection(density_filter(xval.reshape(NX, NY)), beta, ETA_I)
 rho_thresh = (x_int > THRESHOLD).astype(float)
 
 u = np.zeros(ndof)
-u[free] = fem.solve(simp(x_int), force_free)
+u[free] = fem.solve(simp(x_int, PENAL, KMIN, K0), force_free)
 compliance_phys = force @ u
-u[free] = fem.solve(simp(rho_thresh), force_free)
+u[free] = fem.solve(simp(rho_thresh, PENAL, KMIN, K0), force_free)
 compliance_thresh = force @ u
 print(
     f"intermediate c {compliance_phys:.3e} vol {x_int.mean():.3f}\n"
@@ -214,7 +209,7 @@ print(
 )
 
 # temperature field of the intermediate design
-u[free] = fem.solve(simp(x_int), force_free)
+u[free] = fem.solve(simp(x_int, PENAL, KMIN, K0), force_free)
 postmesh = mlhp.domainCellMesh(source_domain, [DEGREE + 1] * 2)
 temperature = mlhp.DataAccumulator()
 mlhp.basisOutput(

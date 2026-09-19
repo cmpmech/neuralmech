@@ -47,7 +47,6 @@ origin, maximum = [0.0] * DIM, [LENGTH] * DIM
 
 cube = mlhp.implicitCube(origin, maximum)
 hole = mlhp.implicitCube((0.3, 0.3), (0.7, 0.7))
-# hole = mlhp.implicitSphere([0.5 * LENGTH] * DIM, 0.15 * LENGTH)
 domain = mlhp.implicitSubtraction([cube, hole])
 
 # ------------------------------------- subroutine ------------------------------------

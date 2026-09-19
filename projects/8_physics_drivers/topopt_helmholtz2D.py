@@ -1,8 +1,6 @@
 import argparse
 import os
 
-# pardiso runs on MKL threads; the numpy assembly is too small for BLAS threads,
-# which would only oversubscribe against MKL's pool
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import time
@@ -40,7 +38,6 @@ args = parser.parse_args()
 # ceiling acoustic topology optimization
 
 # geometry & objective
-# LENGTHS = [18.0, 9.0]
 LENGTHS = [18.0, 18.0]
 SOURCE_CENTER = [2.0, 2.0]  # harmonic point source (bottom-left)
 SOURCE_WIDTH = 0.3  # Gaussian emulation of the point source
@@ -61,7 +58,7 @@ target_max = [
 # discretization
 NX, NY = np.array(LENGTHS).astype(int) * 24
 SUB_VOXELS = 4
-DEGREE = 2  # not sufficient
+DEGREE = 2  # not sufficient TODO
 QUAD_ORDER = DEGREE + 1  # integration
 
 # physics
@@ -99,7 +96,7 @@ ndof = basis.ndof()
 efts = np.array(basis.locationMaps())
 
 # --------------------------- preintegrate reference element --------------------------
-# "hack" differing from how helmholtz2D.py handles helmholtz: using K, M directly
+# hack: differing from how helmholtz2D.py handles helmholtz: using K, M directly
 mesh_local = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1, 1], lengths=elem_lengths))
 basis_local = mlhp.makeHpTensorSpace(mesh_local, degree=DEGREE, nfields=1)
 

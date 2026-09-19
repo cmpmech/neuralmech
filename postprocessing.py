@@ -14,30 +14,30 @@ from matplotlib.colors import (
 )
 
 
-# --------------------------- exporting to csv ---------------------------
+# ---------------------------------- exporting to csv ---------------------------------
 def save_csv(path: str, **cols) -> None:
     """Save keyword-argument columns as a space-separated CSV file."""
     pd.DataFrame(cols).to_csv(path, sep=" ", index=False)
 
 
-# ------------------------ temporary figure saving -----------------------
+# ------------------------------ temporary figure saving ------------------------------
 def save_temp_fig(name: str) -> None:
     """Save the current figure to '<name>_<timestamp>.jpg' for quick inspection.
 
-    A throwaway replacement for plt.savefig during development: pass a path prefix
-    that already includes the results folder (e.g. 'results/analog_rnn'); a
-    timestamp is appended so repeated calls never overwrite each other.
+    A throwaway replacement for plt.savefig during development: pass a path prefix that
+    already includes the results folder (e.g. 'results/analog_rnn'); a timestamp is
+    appended so repeated calls never overwrite each other.
     """
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     plt.savefig(f"{name}_{stamp}.jpg")
 
 
-# ---------------------------- colormaps ---------------------------------
+# ------------------------------------- colormaps -------------------------------------
 def load_cmap(path: str) -> LinearSegmentedColormap:
     """Build a matplotlib colormap from a ParaView .cmap (JSON) file.
 
-    The .cmap RGBPoints are stored as [x0, r0, g0, b0, x1, r1, g1, b1, ...];
-    positions are rescaled to [0, 1] for matplotlib.
+    The .cmap RGBPoints are stored as [x0, r0, g0, b0, x1, r1, g1, b1, ...]; positions
+    are rescaled to [0, 1] for matplotlib.
     """
     data = json.loads(Path(path).read_text())
     pts = data["RGBPoints"]
@@ -47,7 +47,7 @@ def load_cmap(path: str) -> LinearSegmentedColormap:
     return LinearSegmentedColormap.from_list(data.get("Name", "cmap"), stops)
 
 
-# ------------------------- image postprocessing -------------------------
+# -------------------------------- image postprocessing -------------------------------
 def show_image(
     img: np.ndarray,
     grayscale: bool = False,

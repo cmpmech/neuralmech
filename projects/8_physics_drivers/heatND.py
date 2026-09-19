@@ -44,11 +44,11 @@ THETA = 1.0
 AMPLITUDE = 1.0
 WIDTH = 0.05
 
-# snapshot cadence for the 1d space-time image and animation frames
+# postprocessing
 SAVE_EVERY = 1
 
 # --------------------------------------- setup ---------------------------------------
-# implicit: dt is set by accuracy, NOT by the explicit courant limit dx**2 / (2 * kappa)
+# implicit: dt is set by accuracy
 dt = T / N
 center = [0.5 * LENGTH] * DIM
 lengths = [LENGTH] * DIM
@@ -59,7 +59,7 @@ basis = mlhp.makeHpTrunkSpace(grid, degree=DEGREE, nfields=1)
 print(basis)
 
 # --------------------------------------- fields --------------------------------------
-# capacity, conductivity and source are space-time (dim + 1) fields; constants broadcast
+# capacity, conductivity and source are space-time (dim + 1) fields
 capacity = mlhp.scalarField(DIM + 1, CAPACITY)
 conductivity = mlhp.scalarField(DIM + 1, CONDUCTIVITY)
 source = mlhp.scalarField(DIM + 1, 0.0)
@@ -83,8 +83,6 @@ recorded = [dofs] if record_every is not None else []
 for istep in range(N):
     time0, time1 = istep * dt, (istep + 1) * dt
 
-    # the lhs matrix M / dt + theta * K is identical every step (fixed mesh, dt, material);
-    # reassembled here for clarity, but its factorization could be cached for speed
     matrix = mlhp.allocateSparseMatrix(basis, dirichlet[0])
     vector = mlhp.allocateRhsVector(matrix)
 
@@ -120,7 +118,6 @@ def sample(dofs):
 
 
 def profile(dofs):
-    # sample a 1d field, sorted and de-duplicated along x
     result = sample(dofs)
     x = np.asarray(result.mesh().points()).reshape(-1, 3)[:, 0]
     values = np.asarray(result.data()[0])
@@ -129,7 +126,6 @@ def profile(dofs):
     return x[order][unique], values[order][unique]
 
 
-# 3d has no inline preview; write the final field to vtu for paraview
 if DIM == 3:
     cellmesh = mlhp.gridCellMesh([DEGREE + 1] * DIM)
     processors = [mlhp.solutionProcessor(DIM, dofs, "Temperature")]
@@ -141,7 +137,6 @@ if DIM == 3:
     )
     print(f"wrote {RESULTS_DIR / 'heat3D'}.vtu")
 
-# build the inline / book figure (dim 1 and 2)
 if DIM in (1, 2) and not args.animate:
     if DIM == 1:
         spacetime = np.stack([profile(snap)[1] for snap in recorded], axis=1)
@@ -151,9 +146,6 @@ if DIM in (1, 2) and not args.animate:
     else:
         result = sample(dofs)
         data = np.asarray(result.data()[0])
-        # floor the contour levels at exactly 0 so the cold field fills solidly; an
-        # integer level count lets matplotlib pick a lowest level above 0, leaving the
-        # zero region unfilled (white speckle)
         levels = np.linspace(0, data.max(), 64)
         fig, ax = plt.subplots(figsize=(5, 5), dpi=400)
         ax.tricontourf(
@@ -178,8 +170,6 @@ if args.animate and DIM in (1, 2):
     frame_dir = ANIMATION_DIR / f"heat{DIM}D"
     frame_dir.mkdir(parents=True, exist_ok=True)
     if DIM == 2:
-        # one constant color scale across frames (so the decay reads) with levels
-        # floored at 0; per-frame integer levels leave the cold field unfilled (white)
         scale = max(np.asarray(sample(snap).data()[0]).max() for snap in recorded)
         levels = np.linspace(0, scale, 64)
     for i, snap in enumerate(recorded):
@@ -189,7 +179,6 @@ if args.animate and DIM in (1, 2):
             ax.plot(x, values, "k")
             ax.set_ylim(0, AMPLITUDE)
         else:
-            # each sample orders its points differently, so re-triangulate per frame
             result = sample(snap)
             ax.tricontourf(
                 result.triangulation(mpl=True),

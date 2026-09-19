@@ -11,10 +11,11 @@ import numpy as np
 import torch
 from cuwave.boundary import pad_for_sponge, sponge
 from cuwave.geometry import box, nodes
+from cuwave.scalar import AcousticWave
 from cuwave.sensitivity import reconstruction_sensitivity
 from cuwave.signals import sineburst
-from cuwave.utils import energy, point_source, response, response_gradient
-from cuwave.wave import AcousticWave, grid_coords, simulate, stable_dt
+from cuwave.utils import energy, point_source, response, response_gradient, threshold
+from cuwave.wave import grid_coords, simulate, stable_dt
 
 from solvers.optimization import DensityFilter, dprojection, projection
 
@@ -43,7 +44,7 @@ TARGET_SIZE = (2.0, 2.0)
 # discretization
 RESOLUTION = (128, 64)
 SPACE_ORDER = 2  # finite difference order, any even number
-SAFETY = 0.5  # fraction of the stable time step
+SAFETY = 0.5
 THREADS = (4, 64)
 
 # physics
@@ -64,7 +65,7 @@ AMPLIFY = False
 BOUNDARIES = ["sponge", "sponge", "sponge", "sponge"]
 
 # absorbing sponge on the "sponge" edges
-SPONGE_THICKNESS = 1.75  # metres, so it does not need rescaling with RESOLUTION
+SPONGE_THICKNESS = 1.75  # m
 SPONGE_BETA = 1.5  # peak damping d * dt / 2m at the wall
 
 # optimization
@@ -81,6 +82,14 @@ BETA_MAX = 64.0
 
 
 # -------------------------------------- helper ---------------------------------------
+def field_fig():
+    # borderless axes at one pixel per node, the shape every frame and figure shares
+    fig, ax = plt.subplots(figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150)
+    ax.axis("off")
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    return fig, ax
+
+
 def physical(xval, beta):
     full = cp.zeros(sim.Nx_padded, dtype=sim.dtype).ravel()
     full[active] = cp.asarray(xval.ravel(), dtype=sim.dtype)
@@ -120,7 +129,6 @@ sim = AcousticWave(
     kappa1=KAPPA1,
     kappa2=KAPPA2,
 )
-# damping sets a compile flag, so it has to be in place before any kernel compiles
 if faces:
     air = cp.zeros(sim.Nx_padded, dtype=sim.dtype)
     sim = replace(sim, damping=sponge(sim, air, width, SPONGE_BETA, faces))
@@ -168,8 +176,9 @@ else:
     xmin, xmax = np.zeros((n, 1)), np.ones((n, 1))
     a0, a_mma, c_mma, d_mma = 1.0, np.zeros((0, 1)), np.zeros((0, 1)), np.zeros((0, 1))
 
-energy_air = response(sim, source, cp.zeros(sim.Nx_padded, dtype=sim.dtype),
-                      sensors, objective)[0]
+energy_air = response(
+    sim, source, cp.zeros(sim.Nx_padded, dtype=sim.dtype), sensors, objective
+)[0]
 cost_ref = None
 cost_history = []
 
@@ -192,7 +201,9 @@ for epoch in range(EPOCHS):
     cost_ref = cost if cost_ref is None else cost_ref
     sign = -1.0 if AMPLIFY else 1.0
     if USE_ADAM:
-        x.grad = torch.as_tensor(sign * grad_obj / cost_ref, dtype=x.dtype, device=device)
+        x.grad = torch.as_tensor(
+            sign * grad_obj / cost_ref, dtype=x.dtype, device=device
+        )
         optimizer.step()
         with torch.no_grad():
             x.clamp_(0.0, 1.0)
@@ -203,9 +214,25 @@ for epoch in range(EPOCHS):
         dfdx = np.zeros((0, n))
 
         xmma, _, _, _, _, _, _, _, _, low, upp = mmapy.mmasub(
-            0, n, epoch + 1, xval, xmin, xmax, xold1, xold2,
-            f0val, df0dx, fval, dfdx, low, upp,
-            a0, a_mma, c_mma, d_mma, move=MMA_MOVE,
+            0,
+            n,
+            epoch + 1,
+            xval,
+            xmin,
+            xmax,
+            xold1,
+            xold2,
+            f0val,
+            df0dx,
+            fval,
+            dfdx,
+            low,
+            upp,
+            a0,
+            a_mma,
+            c_mma,
+            d_mma,
+            move=MMA_MOVE,
         )
         xold2, xold1 = xold1, xval
         xval = xmma
@@ -217,18 +244,8 @@ for epoch in range(EPOCHS):
     )
 
     if args.animate:
-        fig, ax = plt.subplots(
-            figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150
-        )
-        ax.imshow(
-            gamma.get()[region].T,
-            origin="lower",
-            cmap="binary",
-            vmin=0,
-            vmax=1,
-        )
-        ax.axis("off")
-        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        fig, ax = field_fig()
+        ax.imshow(gamma.get()[region].T, origin="lower", cmap="binary", vmin=0, vmax=1)
         fig.savefig(ANIMATION_DIR / "optimization" / f"frame_{epoch:04d}.jpg")
         plt.close()
 toc = time.time()
@@ -238,7 +255,7 @@ print(f"elapsed time {toc - tic:.2f} s  ({(toc - tic) / EPOCHS:.2f} s/epoch)")
 if USE_ADAM:
     xval = x.detach().cpu().numpy()
 gamma_final, _ = physical(xval, beta_of(EPOCHS))
-gamma_binary = (gamma_final > 0.5).astype(sim.dtype) * design
+gamma_binary = threshold(gamma_final) * design
 
 energy_design = response(sim, source, gamma_final, sensors, objective)[0]
 energy_binary = response(sim, source, gamma_binary, sensors, objective)[0]
@@ -259,21 +276,16 @@ if args.animate:
     scale = float(np.max(np.abs(snaps)))
     overlay = np.ma.masked_where(design < 0.5, design)
     for f, snap in enumerate(snaps):
-        fig, ax = plt.subplots(
-            figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150
+        fig, ax = field_fig()
+        ax.imshow(
+            snap[region].T, origin="lower", cmap="seismic", vmin=-scale, vmax=scale
         )
-        ax.imshow(snap[region].T, origin="lower", cmap="seismic", vmin=-scale, vmax=scale)
         ax.imshow(overlay.T, origin="lower", cmap="binary", vmin=0, vmax=1, alpha=0.85)
-        ax.axis("off")
-        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         fig.savefig(wave_dir / f"frame_{f:04d}.jpg")
         plt.close()
 elif args.book:
-    fig, ax = plt.subplots(figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150)
+    fig, ax = field_fig()
     ax.imshow(design.T, origin="lower", cmap="binary", vmin=0, vmax=1)
-    ax.set_aspect("equal")
-    ax.axis("off")
-    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     fig.savefig(RGB_PDF_DIR / f"{name}.pdf", transparent=True)
     plt.close()
 else:

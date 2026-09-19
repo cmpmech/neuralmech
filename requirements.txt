@@ -27,6 +27,7 @@ colorspacious==1.1.2
 cons==0.4.7
 contourpy==1.3.3
 cupy-cuda12x==13.6.0
+cuwave==0.1.0
 cycler==0.12.1
 decorator==5.2.1
 diffusers==0.35.2
@@ -84,7 +85,7 @@ mdurl==0.1.2
 miniKanren==1.0.5
 mkl==2025.3.0
 ml_dtypes==0.5.3
-mlhp==0.1.2
+mlhp==0.2.4
 mpmath==1.3.0
 msgpack==1.1.2
 multidict==6.7.0

@@ -1,4 +1,7 @@
-# Deep Learning in Computational Mechanics <br> <small>a comprehensive reference</small>
+# Deep Learning in Computational Mechanics <br> <small>an honest reference</small>
+
+> [!NOTE]
+> This work is incomplete and under active development.
 
 ## About
 
@@ -17,7 +20,8 @@
 
 - simplistic & extendable implementations
 - reproducible results
-- associated to the third edition of [**deep learning in computational mechanics**](https://link.springer.com/book/10.1007/978-3-031-89529-6)
+- associated to the succesor of [**deep learning in computational mechanics**](https://link.springer.com/book/10.1007/978-3-031-89529-6): a completely new book growing out of the earlier edititions:
+
 <table><tr>
   <td><img src=".assets/images/book2.png" alt="deep learning in computational mechanics book 2" width="150"></td>
   <td><img src=".assets/images/book1.png" alt="deep learning in computational mechanics book 1" width="150"></td>
@@ -37,11 +41,6 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 - **Neural Network Architectures** (chapter 4)
 - **Probabilistic Machine Learning** (chapter 5)
 - **Governing Equations** (chapter 8)
-- **Generative Artificial Intelligence** (chapter 15)
-- **Large Language Models** (chapter 17)
-- **Simulation Acceleration via GPUs** (chapter 18)
-
-<img src=".assets/images/strains.png" alt="matrix-free finite element method on GPU" width="500">
 
 </details>
 
@@ -56,12 +55,19 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 - **Neural Solvers** (chapter 12)
 - **Physics-Informed Neural Networks** (chapter 13)
 - **Constitutive Modeling with Neural Networks** (chapter 14)
+- **Generative Artificial Intelligence** (chapter 15)
 - **Neural Optimization** (chapter 16)
 
 <img src=".assets/images/fwi.png" alt="full waveform inversion" width="300">
 
+- **Large Language Models** (chapter 17)
+- **Simulation Acceleration via GPUs** (chapter 18)
+
+<img src=".assets/images/strains.png" alt="matrix-free finite element method on GPU" width="500">
+
 - **Deep Reinforcement Learning** (chapter 19)
 - **Computational Mechanics After Artificial Intelligence** (chapter 20)
+
 </details>
 
 ## Requirements
@@ -72,9 +78,12 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 pip install -r requirements.txt
 ```
 
+> [!NOTE]
+> The requirements are currently broader than necessary and will be trimmed down later.
+
 ### Submodules
 
-[mlhp](https://gitlab.com/hpfem/code/mlhp) and [cuwave](https://github.com/Leon-Herrmann/cuwave) are included as git submodules. To clone recursively use
+[mlhp](https://gitlab.com/hpfem/code/mlhp) is included as a git submodule. To clone recursively use
 
 ```
 git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
@@ -82,15 +91,18 @@ git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
 
 #### Installation of mlhp
 
-- for now, use `pip install mlhp` (for more advanced physics C++ compilation will be needed)
+- for now, use `pip install mlhp` ([for more advanced physics](solvers/README.md#building-mlhp-from-source) C++ compilation will be needed)
 
-#### Installation of cuwave
+### Installation of cuwave
 
 - the GPU finite difference wave solver behind the wave and transient topology optimization drivers
+- covered by the requirements, or install it on its own with
 
 ```
-pip install -e solvers/cuwave
+pip install cuwave
 ```
+
+- needs a [cupy](https://cupy.dev) matching the installed CUDA toolkit
 
 ## Structure
 
@@ -99,7 +111,7 @@ pip install -e solvers/cuwave
 | [`data/`](data/)                         | generated data (small, but gitignored if large)                            |
 | [`external_data/`](external_data/)       | data generation tools with data in `data` (large, excluded from main repo) |
 | [`models/`](models/)                     | trained networks                                                           |
-| [`results/`](results/)                   | results for post-processing                                                |
+| [`results/`](results/)                   | results for postprocessing                                                 |
 | [`projects/`](projects/)                 | main drivers; see [projects](projects/README.md)                           |
 | [`templates/`](templates/)               | elements with repeated use (e.g., `training_loop.py`)                      |
 | [`DL.py`](DL.py)                         | deep learning utilities                                                    |
@@ -110,3 +122,7 @@ pip install -e solvers/cuwave
 ## Contact
 
 [neuralmech@pm.me](mailto:neuralmech@pm.me)
+
+## License
+
+MIT; see [LICENSE](LICENSE).

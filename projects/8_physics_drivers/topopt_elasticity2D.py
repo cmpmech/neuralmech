@@ -1,8 +1,6 @@
 import argparse
 import os
 
-# pardiso runs on MKL threads; the numpy assembly is too small for BLAS threads,
-# which would only oversubscribe against MKL's pool
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import time
@@ -13,7 +11,7 @@ import mlhp
 import numpy as np
 from tqdm import tqdm
 
-from solvers.optimization import DensityFilter, StructuredFEM
+from solvers.optimization import DensityFilter, StructuredFEM, dsimp, simp
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
@@ -106,10 +104,6 @@ force_free = force[free]
 fem = StructuredFEM(efts, free, ndof, K_locals, (NX, NY), SUB_VOXELS)
 
 
-def simp(rho):  # SIMP stiffness interpolation between void and solid
-    return EMIN + rho**PENAL * (E0 - EMIN)
-
-
 # ----------------------------------- density filter ----------------------------------
 density_filter = DensityFilter(RMIN, (NX, NY))
 
@@ -123,11 +117,11 @@ tic = time.time()
 pbar = tqdm(range(MAX_ITER))
 for it in pbar:
     u = np.zeros(ndof)
-    u[free] = fem.solve(simp(rho), force_free)
+    u[free] = fem.solve(simp(rho, PENAL, EMIN, E0), force_free)
     compliance = force @ u
 
     # compliance sensitivity, mapped back to the design grid
-    dc = -PENAL * rho ** (PENAL - 1) * (E0 - EMIN) * fem.element_energy(u)
+    dc = -dsimp(rho, PENAL, EMIN, E0) * fem.element_energy(u)
     dc = density_filter.sensitivity(rho, dc)
 
     # optimality criterion update with bisection on the volume multiplier
@@ -169,7 +163,7 @@ print(
 rho_thresh = (rho > THRESHOLD).astype(float)
 
 u = np.zeros(ndof)
-u[free] = fem.solve(simp(rho_thresh), force_free)
+u[free] = fem.solve(simp(rho_thresh, PENAL, EMIN, E0), force_free)
 compliance_thresh = force @ u
 print(f"thresholded  c {compliance_thresh:.3e} vol {rho_thresh.mean():.3f}")
 
@@ -206,7 +200,7 @@ fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
 ax.tricontourf(tri, uy, cmap="turbo", levels=64)
 ax.set_aspect("equal")
 ax.axis("off")
-ax.set_rasterized(True)  # vectorized pdf too large at this mesh density
+ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
     plt.savefig(RGB_PDF_DIR / "topopt_mbb_uy.pdf", transparent=True)

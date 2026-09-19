@@ -5,9 +5,10 @@ from pathlib import Path
 import cupy as cp
 import numpy as np
 from cuwave.boundary import pad_for_sponge, sponge
+from cuwave.scalar import AcousticWave
 from cuwave.sensitivity import reconstruction_nodes
 from cuwave.utils import Sensors, point_source
-from cuwave.wave import AcousticWave, stable_dt
+from cuwave.wave import stable_dt
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()

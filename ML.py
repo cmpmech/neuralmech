@@ -2,8 +2,10 @@ from itertools import combinations_with_replacement
 
 import numpy as np
 
-# ----------------------- parametrized regression ------------------------
+# ------------------------------ parametrized regression ------------------------------
 class LinearRegression:  # limited to 1D outputs
+    """Linear fit trained by gradient descent on the mean squared error."""
+
     def __init__(self):
         self.weight = 0
         self.bias = 0
@@ -32,6 +34,8 @@ class LinearRegression:  # limited to 1D outputs
         return train_cost, val_cost
 
 class LogisticRegression: # limited to 1D outputs
+    """Binary classifier trained by gradient descent on the cross-entropy."""
+
     def __init__(self):
         self.weights = np.zeros(2)
         self.bias = 0
@@ -70,6 +74,8 @@ class LogisticRegression: # limited to 1D outputs
         return (self.forward(x) > 0.5).astype(float)
 
 class PolynomialRegression: # limited to 1D in- & outputs
+    """Polynomial fit of degree p from the ridge-regularized normal equations."""
+
     def __init__(self, p, regularization):
         self.p = p
         self.regularization = regularization
@@ -93,10 +99,10 @@ class PolynomialRegression: # limited to 1D in- & outputs
 class BayesianPolynomialRegression: # limited to 1D outputs
     """Bayesian polynomial regression with a closed-form Gaussian posterior.
 
-    A Gaussian prior N(0, regularization^-1) on the weights and Gaussian
-    observation noise of standard deviation `noise` give a Gaussian posterior over
-    the weights. Its mean is the ridge solution, its covariance is the epistemic
-    uncertainty, and `noise` is the aleatoric uncertainty.
+    A Gaussian prior N(0, regularization^-1) on the weights and Gaussian observation
+    noise of standard deviation `noise` give a Gaussian posterior over the weights. Its
+    mean is the ridge solution, its covariance is the epistemic uncertainty, and
+    `noise` is the aleatoric uncertainty.
     """
 
     def __init__(self, p: int, regularization: float, noise: float):

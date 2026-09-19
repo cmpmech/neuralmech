@@ -7,8 +7,9 @@ import cupy as cp
 import matplotlib.pyplot as plt
 import numpy as np
 from cuwave.boundary import pad_for_sponge, sponge
+from cuwave.scalar import AcousticWave
 from cuwave.utils import Sensors, point_source
-from cuwave.wave import AcousticWave, simulate, stable_dt
+from cuwave.wave import simulate, stable_dt
 
 from postprocessing import cmyk_to_rgb
 
@@ -48,6 +49,24 @@ SPONGE_BETA = 0.1  # peak damping d * dt / 2m at the wall
 # postprocessing
 RECORD_EVERY = 10  # animation frame rate
 SNAPSHOT = 0.55  # seconds into the run the still snapshot is drawn at
+SOURCE_COLOR = cmyk_to_rgb(0, 0.76, 0.8, 0.2)
+SENSOR_COLOR = cmyk_to_rgb(0.8, 0.44, 0, 0.2)
+
+
+# -------------------------------------- helper ---------------------------------------
+def save_trace(wave, scale, color, stem):
+    fig, ax = plt.subplots(figsize=(6, 2), dpi=100)
+    ax.set_ylim(-scale, scale)
+    ax.set_xlim(0, T)
+    ax.plot(t, wave, color=color, linewidth=1)
+    ax.axis("off")
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    if not args.book:
+        plt.show()
+    else:
+        fig.savefig(RGB_PDF_DIR / f"{stem}.pdf", transparent=True)
+        plt.close()
+
 
 # --------------------------------------- setup ---------------------------------------
 dx = tuple(LENGTHS[d] / (RESOLUTION[d] - 3) for d in range(2))
@@ -125,34 +144,13 @@ if not args.animate:
         fig.savefig(RGB_PDF_DIR / "analog_rnn_field.pdf")
         plt.close()
 
-    # source
-    fig, ax = plt.subplots(figsize=(6, 2), dpi=100)
-    scale = np.max(np.abs(source_wave))
-    ax.set_ylim(-scale, scale)
-    ax.set_xlim(0, T)
-    ax.plot(t, source_wave, color=cmyk_to_rgb(0, 0.76, 0.8, 0.2), linewidth=1)
-    ax.axis("off")
-    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    if not args.book:
-        plt.show()
-    else:
-        fig.savefig(RGB_PDF_DIR / "analog_rnn_source.pdf", transparent=True)
-        plt.close()
+    # source, then the sensor signals: sensor k is the class-k readout
+    source_scale = np.max(np.abs(source_wave))
+    save_trace(source_wave, source_scale, SOURCE_COLOR, "analog_rnn_source")
 
-    # sensor signals: sensor k is the class-k readout
     scale = np.max(np.abs(traces))
     for k in range(len(SENSOR)):
-        fig, ax = plt.subplots(figsize=(6, 2), dpi=100)
-        ax.set_ylim(-scale, scale)
-        ax.set_xlim(0, T)
-        ax.plot(t, traces[:, k], color=cmyk_to_rgb(0.8, 0.44, 0, 0.2), linewidth=1)
-        ax.axis("off")
-        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-        if not args.book:
-            plt.show()
-        else:
-            fig.savefig(RGB_PDF_DIR / f"analog_rnn_sensors_{k}.pdf", transparent=True)
-            plt.close()
+        save_trace(traces[:, k], scale, SENSOR_COLOR, f"analog_rnn_sensors_{k}")
 # ----------------------------------- animate export ----------------------------------
 else:
     ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/analog_rnn"

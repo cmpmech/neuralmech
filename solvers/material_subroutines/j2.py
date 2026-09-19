@@ -1,21 +1,11 @@
 """Small-strain J2 (von Mises) plasticity as an mlhp user-material subroutine.
 
-The return mapping is written in C and compiled at runtime with cffi, then
-handed to mlhp as a function pointer through its constitutive-equation and
-mesh-function C-interfaces (mlhp >= 0.2). The same routine drives both the
-constitutive callback (strain increment -> stress, tangent) and the history
-update that commits the converged plastic state once per load step.
-
 History layout per material point (NHISTORY doubles):
     [stress (6), backstress (6), equivalent plastic strain (1)]
 in Voigt order [xx, yy, zz, xy, yz, xz] with engineering shear. The driver
 works in 2D, so the callbacks expand the 3-component plane-strain state to the
 6-component routine (ezz = exz = eyz = 0) and reduce the consistent tangent
 back to the 3x3 block over the in-plane components [xx, yy, xy].
-
-build() compiles the routine and returns the loaded library exposing
-material_address and update_address as integer function pointers for
-mlhp.constitutiveEquation and mlhp.meshFunctionStrainUpdate.
 """
 
 from solvers.material_subroutines import build_subroutine

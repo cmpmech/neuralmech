@@ -1,7 +1,6 @@
 import argparse
 import os
 
-# small system: the assembly and sparse matvecs are too small to benefit from threads
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -79,7 +78,10 @@ integrand = mlhp.staticDomainIntegrand(
 )
 quadrature = mlhp.gridQuadrature(nsubcells=[SUB_VOXELS, SUB_VOXELS])
 K_locals = mlhp.integratePartitionMatrices(
-    basis_local, integrand, quadrature, mlhp.absoluteQuadratureOrder([QUAD_ORDER, QUAD_ORDER])
+    basis_local,
+    integrand,
+    quadrature,
+    mlhp.absoluteQuadratureOrder([QUAD_ORDER, QUAD_ORDER]),
 )
 
 
@@ -209,7 +211,7 @@ fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
 ax.tricontourf(tri, uy, cmap="turbo", levels=64)
 ax.set_aspect("equal")
 ax.axis("off")
-ax.set_rasterized(True)  # vectorized pdf too large at this mesh density
+ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
     plt.savefig(RGB_PDF_DIR / "topopt_mbb_uy.pdf", transparent=True)

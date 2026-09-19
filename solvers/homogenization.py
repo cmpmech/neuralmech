@@ -1,18 +1,4 @@
-"""Linear-elastic RVE homogenization by the finite cell method in mlhp.
-
-``effective_stiffness`` computes the apparent stiffness of a periodic unit cell
-under kinematic uniform boundary conditions (KUBC). For a macro strain ``eps``
-(Voigt, engineering shear) imposed as the linear displacement ``u = eps . x`` on
-the whole cell boundary, the internal energy is ``U = 0.5 * V * eps^T C_eff eps``.
-Probing the unit strains and their pairwise sums therefore recovers the full
-symmetric stiffness: ``C_ii = 2 U(e_i) / V`` and
-``C_ij = (2 U(e_i + e_j) / V - C_ii - C_jj) / 2``.
-
-The routine is geometry-, dimension- and material-agnostic: the caller builds the
-microstructure (background grid, immersed domain, spatially varying material) and
-passes the resulting mlhp objects, so the same code homogenizes a circular
-inclusion, a plate with a hole, a fibre bundle, or voxel data in 2D or 3D.
-"""
+"""Linear-elastic RVE homogenization by the finite cell method in mlhp."""
 
 import mlhp
 import numpy as np

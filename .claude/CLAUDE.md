@@ -28,20 +28,20 @@ git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
 
 ### Submodule: mlhp
 - Path: `solvers/mlhp_source/mlhp`
-- Source: https://gitlab.com/hpfem/code/mlhp (pinned at `0.1.2`)
+- Source: https://gitlab.com/hpfem/code/mlhp (pinned at `0.2.4`)
+- Compiled build: `cmake -S solvers/mlhp_source -B solvers/mlhp_build && cmake --build solvers/mlhp_build -j`; the venv `.pth` puts `solvers/mlhp_build/bin` on `sys.path`, so `import mlhp` resolves to the compiled package (`bin/mlhp/`, with the NeuralMech helper integrands bundled into `mlhp._core`), not PyPI
 - Quick install: `pip install mlhp` (advanced physics requires C++ build)
 - Init/update submodule: `git submodule update --init --recursive`
 
-### Submodule: cuwave
-- Path: `solvers/cuwave`
-- Source: https://github.com/Leon-Herrmann/cuwave
-- Install: `pip install -e solvers/cuwave` (needs a cupy matching the CUDA toolkit)
-- Imported as an installed package, so drivers write `from cuwave.wave import ...`,
-  never `from solvers.cuwave...`
-- Owns the GPU finite difference wave solver and its adjoints: `wave` (ScalarWave /
-  AcousticWave, simulate), `sensitivity` (sensitivity, reconstruction_sensitivity,
-  superposition_sensitivity), `boundary` (pad_for_sponge, sponge), `utils` (Sensors,
-  point_source, response_gradient, misfit_gradient), `geometry`, `signals`
+### Dependency: cuwave
+- Source: https://github.com/cmpmech/cuwave, released on PyPI
+- Install: `pip install cuwave` (needs a cupy matching the CUDA toolkit); pinned in
+  `requirements.txt`. Not a submodule -- there is no `solvers/cuwave` checkout
+- Owns the GPU finite difference wave solver and its adjoints: `wave` (Simulation,
+  simulate, stable_dt, grid_coords), `scalar` (ScalarWave, AcousticWave), `sensitivity`
+  (sensitivity, reconstruction_sensitivity, superposition_sensitivity), `boundary`
+  (pad_for_sponge, sponge), `utils` (Sensors, point_source, response_gradient,
+  misfit_gradient), `geometry`, `signals`, plus `elastic`, `anisotropic` and `maxwell`
 - Used by `projects/8_physics_drivers/{waveND,topopt_acoustic2D}.py`,
   `projects/4_specialized_nns/analog_rnn_*.py`, `projects/16_fwi/*.py`,
   `projects/0_conceptual_figures/4_analog_rnn.py`

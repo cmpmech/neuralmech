@@ -5,7 +5,7 @@ import numpy as np
 from tqdm import tqdm
 
 from solvers.homogenization import effective_stiffness
-from solvers.material_subroutines.nonlinear_elastic import ABI, build
+from solvers.material_subroutines.cubic_stiffening import ABI, build
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()

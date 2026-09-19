@@ -1,88 +1,92 @@
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.colors import LogNorm
 from PIL import Image
 
 from postprocessing import show_image
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+DATA_DIR = (BASE_DIR / "../../data").resolve()
 
-# ------------------------------ load image ------------------------------
-# img = Image.open(BASE_DIR / "../../data/images/duckling.jpg").convert("L")
-img = Image.open(BASE_DIR / "../../data/images/oslo.jpg").convert("L")
-# img = Image.open(BASE_DIR / "../../data/images/firebrigade.jpg").convert("L")
+rng = np.random.default_rng(0)
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+args = parser.parse_args()
 
-# img = Image.open("output.jpg").convert("L")
+# -------------------------------------- settings -------------------------------------
+NOISE = 20
+RADIUS = 150  # keep frequencies within this radius of the spectrum center
+
+# ------------------------------------- load image ------------------------------------
+img = Image.open(DATA_DIR / "images" / "oslo.jpg").convert("L")
 img_arr = np.array(img, dtype=float)
 
-noise = np.random.normal(0, 20, img_arr.shape)
-img_arr += noise
+img_arr += rng.normal(0, NOISE, img_arr.shape)
 img_arr = np.clip(img_arr, 0, 255)
 
-# -------------------------------- 2D FFT --------------------------------
+# --------------------------------------- helper --------------------------------------
+def plot_spectrum(field):
+    H, W = field.shape
+    x, y = np.arange(W), np.arange(H)
+    X, Y = np.meshgrid(x, y)
+
+    fig, ax = plt.subplots(figsize=(W / 100, H / 100), dpi=100)
+    ax.pcolormesh(X, Y, field, cmap="cividis")
+    ax.axis("off")
+    ax.set_rasterized(True)
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    return fig
+
+
+# --------------------------------------- 2D FFT --------------------------------------
 F = np.fft.fft2(img_arr)
 F_shifted = np.fft.fftshift(F)
 
 magnitude = np.log1p(np.abs(F_shifted))
 phase = np.angle(F_shifted)
 
-# ---------------- postprocessing of frequencies & phases ----------------
+# -------------------------------------- filtering ------------------------------------
 H, W = img_arr.shape
-x = np.arange(W)
-y = np.arange(H)
-X, Y = np.meshgrid(x, y)
-
-W, H = img_arr.shape[0], img_arr.shape[1]
-fig, ax = plt.subplots(figsize=(H / 100, W / 100), dpi=100)
-cb = ax.pcolormesh(X, Y, magnitude, cmap="cividis")
-plt.axis("off")
-ax.set_rasterized(True)  # vectorized pdf too large at this grid resolution
-plt.tight_layout(pad=0)
-plt.savefig(RGB_PDF_DIR / f"fft2_freq_denoise.pdf")
-plt.show()
-
-fig, ax = plt.subplots(figsize=(H / 100, W / 100), dpi=100)
-cb = ax.pcolormesh(X, Y, phase, cmap="cividis")
-plt.axis("off")
-plt.tight_layout(pad=0)
-# plt.savefig('../../results/fft2_phase.jpg')
-plt.show()
-
-# ------------------------------ filtering -------------------------------
-cy, cx = W // 2, H // 2  # center of shifted FFT
-# radius = 150  # keep frequencies within this radius
-radius = 150  # keep frequencies within this radius
-
-Y_grid, X_grid = np.ogrid[: img_arr.shape[0], : img_arr.shape[1]]
+cy, cx = H // 2, W // 2  # center of the shifted spectrum
+Y_grid, X_grid = np.ogrid[:H, :W]
 dist = np.sqrt((X_grid - cx) ** 2 + (Y_grid - cy) ** 2)
 
-mask = dist <= radius  # True = low frequency, keep these
+mask = dist <= RADIUS  # true = low frequency, keep these
 
 F_filtered = F_shifted * mask
-magnitude = np.log1p(np.abs(F_filtered))
-
-W, H = img_arr.shape[0], img_arr.shape[1]
-fig, ax = plt.subplots(figsize=(H / 100, W / 100), dpi=100)
-cb = ax.pcolormesh(X, Y, magnitude, cmap="cividis")
-plt.axis("off")
-ax.set_rasterized(True)  # vectorized pdf too large at this grid resolution
-plt.tight_layout(pad=0)
-plt.savefig(RGB_PDF_DIR / f"fft2_freq_denoise_filtered.pdf")
-plt.show()
+magnitude_filtered = np.log1p(np.abs(F_filtered))
 
 img_reconstructed = np.fft.ifft2(np.fft.ifftshift(F_filtered)).real
 img_reconstructed = np.clip(img_reconstructed, 0, 255)
 
-show_image(
-    img_arr.astype(np.uint8), grayscale=True, path=RGB_PDF_DIR / f"fft_denoise_og.pdf"
-)
-show_image(
-    img_reconstructed.astype(np.uint8),
-    grayscale=True,
-    path=RGB_PDF_DIR / f"fft_denoise_compressed.pdf",
-)
+# ----------------------------------- postprocessing ----------------------------------
+fig_freq = plot_spectrum(magnitude)
+fig_phase = plot_spectrum(phase)
+fig_freq_filtered = plot_spectrum(magnitude_filtered)
+
+if not args.book:
+    plt.show()
+    show_image(img_arr.astype(np.uint8), grayscale=True)
+    show_image(img_reconstructed.astype(np.uint8), grayscale=True)
+# -------------------------------- book postprocessing --------------------------------
+else:
+    fig_freq.savefig(RGB_PDF_DIR / "fft2_freq_denoise.pdf")
+    fig_freq_filtered.savefig(RGB_PDF_DIR / "fft2_freq_denoise_filtered.pdf")
+    plt.close("all")
+    show_image(
+        img_arr.astype(np.uint8),
+        grayscale=True,
+        path=RGB_PDF_DIR / "fft_denoise_og.pdf",
+        close=True,
+    )
+    show_image(
+        img_reconstructed.astype(np.uint8),
+        grayscale=True,
+        path=RGB_PDF_DIR / "fft_denoise_compressed.pdf",
+        close=True,
+    )

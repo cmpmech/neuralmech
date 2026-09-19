@@ -60,7 +60,7 @@ topology-optimization drivers built on top of them.
 
 `waveND.py`
     Scalar and acoustic wave equations in 1D/2D/3D on the cuwave finite-difference
-    GPU solver (solvers/cuwave).
+    GPU solver (the `cuwave` package).
 
 `heatND.py`
     Implicit (backward-Euler) transient heat conduction on an N-D mlhp

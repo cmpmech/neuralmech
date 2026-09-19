@@ -1,9 +1,9 @@
 // NeuralMech extension to mlhp. License: See mlhp/LICENSE
 //
-// Combined pybind module entry.  Produces a single `pymlhpcore` extension containing
-// mlhp's own bindings plus the NeuralMech helper extensions, so the stock mlhp.py
-// wrapper ("from pymlhpcore import *") and therefore `import mlhp` expose everything
-// through one module / one import.
+// Combined pybind module entry.  Produces a single `_core` extension containing mlhp's
+// own bindings plus the NeuralMech helper extensions, so the stock mlhp package
+// ("from ._core import *" in mlhp/__init__.py) and therefore `import mlhp` expose
+// everything through one module / one import.
 //
 // The mlhp::bindings::bind* functions are declared here exactly as mlhp's own
 // src/python/main.cpp declares them (external-linkage free functions defined across
@@ -27,7 +27,7 @@ namespace mlhp::helpers
 void bindHelpers( pybind11::module& m );
 } // namespace mlhp::helpers
 
-PYBIND11_MODULE( pymlhpcore, m )
+PYBIND11_MODULE( _core, m )
 {
     m.doc( ) = "Multi-level hp discretization kernel (with NeuralMech extensions).";
 

@@ -27,7 +27,7 @@ VAR_REGULARIZATION = 1e-2  # keeps the variance net from interpolating single re
 LR = 2e-2
 PRIOR_STD = 1.0  # acts as (inverse) L2 regularization
 MC_SAMPLES = 40
-KL_WEIGHT = 0.5  # 1  # 0.5
+KL_WEIGHT = 0.5
 NOISE_STD = 0.1
 SAMPLES = 32
 INF_SAMPLES = 100
@@ -53,12 +53,6 @@ def train(model, loss_fun, epochs, regularization=0):
     return cost
 
 
-# @LEON CHECK
-# trick from the paper: y is gaussian, so the squared residual r = (mu(x) - y)^2 of the
-# fixed mean is gamma distributed, r ~ Gamma(1/2, 1/(2 s^2(x))) (Eq. 5). fitting a gamma
-# likelihood to r instead of the gaussian nll means the aleatoric variance is read off
-# as the gamma mean, s^2 = alpha / lambda (Eq. 8) -- and the gradients no longer carry
-# the 1/sigma^4 term that makes joint mean-variance training unstable.
 def gamma_nll(y_pred, r):
     alpha, lam = F.softplus(y_pred[:, 0:1]), F.softplus(y_pred[:, 1:2])
     nll = (

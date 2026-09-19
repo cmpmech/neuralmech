@@ -20,6 +20,7 @@ from analog_rnn_fixture import (
     to_node,
 )
 from cuwave.sensitivity import reconstruction_sensitivity
+from cuwave.utils import threshold
 from cuwave.wave import simulate
 
 from postprocessing import save_csv, save_temp_fig
@@ -63,6 +64,14 @@ THRESHOLD = 0.5  # the projection maps onto [0, 1], so its midpoint is the cut
 
 
 # -------------------------------------- helper ---------------------------------------
+def field_fig():
+    # borderless axes at one pixel per node, the shape every frame and figure shares
+    fig, ax = plt.subplots(figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150)
+    ax.axis("off")
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    return fig, ax
+
+
 def physical(xval, beta):
     full = cp.zeros(sim.Nx_padded, dtype=sim.dtype).ravel()
     full[active] = cp.asarray(xval.ravel(), dtype=sim.dtype)
@@ -79,8 +88,6 @@ active = cp.where(design.ravel() > 0)[0]
 
 density_filter = DensityFilter(RMIN, sim.Nx_padded, xp=cp, dtype=sim.dtype)
 beta_of = lambda epoch: min(BETA0 * BETA_GROWTH ** (epoch // BETA_STEP), BETA_MAX)
-
-d_mass, d_stiff = sim.parametrization_jacobian()
 
 # ------------------------------------- load data -------------------------------------
 data = np.load(DATASET)
@@ -126,6 +133,7 @@ for epoch in range(EPOCHS):
     for start in range(0, samples, BATCH_SIZE):
         batch = perm[start : start + BATCH_SIZE]
         gamma, x_tilde = physical(x.detach().cpu().numpy(), beta)
+        d_mass, d_stiff = sim.parametrization_jacobian(gamma)
 
         grad_gamma = cp.zeros(sim.Nx_padded, dtype=sim.dtype)
         for i in batch:
@@ -159,12 +167,8 @@ for epoch in range(EPOCHS):
     )
 
     if args.animate:
-        fig, ax = plt.subplots(
-            figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150
-        )
+        fig, ax = field_fig()
         ax.imshow(gamma.get()[region].T, origin="lower", cmap="binary", vmin=0, vmax=1)
-        ax.axis("off")
-        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         fig.savefig(ANIMATION_DIR / "optimization" / f"frame_{epoch:04d}.jpg")
         plt.close()
 toc = time.time()
@@ -172,7 +176,7 @@ print(f"elapsed time {toc - tic:.2f} s  ({(toc - tic) / EPOCHS:.2f} s/epoch)")
 
 # ----------------------------------- postprocessing ----------------------------------
 gamma_final, _ = physical(x.detach().cpu().numpy(), beta_of(EPOCHS))
-final = (gamma_final > THRESHOLD).astype(sim.dtype) * design
+final = threshold(gamma_final, THRESHOLD) * design
 
 # the thresholded design is the one that can be built, so it is the one that is reported
 confusion = np.zeros((len(classes), len(classes)), dtype=int)
@@ -200,13 +204,9 @@ if args.animate:
     scale = float(np.max(np.abs(snaps)))
     overlay = np.ma.masked_where(design_view < THRESHOLD, design_view)
     for f, snap in enumerate(snaps):
-        fig, ax = plt.subplots(
-            figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150
-        )
+        fig, ax = field_fig()
         ax.imshow(snap[region].T, origin="lower", cmap="seismic", vmin=-scale, vmax=scale)
         ax.imshow(overlay.T, origin="lower", cmap="binary", vmin=0, vmax=1, alpha=0.85)
-        ax.axis("off")
-        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         fig.savefig(wave_dir / f"frame_{f:04d}.jpg")
         plt.close()
 # -------------------------------- book postprocessing --------------------------------
@@ -219,11 +219,8 @@ elif args.book:
     )
     save_csv(CSV_DIR / "analog_rnn_confusion.csv", confusion=confusion.ravel())
 
-    fig, ax = plt.subplots(figsize=(RESOLUTION[0] / 100, RESOLUTION[1] / 100), dpi=150)
+    fig, ax = field_fig()
     ax.imshow(design_view.T, origin="lower", cmap="binary", vmin=0, vmax=1)
-    ax.set_aspect("equal")
-    ax.axis("off")
-    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     fig.savefig(RGB_PDF_DIR / "analog_rnn_design.pdf", transparent=True)
     plt.close()
 else:

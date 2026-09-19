@@ -20,7 +20,7 @@ EA = 1.0
 LOAD = 0.01  # downward point load per interior bottom node
 
 # postprocessing
-SCALING = 0.5  # deformation magnification
+SCALING = 0.5
 
 
 # ---------------------------------------- helper -------------------------------------

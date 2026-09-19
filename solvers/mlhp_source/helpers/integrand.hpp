@@ -1,8 +1,8 @@
 // NeuralMech extension to mlhp. License: See mlhp/LICENSE
 //
 // Custom physics integrands that live outside the pinned mlhp submodule so
-// that the upstream source tree stays untouched. Built into the separate
-// pymlhphelpers python module (see python/bindings.cpp).
+// that the upstream source tree stays untouched. Built into the combined
+// pymlhpcore python module (see python/bindings.cpp).
 
 #ifndef MLHP_HELPERS_INTEGRAND_HPP
 #define MLHP_HELPERS_INTEGRAND_HPP

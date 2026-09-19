@@ -7,9 +7,10 @@ import cmasher as cmr
 import cupy as cp
 import matplotlib.pyplot as plt
 import numpy as np
+from cuwave.scalar import AcousticWave, ScalarWave
 from cuwave.signals import sineburst
 from cuwave.utils import point_source
-from cuwave.wave import AcousticWave, ScalarWave, simulate, stable_dt
+from cuwave.wave import simulate, stable_dt
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
@@ -50,13 +51,29 @@ N = math.ceil(T / dt)
 
 if FORMULATION == "acoustic":
     sim = AcousticWave(
-        Nx, dx, N, dt, THREADS, precision=PRECISION, space_order=SPACE_ORDER,
-        rho1=1.204, rho2=2643.0, kappa1=1.419e5, kappa2=6.87e8,
+        Nx,
+        dx,
+        N,
+        dt,
+        THREADS,
+        precision=PRECISION,
+        space_order=SPACE_ORDER,
+        rho1=1.204,
+        rho2=2643.0,
+        kappa1=1.419e5,
+        kappa2=6.87e8,
     )
 else:
     sim = ScalarWave(
-        Nx, dx, N, dt, THREADS, precision=PRECISION, space_order=SPACE_ORDER,
-        wavespeed=WAVESPEED, density=DENSITY,
+        Nx,
+        dx,
+        N,
+        dt,
+        THREADS,
+        precision=PRECISION,
+        space_order=SPACE_ORDER,
+        wavespeed=WAVESPEED,
+        density=DENSITY,
     )
 
 indicator = cp.ones(sim.Nx_padded, dtype=sim.dtype)
@@ -102,7 +119,7 @@ if args.book:
         fig, ax = plt.subplots(figsize=(5, 5), dpi=100)
         ax.pcolormesh(snaps, cmap=cmr.fusion, vmin=-0.75 * scale, vmax=0.75 * scale)
         ax.axis("off")
-        ax.set_rasterized(True)  # vectorized pdf too large at this grid resolution
+        ax.set_rasterized(True)
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         plt.savefig(RGB_PDF_DIR / "wave1D.pdf")
         plt.close()
@@ -111,25 +128,15 @@ if args.animate and DIM in (1, 2):
     frame_dir = ANIMATION_DIR / f"wave{DIM}D"
     frame_dir.mkdir(parents=True, exist_ok=True)
     anim_scale = float(np.max(np.abs(snaps)))
-    if DIM == 1:
-        x = np.linspace(0, LENGTH, Nx[0])
-        for i, snap in enumerate(snaps):
-            fig, ax = plt.subplots(figsize=(5, 3))
+    x = np.linspace(0, LENGTH, Nx[0])
+    for i, snap in enumerate(snaps):
+        fig, ax = plt.subplots(figsize=(5, 3) if DIM == 1 else (5, 5))
+        if DIM == 1:
             ax.plot(x, snap, "k")
             ax.set_ylim(-anim_scale, anim_scale)
-            fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-            plt.savefig(frame_dir / f"frame_{i}.jpg")
-            plt.close()
-    else:
-        for i, snap in enumerate(snaps):
-            fig, ax = plt.subplots(figsize=(5, 5))
-            ax.imshow(
-                snap.T,
-                cmap=cmr.fusion,
-                vmin=-0.6 * anim_scale,
-                vmax=0.6 * anim_scale,
-                origin="lower",
-            )
-            fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-            plt.savefig(frame_dir / f"frame_{i}.jpg")
-            plt.close()
+        else:
+            limit = 0.6 * anim_scale
+            ax.imshow(snap.T, cmap=cmr.fusion, vmin=-limit, vmax=limit, origin="lower")
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        plt.savefig(frame_dir / f"frame_{i}.jpg")
+        plt.close()

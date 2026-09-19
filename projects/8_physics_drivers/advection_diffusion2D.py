@@ -26,7 +26,6 @@ ALPHAFCM = 1e-8
 
 # physics
 KAPPA = 0.03  # diffusivity
-# VELOCITY = [0.25, 0.25]  # constant advection field
 VELOCITY = [1, 1]  # constant advection field
 LENGTH = 1.5
 

@@ -32,7 +32,7 @@ z = np.exp(x) / (np.exp(x) + np.exp(y))
 fig, ax = plt.subplots(figsize=(3, 3), dpi=100)
 cb = ax.contourf(x, y, z, cmap="cividis", levels=64)
 ax.axis("off")
-ax.set_rasterized(True)  # vectorized pdf too large at this mesh density
+ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
     plt.savefig(RGB_PDF_DIR / "softmax.pdf")

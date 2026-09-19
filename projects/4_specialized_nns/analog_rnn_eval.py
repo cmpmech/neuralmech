@@ -30,6 +30,21 @@ CLASS = 0  # the first clip of this class is the one played through the medium
 SNAPSHOT = 1.35  # seconds into the run the field is drawn at
 DESIGN = True  # False plays the same clip through free field, as the reference
 SATURATION = 0.2  # fraction of the peak the field colormap runs to
+SOURCE_COLOR = cmyk_to_rgb(0, 0.76, 0.8, 0.2)
+SENSOR_COLOR = cmyk_to_rgb(0.8, 0.44, 0, 0.2)
+
+
+# -------------------------------------- helper ---------------------------------------
+def save_trace(t, wave, scale, color, stem):
+    fig, ax = plt.subplots(figsize=(6, 2), dpi=100)
+    ax.set_ylim(-scale, scale)
+    ax.set_xlim(0, t[-1])
+    ax.plot(t, wave, color=color, linewidth=1)
+    ax.axis("off")
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    fig.savefig(RGB_PDF_DIR / f"{stem}.pdf", transparent=True)
+    plt.close()
+
 
 # ------------------------------------- load model ------------------------------------
 if not MATERIAL.exists():
@@ -75,35 +90,13 @@ else:
     fig.savefig(RGB_PDF_DIR / "analog_rnn_field.pdf")
 plt.close()
 
-# source signal
+# source signal, then the sensor signals: sensor k is the class-k readout
 t = np.linspace(0, (N - 1) * dt, N)
 source_wave = source.signal.sum(axis=1).get()
-fig, ax = plt.subplots(figsize=(6, 2), dpi=100)
-scale = np.max(np.abs(source_wave))
-ax.set_ylim(-scale, scale)
-ax.set_xlim(0, t[-1])
-ax.plot(t, source_wave, color=cmyk_to_rgb(0, 0.76, 0.8, 0.2), linewidth=1)
-ax.axis("off")
-fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-if DESIGN:
-    fig.savefig(RGB_PDF_DIR / f"analog_rnn_eval_source_{CLASS}.pdf", transparent=True)
-else:
-    fig.savefig(RGB_PDF_DIR / "analog_rnn_source.pdf", transparent=True)
-plt.close()
+stem = f"analog_rnn_eval_source_{CLASS}" if DESIGN else "analog_rnn_source"
+save_trace(t, source_wave, np.max(np.abs(source_wave)), SOURCE_COLOR, stem)
 
-# sensor signals: sensor k is the class-k readout
+sensor_stem = f"analog_rnn_eval_sensor_{CLASS}" if DESIGN else "analog_rnn_sensors"
 scale = np.max(np.abs(traces))
 for k in range(len(SENSOR)):
-    fig, ax = plt.subplots(figsize=(6, 2), dpi=100)
-    ax.set_ylim(-scale, scale)
-    ax.set_xlim(0, t[-1])
-    ax.plot(t, traces[:, k], color=cmyk_to_rgb(0.8, 0.44, 0, 0.2), linewidth=1)
-    ax.axis("off")
-    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    if DESIGN:
-        fig.savefig(
-            RGB_PDF_DIR / f"analog_rnn_eval_sensor_{CLASS}_{k}.pdf", transparent=True
-        )
-    else:
-        fig.savefig(RGB_PDF_DIR / f"analog_rnn_sensors_{k}.pdf", transparent=True)
-    plt.close()
+    save_trace(t, traces[:, k], scale, SENSOR_COLOR, f"{sensor_stem}_{k}")

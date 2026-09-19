@@ -16,16 +16,10 @@ parser.add_argument("--book", action="store_true")
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
-# N = 500
-# N_TREES = [1, 400]
-# RANDOM_STATE = 0
-# RESOLUTION = 500
-
 N = 200
 N_TREES = [1, 500]
 RANDOM_STATE = 0
 RESOLUTION = 300
-
 
 # ------------------------------------ prepare data -----------------------------------
 X, y = make_moons(n_samples=N, noise=0.3, random_state=RANDOM_STATE)
@@ -42,11 +36,13 @@ for n_trees in N_TREES:
     if n_trees == 1:
         model = DecisionTreeClassifier(random_state=RANDOM_STATE)
     else:
+        # random feature subset at each split (here 1 of the 2)
         model = RandomForestClassifier(
             n_estimators=n_trees,
             random_state=RANDOM_STATE,
             max_samples=100,
         )
+        # bagging alone: every split sees both features (with 2D -> similar behavior)
         # model = BaggingClassifier(
         #     DecisionTreeClassifier(random_state=RANDOM_STATE),
         #     n_estimators=n_trees,
@@ -64,7 +60,7 @@ for n_trees in N_TREES:
     ax.scatter(X[id0, 0], X[id0, 1], c="r", s=10)
     ax.scatter(X[id1, 0], X[id1, 1], c="b", s=10, marker="s")
     ax.axis("off")
-    ax.set_rasterized(True)  # vectorized pdf too large at this mesh density
+    ax.set_rasterized(True)
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     if args.book:
         fig.savefig(RGB_PDF_DIR / f"random_forest_{n_trees}.pdf")

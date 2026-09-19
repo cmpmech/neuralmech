@@ -16,25 +16,25 @@ except ImportError:
 
 torch.backends.cudnn.deterministic = True
 
-# -------------------------------- helper --------------------------------
+# --------------------------------------- helper --------------------------------------
 
 
 def get_layer_param(param, i):  # in case param is a list
     return param[i] if isinstance(param, list) else param
 
 
-# ------------------------ primary architectures -------------------------
+# ------------------------------- primary architectures -------------------------------
 
 
 class MLP(nn.Module):
     """Multi-layer perceptron (fully connected feedforward network).
 
-    Each linear map is wrapped with optional ``pre_modules`` (applied before it)
-    and ``post_modules`` (applied after it). Normalization, activation, dropout,
-    and any other layer are passed in as plain modules through these two slots,
-    so the network never needs to know what kind of module it is handling and
-    any ordering can be expressed (e.g. moving normalization + activation into
-    ``pre_modules`` gives a pre-activation block).
+    Each linear map is wrapped with optional ``pre_modules`` (applied before it) and
+    ``post_modules`` (applied after it). Normalization, activation, dropout, and any
+    other layer are passed in as plain modules through these two slots, so the network
+    never needs to know what kind of module it is handling and any ordering can be
+    expressed (e.g. moving normalization + activation into ``pre_modules`` gives a
+    pre-activation block).
 
     Suggested ordering:
         pre_modules[i]   normalization -> activation   (pre-activation / pre-norm
@@ -44,14 +44,14 @@ class MLP(nn.Module):
                          post-activation block; activations live here by default)
 
     Args:
-        layers: Sizes of each layer. Example: [784, 256, 10] builds
-            Linear(784, 256) then Linear(256, 10).
-        post_modules: Per-layer modules inserted after each linear map. Entry i
-            is None (skip), a single nn.Module, or a list of modules applied in
-            order. Lists shorter than the number of layers are padded with None.
-            Activations belong here unless a pre-activation block is wanted.
-        pre_modules: Per-layer modules inserted before each linear map, same
-            element format as post_modules. Typically left empty.
+        layers: Sizes of each layer. Example: [784, 256, 10] builds Linear(784, 256)
+            then Linear(256, 10).
+        post_modules: Per-layer modules inserted after each linear map. Entry i is None
+            (skip), a single nn.Module, or a list of modules applied in order. Lists
+            shorter than the number of layers are padded with None. Activations belong
+            here unless a pre-activation block is wanted.
+        pre_modules: Per-layer modules inserted before each linear map, same element
+            format as post_modules. Typically left empty.
     """
 
     def __init__(
@@ -80,11 +80,11 @@ class MLP(nn.Module):
 class DCN(nn.Module):
     """Deep convolutional network supporting 1D, 2D, or 3D convolutions.
 
-    Each convolution is wrapped with optional ``pre_modules`` (applied before
-    it) and ``post_modules`` (applied after it); see ``MLP`` for the slot
-    mechanism. Resampling, normalization, and activation are passed in as plain
-    modules, so any ordering can be expressed (e.g. normalize before the conv by
-    putting the norm in ``pre_modules``).
+    Each convolution is wrapped with optional ``pre_modules`` (applied before it) and
+    ``post_modules`` (applied after it); see ``MLP`` for the slot mechanism.
+    Resampling, normalization, and activation are passed in as plain modules, so any
+    ordering can be expressed (e.g. normalize before the conv by putting the norm in
+    ``pre_modules``).
 
     Suggested ordering:
         pre_modules[i]   resampling (Upsample / pooling); or normalization ->
@@ -94,16 +94,16 @@ class DCN(nn.Module):
                          post-activation block; activations live here by default)
 
     Args:
-        channels: Channel sizes per layer. Example: [3, 64, 128] builds two
-            convs (3->64, 64->128).
-        post_modules: Per-layer modules inserted after each conv. Entry i is
-            None (skip), a single nn.Module, or a list applied in order. Lists
-            shorter than the number of layers are padded with None. Activations
-            belong here by default.
-        kernel_size, stride, padding, dilation: Conv geometry; a scalar applies
-            to every layer, or pass a per-layer list.
-        pre_modules: Per-layer modules inserted before each conv, same element
-            format as post_modules. Resampling goes here.
+        channels: Channel sizes per layer. Example: [3, 64, 128] builds two convs
+            (3->64, 64->128).
+        post_modules: Per-layer modules inserted after each conv. Entry i is None
+            (skip), a single nn.Module, or a list applied in order. Lists shorter than
+            the number of layers are padded with None. Activations belong here by
+            default.
+        kernel_size, stride, padding, dilation: Conv geometry; a scalar applies to
+            every layer, or pass a per-layer list.
+        pre_modules: Per-layer modules inserted before each conv, same element format
+            as post_modules. Resampling goes here.
         dim: Spatial dimensionality (1, 2, or 3).
         bias: Whether convs carry a bias (scalar or per-layer list).
     """
@@ -152,32 +152,32 @@ class EquivariantCNN(nn.Module):
 
     Builds a stack of steerable convolutions over the symmetry group carried by
     ``gspace`` (e.g. ``gspaces.rot2dOnR2(N=8)`` for discrete C8 rotations). Output
-    feature maps transform consistently when the input is rotated, so a single
-    training sample teaches the whole orbit of rotated inputs.
+    feature maps transform consistently when the input is rotated, so a single training
+    sample teaches the whole orbit of rotated inputs.
 
-    Channels are given as field copies per layer, like ``DCN`` channels: the
-    interior layers carry regular-representation fields, while the input and output
+    Channels are given as field copies per layer, like ``DCN`` channels: the interior
+    layers carry regular-representation fields, while the input and output
     representations are ``in_repr`` / ``out_repr`` (both scalar by default, the
     standard scalar-in / scalar-out arrangement). Pass ``gspace.irrep(1)`` for a 2D
     vector field, so e.g. a scalar-in / vector-out network learns an equivariant
     operator like the gradient.
 
-    Unlike ``DCN``, the activation is passed as a factory rather than a plain
-    module, because a steerable nonlinearity must know the field type it acts on;
+    Unlike ``DCN``, the activation is passed as a factory rather than a plain module,
+    because a steerable nonlinearity must know the field type it acts on;
     ``activation`` is called once per hidden layer as ``activation(field_type)``.
 
-    The forward pass takes and returns plain tensors (shape (B, C, H, W)); the
-    escnn ``GeometricTensor`` wrapping is handled internally, so the model is used
-    like any other ``nn.Module``.
+    The forward pass takes and returns plain tensors (shape (B, C, H, W)); the escnn
+    ``GeometricTensor`` wrapping is handled internally, so the model is used like any
+    other ``nn.Module``.
 
     Args:
         gspace: escnn GSpace defining the symmetry group acting on R^2.
-        channels: field copies per layer. Endpoints carry in_repr / out_repr,
-            interior layers are regular-representation fields. Example: [1, 8, 8, 1].
-        activation: factory mapping a FieldType to an equivariant activation
-            module, applied after every hidden conv. Defaults to ``enn.LeakyReLU``.
-        kernel_size, padding: conv geometry; a scalar applies to every layer, or
-            pass a per-layer list.
+        channels: field copies per layer. Endpoints carry in_repr / out_repr, interior
+            layers are regular-representation fields. Example: [1, 8, 8, 1].
+        activation: factory mapping a FieldType to an equivariant activation module,
+            applied after every hidden conv. Defaults to ``enn.LeakyReLU``.
+        kernel_size, padding: conv geometry; a scalar applies to every layer, or pass a
+            per-layer list.
         bias: whether convs carry a bias (scalar or per-layer list).
         in_repr, out_repr: input/output representations; default to the scalar
             (trivial) representation. Pass ``gspace.irrep(1)`` for a vector field.
@@ -226,8 +226,8 @@ class DGCN(nn.Module):
     Reference: https://arxiv.org/abs/1609.02907
 
     Args:
-        channels: List of channel sizes for each layer.
-            Example: [16, 32, 64] creates two GCN layers (16->32, 32->64).
+        channels: List of channel sizes for each layer. Example: [16, 32, 64] creates
+            two GCN layers (16->32, 32->64).
         activations: List of activation modules after each conv layer.
     """
 
@@ -258,8 +258,8 @@ class DGCheb(nn.Module):
     Reference: https://arxiv.org/abs/1606.09375
 
     Args:
-        channels: List of channel sizes for each layer.
-            Example: [16, 32, 64] creates two ChebConv layers (16->32, 32->64).
+        channels: List of channel sizes for each layer. Example: [16, 32, 64] creates
+            two ChebConv layers (16->32, 32->64).
         activations: List of activation modules after each conv layer.
         K: Chebyshev filter order (number of hops).
     """
@@ -292,8 +292,8 @@ class DGSAGE(nn.Module):
     Reference: https://arxiv.org/abs/1706.02216
 
     Args:
-        channels: List of channel sizes for each layer.
-            Example: [16, 32, 64] creates two SAGE layers (16->32, 32->64).
+        channels: List of channel sizes for each layer. Example: [16, 32, 64] creates
+            two SAGE layers (16->32, 32->64).
         activations: List of activation modules after each conv layer.
     """
 
@@ -326,8 +326,8 @@ class DGAT(nn.Module):
         - https://arxiv.org/abs/2105.14491
 
     Args:
-        channels: List of channel sizes for each layer.
-            Example: [16, 32, 64] creates two GAT layers (16->32, 32->64).
+        channels: List of channel sizes for each layer. Example: [16, 32, 64] creates
+            two GAT layers (16->32, 32->64).
         activations: List of activation modules after each conv layer.
         heads: Number of attention heads per layer.
     """
@@ -360,8 +360,8 @@ class DGIN(nn.Module):
     Reference: https://arxiv.org/abs/1810.00826
 
     Args:
-        mlp_layers: List of layer configurations for each GIN layer's MLP.
-            Example: [[16, 32], [32, 64]] creates two GIN layers with MLPs.
+        mlp_layers: List of layer configurations for each GIN layer's MLP. Example:
+            [[16, 32], [32, 64]] creates two GIN layers with MLPs.
         mlp_activations: List of activation lists for each GIN layer's MLP.
         eps: Initial epsilon value for weighting self-loops.
         train_eps: Whether to make epsilon a learnable parameter.
@@ -387,17 +387,14 @@ class DGIN(nn.Module):
         return x
 
 
-# https://arxiv.org/abs/1612.00222
-# TODO
-
-# ------------------------------ sequential ------------------------------
+# ------------------------------------- sequential ------------------------------------
 
 
 class DRNN(nn.Module):
     """Deep recurrent neural network with configurable cell type.
 
-    Supports RNN, LSTM, and GRU cells with optional normalization layers
-    and a final linear projection.
+    Supports RNN, LSTM, and GRU cells with optional normalization layers and a final
+    linear projection.
 
     References:
         - https://ieeexplore.ieee.org/abstract/document/6795963
@@ -405,8 +402,8 @@ class DRNN(nn.Module):
 
     Args:
         layers: List of layer sizes. The last two values define the projection
-            (layers[-2] -> layers[-1]). Example: [64, 128, 256, 10] creates
-            two recurrent layers (64->128, 128->256) and a projection (256->10).
+            (layers[-2] -> layers[-1]). Example: [64, 128, 256, 10] creates two
+            recurrent layers (64->128, 128->256) and a projection (256->10).
         final_activation: Optional activation after the final projection.
         cell: Recurrent cell type (nn.RNN, nn.LSTM, or nn.GRU).
         normalizations: List of normalization modules after each recurrent layer.
@@ -445,15 +442,15 @@ class DRNN(nn.Module):
 class NODE(nn.Module):
     """Neural ordinary differential equation.
 
-    Learns continuous-depth dynamics by parameterizing the derivative dh/dt
-    with a neural network and integrating using an ODE solver.
+    Learns continuous-depth dynamics by parameterizing the derivative dh/dt with a
+    neural network and integrating using an ODE solver.
 
     Reference: https://arxiv.org/abs/1806.07366
 
     Args:
-        rhs_model: Neural network that computes dh/dt. Should accept input of
-            shape (batch, hidden_dim + 1) where the +1 is for concatenated time,
-            and output shape (batch, hidden_dim).
+        rhs_model: Neural network that computes dh/dt. Should accept input of shape
+            (batch, hidden_dim + 1) where the +1 is for concatenated time, and output
+            shape (batch, hidden_dim).
     """
 
     def __init__(self, rhs_model: nn.Module) -> None:
@@ -461,7 +458,7 @@ class NODE(nn.Module):
         self.rhs_model = rhs_model
 
     def eval_rhs(self, t: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
-        """Compute dh/dt by concatenating time to state and passing through the model."""
+        """Compute dh/dt by concatenating time to the state and calling the model."""
         t_vec = torch.ones(h.shape[0], 1, device=h.device) * t
         x = torch.cat([h, t_vec], dim=1)
         return self.rhs_model(x)
@@ -479,15 +476,15 @@ class NODE(nn.Module):
         return odeint(self.eval_rhs, h0, T)
 
 
-# ------------------------------- Bayesian -------------------------------
+# -------------------------------------- Bayesian -------------------------------------
 
 
 class BayesianLinear(nn.Module):
     """Bayesian linear layer with learned weight distributions.
 
     Implements weight uncertainty using variational inference (Bayes by Backprop).
-    Weights are sampled from Gaussian distributions parameterized by mu and rho,
-    where sigma = softplus(rho).
+    Weights are sampled from Gaussian distributions parameterized by mu and rho, where
+    sigma = softplus(rho).
 
     Reference: https://arxiv.org/abs/1505.05424
 
@@ -513,7 +510,7 @@ class BayesianLinear(nn.Module):
         nn.init.constant_(self.bias_rho, -3.0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Sample weights from learned distributions and apply linear transformation."""
+        """Sample the weights from their distributions and apply the linear map."""
         weight_sigma = F.softplus(self.weight_rho)
         bias_sigma = F.softplus(self.bias_rho)
 
@@ -552,10 +549,10 @@ class BayesianMLP(nn.Module):
     Reference: https://arxiv.org/abs/1505.05424
 
     Args:
-        layers: Sizes of each layer. Example: [784, 256, 10] builds two
-            Bayesian linear layers.
-        post_modules: Per-layer modules inserted after each layer (None | Module
-            | list). Activations belong here by default.
+        layers: Sizes of each layer. Example: [784, 256, 10] builds two Bayesian linear
+            layers.
+        post_modules: Per-layer modules inserted after each layer (None | Module |
+            list). Activations belong here by default.
         pre_modules: Per-layer modules inserted before each layer.
     """
 
@@ -590,7 +587,7 @@ class BayesianMLP(nn.Module):
         return kl
 
 
-# ------------------------------- resnets --------------------------------
+# -------------------------------------- resnets --------------------------------------
 
 
 class ResidualBlock(nn.Module):
@@ -598,8 +595,8 @@ class ResidualBlock(nn.Module):
 
     Args:
         module: The transformation to apply before adding the residual.
-        projection: Optional projection to match dimensions when input and
-            output shapes differ (e.g., a 1x1 conv or linear layer).
+        projection: Optional projection to match dimensions when input and output
+            shapes differ (e.g., a 1x1 conv or linear layer).
     """
 
     def __init__(
@@ -626,9 +623,9 @@ class ResNet(nn.Module):
 
     Args:
         base_model: Model with a `.model` attribute containing nn.Sequential layers.
-        skip_connections: List of (start_idx, end_idx) tuples specifying which
-            layer ranges to wrap with skip connections.
-            Example: [(0, 2), (3, 5)] creates residual blocks from layers 0-2 and 3-5.
+        skip_connections: List of (start_idx, end_idx) tuples specifying which layer
+            ranges to wrap with skip connections. Example: [(0, 2), (3, 5)] creates
+            residual blocks from layers 0-2 and 3-5.
         projections: Optional dict mapping (start_idx, end_idx) to projection modules
             for dimension matching in skip connections.
     """
@@ -667,7 +664,7 @@ class ResNet(nn.Module):
         return self.model(x)
 
 
-# --------------------- input convex networks ----------------------------
+# ------------------------------- input convex networks -------------------------------
 
 
 class ICNNLayer(nn.Module):
@@ -675,14 +672,13 @@ class ICNNLayer(nn.Module):
 
         z_out = W^z z + W^y x + b
 
-    Stack several of these with convex non-decreasing activations
-    (ReLU, ELU, Softplus, LeakyReLU with slope in [0, 1]) and call
-    `clamp_z_()` after each optimizer step to keep W^z non-negative;
-    the resulting network is then convex in x.
+    Stack several of these with convex non-decreasing activations (ReLU, ELU, Softplus,
+    LeakyReLU with slope in [0, 1]) and call `clamp_z_()` after each optimizer step to
+    keep W^z non-negative; the resulting network is then convex in x.
 
     Args:
-        z_in: size of the z-path input. Set to 0 for the first layer
-            (which has no z and reduces to W^y x + b).
+        z_in: size of the z-path input. Set to 0 for the first layer (which has no z
+            and reduces to W^y x + b).
         x_in: size of the original network input x.
         out:  layer output size.
     """
@@ -707,18 +703,17 @@ class ICNNLayer(nn.Module):
 class ICNN(nn.Module):
     """Input convex neural network (Amos et al. 2017).
 
-    Stack of `ICNNLayer`s threading the original input x through every
-    layer. With convex non-decreasing activations (ReLU, ELU, Softplus,
-    LeakyReLU with slope in [0, 1]) and W^z weights kept non-negative via
-    `clamp_z_()` after each optimizer step, the forward map is convex in x.
+    Stack of `ICNNLayer`s threading the original input x through every layer. With
+    convex non-decreasing activations (ReLU, ELU, Softplus, LeakyReLU with slope in
+    [0, 1]) and W^z weights kept non-negative via `clamp_z_()` after each optimizer
+    step, the forward map is convex in x.
 
     Args:
-        layers: List of layer sizes; layers[0] is the input dim, layers[-1]
-            the output dim.
-        activations: List of activation modules to apply after each layer.
-            Length should be len(layers) - 1 or fewer; use None for no
-            activation at a given position. The final layer typically has
-            no activation.
+        layers: List of layer sizes; layers[0] is the input dim, layers[-1] the output
+            dim.
+        activations: List of activation modules to apply after each layer. Length
+            should be len(layers) - 1 or fewer; use None for no activation at a given
+            position. The final layer typically has no activation.
     """
 
     def __init__(
@@ -751,20 +746,20 @@ class ICNN(nn.Module):
             layer.clamp_z_()
 
 
-# ---------------------- extreme learning machines -----------------------
+# ----------------------------- extreme learning machines -----------------------------
 class ELM(nn.Module):
     """Extreme learning machine with random fixed feature extractor.
 
-    Combines a frozen random feature extractor with a linear output layer
-    trained via closed-form least squares solution. The feature extractor
-    weights are never updated; only the output layer is fitted analytically.
-    A subsequent training of all weights is optional.
+    Combines a frozen random feature extractor with a linear output layer trained via
+    closed-form least squares solution. The feature extractor weights are never
+    updated; only the output layer is fitted analytically. A subsequent training of all
+    weights is optional.
 
     Reference: https://ieeexplore.ieee.org/document/1380068
 
     Args:
-        feature_extractor: Neural network that maps input to hidden features.
-            Weights are considered frozen during fitting.
+        feature_extractor: Neural network that maps input to hidden features. Weights
+            are considered frozen during fitting.
         hidden_dim: Dimensionality of the hidden feature space (output of
             feature_extractor).
         output_dim: Number of output classes or regression targets.
@@ -799,7 +794,7 @@ class ELM(nn.Module):
         return self.output_layer(x)
 
 
-# ------------------------ deep material networks ------------------------
+# ------------------------------- deep material networks ------------------------------
 def laminate_rotation(alpha):
     c, s = torch.cos(alpha), torch.sin(alpha)
     return torch.stack(  # to not break autograd
@@ -816,9 +811,9 @@ class LaminateBlock(nn.Module):
 
     def __init__(self):
         super().__init__()
-        # random volume fraction breaks the symmetry of an all-equal init; otherwise every
-        # block stays identical and the fit stalls (alpha stays 0: a large random rotation
-        # drives the homogenized stiffness non-physical)
+        # random volume fraction breaks the symmetry of an all-equal init; otherwise
+        # every block stays identical and the fit stalls (alpha stays 0: a large random
+        # rotation drives the homogenized stiffness non-physical)
         self.v1_logit = nn.Parameter(0.5 * torch.randn(()))  # with sigmoid 0<=v1<=1
         self.alpha = nn.Parameter(torch.zeros(()))
 
@@ -827,7 +822,7 @@ class LaminateBlock(nn.Module):
         return torch.sigmoid(self.v1_logit)
 
     def homogenize_stiffness(self, C1, C2):
-        # C1, C2 are batched stiffnesses (N, 3, 3); homogenizes over the leading dimension
+        # C1, C2 are batched stiffnesses (N, 3, 3); homogenizes over the leading dim
         v1, v2 = self.v1, 1 - self.v1
         A1, B1, D1 = C1[:, 0, 0], C1[:, 0, 1:], C1[:, 1:, 1:]
         A2, B2, D2 = C2[:, 0, 0], C2[:, 0, 1:], C2[:, 1:, 1:]
@@ -892,6 +887,7 @@ class DMN(nn.Module):
                 for l in range(depth)
             ]
         )
+
     def forward(self, C1, C2, deps):
         # linear two-phase cell: leaves alternate phase 1 / phase 2
         leaf_C = [C1 if i % 2 == 0 else C2 for i in range(2**self.depth)]
@@ -899,8 +895,9 @@ class DMN(nn.Module):
 
     def homogenize(self, leaf_C, deps):
         # bottom-up stiffness then top-down strains for a tree of per-leaf stiffnesses
-        # leaf_C (list of 2**depth batched (N, 3, 3)); deps macro increment (N, 3). This
-        # generalizes forward: each leaf may carry its own (e.g. nonlinear tangent) stiffness
+        # leaf_C (list of 2**depth batched (N, 3, 3)); deps macro increment (N, 3).
+        # This generalizes forward: each leaf may carry its own (e.g. nonlinear
+        # tangent) stiffness
 
         # bottom-up: homogenize stiffness, leaves to root
         all_cache = []
@@ -939,7 +936,7 @@ class DMN(nn.Module):
         return cur_dsig[0]
 
 
-# ----------------------------- autoencoders -----------------------------
+# ------------------------------------ autoencoders -----------------------------------
 
 
 class AE(nn.Module):
@@ -964,8 +961,8 @@ class AE(nn.Module):
 class VAE(AE):
     """Variational autoencoder with reparameterization trick.
 
-    The encoder must output 2 * latent_dim features (mean and log-variance).
-    The decoder takes latent_dim features as input.
+    The encoder must output 2 * latent_dim features (mean and log-variance). The
+    decoder takes latent_dim features as input.
 
     Args:
         Encoder: Network mapping input to (mean, logvar) concatenated.
@@ -996,257 +993,21 @@ class VAE(AE):
         return y, mean, logvar
 
 
-class SlotEncoder(nn.Module):
-    """Encoder head producing a grid of local latent slots plus a shared global vector.
-
-    ``body`` is any convolutional stack reducing the input to a coarse spatial grid.
-    A 1x1 convolution then reads one posterior per grid cell, while a linear layer
-    reads a second posterior from the pooled features. Because a slot is anchored to
-    a location, the encoder never has to impose an ordering on the objects in the
-    image, which is what makes a flat code spend far more dimensions than the data
-    has degrees of freedom.
-
-    The output is laid out as ``cat([slot_mean, glob_mean, slot_logvar, glob_logvar])``
-    so that ``VAE`` splitting it in half recovers the mean and log-variance.
-
-    Args:
-        body: Convolutional stack mapping the input to (width, grid, grid).
-        width: Channel count leaving ``body``.
-        cell: Latent dimensions per grid slot.
-        glob: Latent dimensions in the shared global vector.
-    """
-
-    def __init__(self, body: nn.Module, width: int, cell: int, glob: int) -> None:
-        super().__init__()
-        self.body = body
-        self.slots = nn.Conv2d(width, 2 * cell, 1)
-        self.shared = nn.Linear(width, 2 * glob)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Encode into stacked (mean, logvar) over slots followed by global dims."""
-        features = self.body(x)
-        slot_mean, slot_logvar = torch.chunk(self.slots(features), chunks=2, dim=1)
-        shared = self.shared(features.mean(dim=(2, 3)))
-        glob_mean, glob_logvar = torch.chunk(shared, chunks=2, dim=1)
-        return torch.cat(
-            [slot_mean.flatten(1), glob_mean, slot_logvar.flatten(1), glob_logvar],
-            dim=1,
-        )
-
-
-class SlotDecoder(nn.Module):
-    """Decoder counterpart to ``SlotEncoder``.
-
-    The leading ``grid * grid * cell`` entries of the code are reshaped back onto the
-    slot grid and the remaining entries are broadcast across every slot, so each place
-    decodes from its own code together with the one the whole image shares. ``head``
-    must accept ``cell + glob`` input channels.
-
-    Args:
-        head: Convolutional stack mapping (cell + glob, grid, grid) to the output.
-        grid: Slots per side.
-        cell: Latent dimensions per grid slot.
-    """
-
-    def __init__(self, head: nn.Module, grid: int, cell: int) -> None:
-        super().__init__()
-        self.head = head
-        self.grid = grid
-        self.cell = cell
-
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
-        """Place the slots back on their grid and broadcast the shared vector."""
-        split = self.grid**2 * self.cell
-        slots = z[:, :split].view(-1, self.cell, self.grid, self.grid)
-        shared = z[:, split:, None, None].expand(-1, -1, self.grid, self.grid)
-        return self.head(torch.cat([slots, shared], dim=1))
-
-
-class SlotPrior(nn.Module):
-    """Autoregressive prior over the code of a ``SlotEncoder``.
-
-    A factorized ``N(0, I)`` prior treats every slot as independent, and no product of
-    independent slots can express a constraint that couples places. Fibers never
-    overlapping is exactly such a constraint, which is why a code drawn from
-    ``N(0, I)`` decodes into merged blobs however hard the rate is throttled. This
-    reads the code as one shared token followed by the slot tokens and models it with
-    a causal transformer, so a slot is drawn conditioned on the slots already placed.
-    Each conditional is a diagonal Gaussian mixture, which is what lets a slot stay
-    sharply bimodal between empty and occupied.
-
-    Training is plain maximum likelihood on ``log_prob`` of the encoded means. The same
-    ``log_prob`` is exact and differentiable in the code, so it also serves as the
-    penalty that holds a latent optimization on the manifold of real codes.
-
-    Args:
-        grid: Slots per side, as in ``SlotEncoder``.
-        cell: Latent dimensions per slot, which is also the token width.
-        glob: Dimensions of the shared vector, at most ``cell``.
-        components: Mixture components per conditional.
-        width: Transformer feature width.
-        layers: Transformer layers.
-        heads: Attention heads.
-        dropout: Dropout inside the transformer. The prior is fitted to as many codes
-            as there are images, so it overfits without it.
-    """
-
-    def __init__(
-        self,
-        grid: int,
-        cell: int,
-        glob: int,
-        components: int = 10,
-        width: int = 128,
-        layers: int = 4,
-        heads: int = 4,
-        dropout: float = 0.1,
-    ) -> None:
-        super().__init__()
-        self.grid = grid
-        self.cell = cell
-        self.glob = glob
-        self.components = components
-        tokens = grid**2 + 1  # the shared vector leads, then one token per slot
-        self.start = nn.Parameter(torch.zeros(1, 1, cell))
-        self.position = nn.Parameter(torch.randn(1, tokens, width) * 0.02)
-        self.project = nn.Linear(cell, width)
-        layer = nn.TransformerEncoderLayer(
-            width, heads, 2 * width, dropout=dropout, batch_first=True, norm_first=True,
-            activation="gelu",
-        )
-        self.body = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
-        self.head = nn.Linear(width, components * (1 + 2 * cell))
-
-    def tokenize(self, z: torch.Tensor) -> torch.Tensor:
-        """Split a code into the shared token followed by one token per slot."""
-        split = self.grid**2 * self.cell
-        slots = z[:, :split].view(-1, self.cell, self.grid**2).transpose(1, 2)
-        shared = nn.functional.pad(z[:, split:], (0, self.cell - self.glob))
-        return torch.cat([shared[:, None], slots], dim=1)
-
-    def detokenize(self, tokens: torch.Tensor) -> torch.Tensor:
-        """Inverse of ``tokenize``."""
-        slots = tokens[:, 1:].transpose(1, 2).flatten(1)
-        return torch.cat([slots, tokens[:, 0, : self.glob]], dim=1)
-
-    def predict(self, tokens: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        """Mixture weights, means and log-variances of the token after each position."""
-        features = self.project(tokens) + self.position[:, : tokens.shape[1]]
-        mask = nn.Transformer.generate_square_subsequent_mask(
-            tokens.shape[1], device=tokens.device
-        )
-        features = self.body(features, mask=mask, is_causal=True)
-        parameters = self.head(features)
-        shape = (*parameters.shape[:2], self.components, self.cell)
-        weight = parameters[..., : self.components]
-        mean = parameters[..., self.components : self.components * (1 + self.cell)]
-        logvar = parameters[..., self.components * (1 + self.cell) :]
-        return weight, mean.view(shape), logvar.view(shape).clamp(-12, 6)
-
-    def log_prob(self, z: torch.Tensor) -> torch.Tensor:
-        """Exact log density of a code, differentiable in ``z``."""
-        tokens = self.tokenize(z)
-        start = self.start.expand(tokens.shape[0], -1, -1)
-        shifted = torch.cat([start, tokens[:, :-1]], dim=1)
-        weight, mean, logvar = self.predict(shifted)
-        # the shared token is padded up to the slot width, so score only the real
-        # dimensions of it and every dimension of the slots
-        gauss = -0.5 * (
-            (tokens[:, :, None] - mean) ** 2 / logvar.exp()
-            + logvar
-            + math.log(2 * math.pi)
-        )
-        gauss[:, 0, :, self.glob :] = 0.0
-        component = weight.log_softmax(-1) + gauss.sum(-1)
-        return torch.logsumexp(component, dim=-1).sum(dim=-1)
-
-    @torch.no_grad()
-    def sample(self, samples: int, temperature: float = 1.0) -> torch.Tensor:
-        """Draw codes one token at a time. Below 1 the temperature sharpens samples."""
-        device = self.start.device
-        tokens = self.start.expand(samples, -1, -1)
-        rows = torch.arange(samples, device=device)
-        for _ in range(self.grid**2 + 1):
-            weight, mean, logvar = self.predict(tokens)
-            weight = (weight[:, -1] / temperature).softmax(-1)
-            choice = torch.multinomial(weight, 1)[:, 0]
-            drawn = mean[:, -1][rows, choice]
-            spread = (0.5 * logvar[:, -1][rows, choice]).exp()
-            drawn = drawn + temperature * spread * torch.randn_like(drawn)
-            tokens = torch.cat([tokens, drawn[:, None]], dim=1)
-        return self.detokenize(tokens[:, 1:])
-
-
-class TwoStagePrior(nn.Module):
-    """Learned prior that is itself a variational autoencoder over the codes.
-
-    The two-stage construction of Dai and Wipf (2019): the first autoencoder is trained
-    for reconstruction alone, and a second, much smaller one is fitted to the codes it
-    produced. Sampling draws from the standard normal of the second stage and decodes
-    twice. Unlike ``SlotPrior`` this ignores the spatial layout of the code and holds no
-    attention, which is what makes it simple; the price is that it has to model the
-    whole code at once instead of one slot at a time, so it needs a code small enough
-    for that to be possible.
-
-    ``log_prob`` returns the evidence lower bound rather than an exact density, which is
-    all a penalty holding a latent optimization on the manifold needs. In evaluation
-    mode the bound is taken at the posterior mean, so the penalty is deterministic.
-
-    Args:
-        codes: Encoded means the prior is fitted to; only their scale is read here.
-        inner: Latent size of the second stage.
-        width: Hidden width of both second-stage networks.
-    """
-
-    def __init__(self, codes: torch.Tensor, inner: int = 64, width: int = 512) -> None:
-        super().__init__()
-        latent = codes.shape[1]
-        self.register_buffer("code_mean", codes.mean(dim=0))
-        self.register_buffer("code_std", codes.std(dim=0) + 1e-6)
-        self.inner = inner
-        self.model = VAE(
-            MLP([latent, width, width, 2 * inner], [nn.SiLU(), nn.SiLU(), None]),
-            MLP([inner, width, width, latent], [nn.SiLU(), nn.SiLU(), None]),
-        )
-        self.logvar = nn.Parameter(torch.zeros(1))  # spread of the decoded code
-
-    def log_prob(self, z: torch.Tensor) -> torch.Tensor:
-        """Evidence lower bound on the log density, differentiable in ``z``."""
-        u = (z - self.code_mean) / self.code_std
-        u_pred, mean, logvar = self.model(u)
-        spread = self.logvar.clamp(-10, 10)
-        recon = -0.5 * (
-            (u - u_pred) ** 2 / spread.exp() + spread + math.log(2 * math.pi)
-        )
-        kl = 0.5 * (logvar.clamp(-10, 10).exp() + mean**2 - logvar.clamp(-10, 10) - 1)
-        # the standardization is a change of variables, so its jacobian belongs here
-        return recon.sum(dim=1) - kl.sum(dim=1) - self.code_std.log().sum()
-
-    @torch.no_grad()
-    def sample(self, samples: int) -> torch.Tensor:
-        """Decode a draw from the standard normal of the second stage."""
-        seed = torch.randn(samples, self.inner, device=self.code_mean.device)
-        u = self.model.decode(seed)
-        u = u + (0.5 * self.logvar).exp() * torch.randn_like(u)
-        return u * self.code_std + self.code_mean
-
-
 class UNet(nn.Module):
     """U-Net: symmetric encoder-decoder with skip connections at each level.
 
-    Each module in `downs` produces a feature map that is stored as a skip
-    connection. The `bottleneck` operates at the deepest resolution. Each
-    module in `ups` receives the previous output concatenated with the
-    matching skip along the channel axis (in reverse order), so each up
-    module must accept (input + skip) channels.
+    Each module in `downs` produces a feature map that is stored as a skip connection.
+    The `bottleneck` operates at the deepest resolution. Each module in `ups` receives
+    the previous output concatenated with the matching skip along the channel axis (in
+    reverse order), so each up module must accept (input + skip) channels.
 
     Args:
-        downs: Encoder modules, ordered shallow-to-deep. Each is expected
-            to downsample its input.
-        ups: Decoder modules, ordered deep-to-shallow. Same length as
-            `downs`. Each is expected to upsample its input.
-        bottleneck: Module applied at the deepest resolution between
-            encoder and decoder. Defaults to identity.
+        downs: Encoder modules, ordered shallow-to-deep. Each is expected to downsample
+            its input.
+        ups: Decoder modules, ordered deep-to-shallow. Same length as `downs`. Each is
+            expected to upsample its input.
+        bottleneck: Module applied at the deepest resolution between encoder and
+            decoder. Defaults to identity.
     """
 
     def __init__(
@@ -1271,7 +1032,7 @@ class UNet(nn.Module):
         return x
 
 
-# --------------------------- neural operators ---------------------------
+# ---------------------------------- neural operators ---------------------------------
 # https://arxiv.org/abs/1910.03193
 class DeepONet(nn.Module):
     def __init__(
@@ -1292,7 +1053,7 @@ class DeepONet(nn.Module):
 # FNO defined via efficient_kan
 # https://arxiv.org/abs/2010.08895
 
-# ---------------------------- siren network -----------------------------
+# ----------------------------------- siren network -----------------------------------
 
 
 class SIRENsine(nn.Module):
@@ -1304,43 +1065,247 @@ class SIRENsine(nn.Module):
         return torch.sin(self.omega_0 * x)
 
 
-# class SIREN(nn.Module):
-#     """Sinusoidal representation network with periodic activations.
-
-#     Each hidden layer computes sin(omega_0 * (Wx + b)). The output layer is
-#     linear (no sine), suitable for regression. Weights are initialized to
-#     preserve the distribution of activations across depth.
-
-#     Reference: https://arxiv.org/abs/2006.09661
-
-#     Args:
-#         layers: List of integers specifying the size of each layer.
-#         omega_0: Frequency multiplier applied before the sine in hidden layers.
-#             The first layer scales by omega_0; subsequent layers are initialized
-#             so that omega_0 cancels in the variance calculation.
-#     """
-
-#     def __init__(self, layers: list[int], omega_0: float = 30.0) -> None:
-#         super().__init__()
-#         linears = []
-#         for i in range(len(layers) - 1):
-#             linear = nn.Linear(layers[i], layers[i + 1])
-#             if i == 0:
-#                 bound = 1.0 / layers[i]
-#             else:
-#                 bound = math.sqrt(6.0 / layers[i]) / omega_0
-#             nn.init.uniform_(linear.weight, -bound, bound)
-#             nn.init.uniform_(linear.bias, -bound, bound)
-#             linears.append(linear)
-#         self.linears = nn.ModuleList(linears)
-#         self.omega_0 = omega_0
-
-#     def forward(self, x: torch.Tensor) -> torch.Tensor:
-#         for linear in self.linears[:-1]:
-#             x = torch.sin(self.omega_0 * linear(x))
-#         return self.linears[-1](x)
-
-
-# ---------------------- kolmogorov-arnold network -----------------------
+# ----------------------------- kolmogorov-arnold network -----------------------------
 # defined via efficient_kan
 # https://arxiv.org/abs/2404.19756
+
+
+# TODO remove
+# # class SlotEncoder(nn.Module):
+#     """Encoder head producing a grid of local latent slots plus a shared global vector.
+
+#     ``body`` is any convolutional stack reducing the input to a coarse spatial grid. A
+#     1x1 convolution then reads one posterior per grid cell, while a linear layer reads
+#     a second posterior from the pooled features. Because a slot is anchored to a
+#     location, the encoder never has to impose an ordering on the objects in the image,
+#     which is what makes a flat code spend far more dimensions than the data has degrees
+#     of freedom.
+
+#     The output is laid out as ``cat([slot_mean, glob_mean, slot_logvar, glob_logvar])``
+#     so that ``VAE`` splitting it in half recovers the mean and log-variance.
+
+#     Args:
+#         body: Convolutional stack mapping the input to (width, grid, grid).
+#         width: Channel count leaving ``body``.
+#         cell: Latent dimensions per grid slot.
+#         glob: Latent dimensions in the shared global vector.
+#     """
+
+#     def __init__(self, body: nn.Module, width: int, cell: int, glob: int) -> None:
+#         super().__init__()
+#         self.body = body
+#         self.slots = nn.Conv2d(width, 2 * cell, 1)
+#         self.shared = nn.Linear(width, 2 * glob)
+
+#     def forward(self, x: torch.Tensor) -> torch.Tensor:
+#         """Encode into stacked (mean, logvar) over slots followed by global dims."""
+#         features = self.body(x)
+#         slot_mean, slot_logvar = torch.chunk(self.slots(features), chunks=2, dim=1)
+#         shared = self.shared(features.mean(dim=(2, 3)))
+#         glob_mean, glob_logvar = torch.chunk(shared, chunks=2, dim=1)
+#         return torch.cat(
+#             [slot_mean.flatten(1), glob_mean, slot_logvar.flatten(1), glob_logvar],
+#             dim=1,
+#         )
+
+
+# class SlotDecoder(nn.Module):
+#     """Decoder counterpart to ``SlotEncoder``.
+
+#     The leading ``grid * grid * cell`` entries of the code are reshaped back onto the
+#     slot grid and the remaining entries are broadcast across every slot, so each place
+#     decodes from its own code together with the one the whole image shares. ``head``
+#     must accept ``cell + glob`` input channels.
+
+#     Args:
+#         head: Convolutional stack mapping (cell + glob, grid, grid) to the output.
+#         grid: Slots per side.
+#         cell: Latent dimensions per grid slot.
+#     """
+
+#     def __init__(self, head: nn.Module, grid: int, cell: int) -> None:
+#         super().__init__()
+#         self.head = head
+#         self.grid = grid
+#         self.cell = cell
+
+#     def forward(self, z: torch.Tensor) -> torch.Tensor:
+#         """Place the slots back on their grid and broadcast the shared vector."""
+#         split = self.grid**2 * self.cell
+#         slots = z[:, :split].view(-1, self.cell, self.grid, self.grid)
+#         shared = z[:, split:, None, None].expand(-1, -1, self.grid, self.grid)
+#         return self.head(torch.cat([slots, shared], dim=1))
+
+
+# class SlotPrior(nn.Module):
+#     """Autoregressive prior over the code of a ``SlotEncoder``.
+
+#     A factorized ``N(0, I)`` prior treats every slot as independent, and no product of
+#     independent slots can express a constraint that couples places. Fibers never
+#     overlapping is exactly such a constraint, which is why a code drawn from
+#     ``N(0, I)`` decodes into merged blobs however hard the rate is throttled. This
+#     reads the code as one shared token followed by the slot tokens and models it with a
+#     causal transformer, so a slot is drawn conditioned on the slots already placed.
+#     Each conditional is a diagonal Gaussian mixture, which is what lets a slot stay
+#     sharply bimodal between empty and occupied.
+
+#     Training is plain maximum likelihood on ``log_prob`` of the encoded means. The same
+#     ``log_prob`` is exact and differentiable in the code, so it also serves as the
+#     penalty that holds a latent optimization on the manifold of real codes.
+
+#     Args:
+#         grid: Slots per side, as in ``SlotEncoder``.
+#         cell: Latent dimensions per slot, which is also the token width.
+#         glob: Dimensions of the shared vector, at most ``cell``.
+#         components: Mixture components per conditional.
+#         width: Transformer feature width.
+#         layers: Transformer layers.
+#         heads: Attention heads.
+#         dropout: Dropout inside the transformer. The prior is fitted to as many codes
+#             as there are images, so it overfits without it.
+#     """
+
+#     def __init__(
+#         self,
+#         grid: int,
+#         cell: int,
+#         glob: int,
+#         components: int = 10,
+#         width: int = 128,
+#         layers: int = 4,
+#         heads: int = 4,
+#         dropout: float = 0.1,
+#     ) -> None:
+#         super().__init__()
+#         self.grid = grid
+#         self.cell = cell
+#         self.glob = glob
+#         self.components = components
+#         tokens = grid**2 + 1  # the shared vector leads, then one token per slot
+#         self.start = nn.Parameter(torch.zeros(1, 1, cell))
+#         self.position = nn.Parameter(torch.randn(1, tokens, width) * 0.02)
+#         self.project = nn.Linear(cell, width)
+#         layer = nn.TransformerEncoderLayer(
+#             width,
+#             heads,
+#             2 * width,
+#             dropout=dropout,
+#             batch_first=True,
+#             norm_first=True,
+#             activation="gelu",
+#         )
+#         self.body = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
+#         self.head = nn.Linear(width, components * (1 + 2 * cell))
+
+#     def tokenize(self, z: torch.Tensor) -> torch.Tensor:
+#         """Split a code into the shared token followed by one token per slot."""
+#         split = self.grid**2 * self.cell
+#         slots = z[:, :split].view(-1, self.cell, self.grid**2).transpose(1, 2)
+#         shared = nn.functional.pad(z[:, split:], (0, self.cell - self.glob))
+#         return torch.cat([shared[:, None], slots], dim=1)
+
+#     def detokenize(self, tokens: torch.Tensor) -> torch.Tensor:
+#         """Inverse of ``tokenize``."""
+#         slots = tokens[:, 1:].transpose(1, 2).flatten(1)
+#         return torch.cat([slots, tokens[:, 0, : self.glob]], dim=1)
+
+#     def predict(self, tokens: torch.Tensor) -> tuple[torch.Tensor, ...]:
+#         """Mixture weights, means and log-variances of the token at each position."""
+#         features = self.project(tokens) + self.position[:, : tokens.shape[1]]
+#         mask = nn.Transformer.generate_square_subsequent_mask(
+#             tokens.shape[1], device=tokens.device
+#         )
+#         features = self.body(features, mask=mask, is_causal=True)
+#         parameters = self.head(features)
+#         shape = (*parameters.shape[:2], self.components, self.cell)
+#         weight = parameters[..., : self.components]
+#         mean = parameters[..., self.components : self.components * (1 + self.cell)]
+#         logvar = parameters[..., self.components * (1 + self.cell) :]
+#         return weight, mean.view(shape), logvar.view(shape).clamp(-12, 6)
+
+#     def log_prob(self, z: torch.Tensor) -> torch.Tensor:
+#         """Exact log density of a code, differentiable in ``z``."""
+#         tokens = self.tokenize(z)
+#         start = self.start.expand(tokens.shape[0], -1, -1)
+#         shifted = torch.cat([start, tokens[:, :-1]], dim=1)
+#         weight, mean, logvar = self.predict(shifted)
+#         # the shared token is padded up to the slot width, so score only the real
+#         # dimensions of it and every dimension of the slots
+#         gauss = -0.5 * (
+#             (tokens[:, :, None] - mean) ** 2 / logvar.exp()
+#             + logvar
+#             + math.log(2 * math.pi)
+#         )
+#         gauss[:, 0, :, self.glob :] = 0.0
+#         component = weight.log_softmax(-1) + gauss.sum(-1)
+#         return torch.logsumexp(component, dim=-1).sum(dim=-1)
+
+#     @torch.no_grad()
+#     def sample(self, samples: int, temperature: float = 1.0) -> torch.Tensor:
+#         """Draw codes one token at a time. Below 1 the temperature sharpens samples."""
+#         device = self.start.device
+#         tokens = self.start.expand(samples, -1, -1)
+#         rows = torch.arange(samples, device=device)
+#         for _ in range(self.grid**2 + 1):
+#             weight, mean, logvar = self.predict(tokens)
+#             weight = (weight[:, -1] / temperature).softmax(-1)
+#             choice = torch.multinomial(weight, 1)[:, 0]
+#             drawn = mean[:, -1][rows, choice]
+#             spread = (0.5 * logvar[:, -1][rows, choice]).exp()
+#             drawn = drawn + temperature * spread * torch.randn_like(drawn)
+#             tokens = torch.cat([tokens, drawn[:, None]], dim=1)
+#         return self.detokenize(tokens[:, 1:])
+
+
+# class TwoStagePrior(nn.Module):
+#     """Learned prior that is itself a variational autoencoder over the codes.
+
+#     The two-stage construction of Dai and Wipf (2019): the first autoencoder is trained
+#     for reconstruction alone, and a second, much smaller one is fitted to the codes it
+#     produced. Sampling draws from the standard normal of the second stage and decodes
+#     twice. Unlike ``SlotPrior`` this ignores the spatial layout of the code and holds
+#     no attention, which is what makes it simple; the price is that it has to model the
+#     whole code at once instead of one slot at a time, so it needs a code small enough
+#     for that to be possible.
+
+#     ``log_prob`` returns the evidence lower bound rather than an exact density, which
+#     is all a penalty holding a latent optimization on the manifold needs. In evaluation
+#     mode the bound is taken at the posterior mean, so the penalty is deterministic.
+
+#     Args:
+#         codes: Encoded means the prior is fitted to; only their scale is read here.
+#         inner: Latent size of the second stage.
+#         width: Hidden width of both second-stage networks.
+#     """
+
+#     def __init__(self, codes: torch.Tensor, inner: int = 64, width: int = 512) -> None:
+#         super().__init__()
+#         latent = codes.shape[1]
+#         self.register_buffer("code_mean", codes.mean(dim=0))
+#         self.register_buffer("code_std", codes.std(dim=0) + 1e-6)
+#         self.inner = inner
+#         self.model = VAE(
+#             MLP([latent, width, width, 2 * inner], [nn.SiLU(), nn.SiLU(), None]),
+#             MLP([inner, width, width, latent], [nn.SiLU(), nn.SiLU(), None]),
+#         )
+#         self.logvar = nn.Parameter(torch.zeros(1))  # spread of the decoded code
+
+#     def log_prob(self, z: torch.Tensor) -> torch.Tensor:
+#         """Evidence lower bound on the log density, differentiable in ``z``."""
+#         u = (z - self.code_mean) / self.code_std
+#         u_pred, mean, logvar = self.model(u)
+#         spread = self.logvar.clamp(-10, 10)
+#         recon = -0.5 * (
+#             (u - u_pred) ** 2 / spread.exp() + spread + math.log(2 * math.pi)
+#         )
+#         kl = 0.5 * (logvar.clamp(-10, 10).exp() + mean**2 - logvar.clamp(-10, 10) - 1)
+#         # the standardization is a change of variables, so its jacobian belongs here
+#         return recon.sum(dim=1) - kl.sum(dim=1) - self.code_std.log().sum()
+
+#     @torch.no_grad()
+#     def sample(self, samples: int) -> torch.Tensor:
+#         """Decode a draw from the standard normal of the second stage."""
+#         seed = torch.randn(samples, self.inner, device=self.code_mean.device)
+#         u = self.model.decode(seed)
+#         u = u + (0.5 * self.logvar).exp() * torch.randn_like(u)
+#         return u * self.code_std + self.code_mean

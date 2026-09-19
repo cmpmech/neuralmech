@@ -109,7 +109,6 @@ stress = np.array(data[1])  # von Mises is a scalar field: one value per node
 
 fig, ax = plt.subplots(figsize=(5, 5), dpi=400)
 ax.tricontourf(tri, disp[:, 0], levels=64, cmap="turbo")  # x displacement
-# ax.tricontourf(tri, disp[:, 0], levels=64, cmap=rainbow)  # x displacement
 # ax.tricontourf(tri, stress, levels=64, cmap=rainbow)
 ax.set_aspect("equal")
 ax.axis("off")
