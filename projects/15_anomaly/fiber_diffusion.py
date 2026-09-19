@@ -4,8 +4,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from scipy import ndimage
 from torch import nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, random_split
 from torchinfo import summary
 from tqdm import tqdm
 
@@ -25,7 +26,7 @@ torch.backends.cudnn.deterministic = True
 EPOCHS = 1500
 LR = 2e-4
 REGULARIZATION = 1e-2
-BATCH_SIZE = 64
+BATCH_SIZE = 16
 GRAD_CLIP = 1.0
 
 # define loss
@@ -35,11 +36,11 @@ cost_fun = nn.MSELoss(reduction="mean")
 T = 200
 
 # model settings
-RESOLUTION = 128
-CHANNELS = [64, 128, 256, 512]
-EMBEDDING = 256
-SAMPLES = 16
-labels = ["circle", "ellipse", "square", "triangle", "cross", "star"]
+RESOLUTION = 256
+CHANNELS = [32, 64, 128, 256]
+EMBEDDING = 128
+THRESHOLD = 0.5
+SAMPLES = 50
 
 
 # ----------------------------------- noise schedule ----------------------------------
@@ -59,20 +60,38 @@ alpha_bars_prev = torch.cat([torch.ones(1, device=device), alpha_bars[:-1]])
 posterior_variance = betas * (1 - alpha_bars_prev) / (1 - alpha_bars)
 
 
-def noise(x0, t):  # eq:diffusion_reparam
-    eps = torch.randn_like(x0)
+def noise(x0, t, eps=None):  # eq:diffusion_reparam
+    if eps is None:
+        eps = torch.randn_like(x0)
     a_bar = alpha_bars[t].view(-1, 1, 1, 1)
     return torch.sqrt(a_bar) * x0 + torch.sqrt(1 - a_bar) * eps, eps
 
 
 # ------------------------------------ prepare data -----------------------------------
-# all classes pooled into one unlabelled set, scaled to [-1, 1]
-X = [np.load(DATA_DIR / f"shapes_{label}_{RESOLUTION}.npy") for label in labels]
-X = torch.from_numpy(np.concatenate(X, axis=0)).to(torch.float32).unsqueeze(1)
-X = 2 * X - 1
+# binary images scaled to [-1, 1]
+data = torch.from_numpy(np.load(DATA_DIR / f"fibers_{RESOLUTION}.npy"))
+data = 2 * data.to(torch.float32).unsqueeze(1) - 1
 
-dataset = TensorDataset(X)
-train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
+dataset = TensorDataset(data)
+split = torch.Generator().manual_seed(0)  # pinned, so the split survives edits above
+train_data, val_data = random_split(dataset, [0.9, 0.1], generator=split)
+train_loader = DataLoader(
+    train_data, batch_size=BATCH_SIZE, shuffle=True, drop_last=True
+)
+
+X_val = train_data.dataset.tensors[0][val_data.indices]
+
+
+# the microstructures are invariant under flips and quarter turns, so the eight
+# transforms are free data
+def transform(x, k):
+    return torch.rot90(x.flip(-1) if k >= 4 else x, k % 4, [-2, -1])
+
+
+# one transform per batch slice rather than one per batch, so a single gradient spans
+# the whole symmetry group instead of being one correlated transform
+def augment(x):
+    return torch.cat([transform(part, k) for k, part in enumerate(x.chunk(8))])
 
 
 # --------------------------- instantiate model & optimizer ---------------------------
@@ -145,14 +164,18 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
 )
 
 # -------------------------------------- training -------------------------------------
-print_every = 10
+print_every = 50
 train_cost = [0] * EPOCHS
+val_cost = [0] * EPOCHS
+best_cost = float("inf")
+best_state = None
+val_seed = torch.Generator(device=device).manual_seed(0)  # same t and noise every epoch
 tic = time.time()
 pbar = tqdm(range(EPOCHS), desc="Training: ", ncols=90)
 for epoch in pbar:
     model.train()
     for x in train_loader:
-        x0 = x[0].to(device)
+        x0 = augment(x[0]).to(device)
         t = torch.randint(0, T, (x0.shape[0],), device=device)
         xt, eps = noise(x0, t)
         optimizer.zero_grad()
@@ -164,16 +187,31 @@ for epoch in pbar:
     train_cost[epoch] /= len(train_loader)  # avg per batch
     scheduler.step()
 
+    model.eval()
+    with torch.no_grad():
+        x0 = X_val.to(device)
+        t = torch.randint(0, T, (x0.shape[0],), device=device, generator=val_seed)
+        eps = torch.randn(x0.shape, device=device, generator=val_seed)
+        xt, eps = noise(x0, t, eps)
+        val_cost[epoch] = cost_fun(denoise(xt, t), eps).item()
+    if val_cost[epoch] < best_cost:  # the exported model is the best, not the last one
+        best_cost = val_cost[epoch]
+        best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+
     if epoch % print_every == 0:
-        pbar.set_postfix({"train": f"{train_cost[epoch]:.2e}"})
+        pbar.set_postfix(
+            {"train": f"{train_cost[epoch]:.2e}", "val": f"{val_cost[epoch]:.2e}"}
+        )
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
+
+model.load_state_dict(best_state)
+model.eval()
 
 
 # -------------------------------------- sampling -------------------------------------
 @torch.no_grad()
 def sample(n):
-    model.eval()
     x = torch.randn(n, 1, RESOLUTION, RESOLUTION, device=device)
     for step in reversed(range(T)):
         t = torch.full((n,), step, device=device)
@@ -195,7 +233,36 @@ def sample(n):
     return ((x.clamp(-1, 1) + 1) / 2).cpu()
 
 
-gen_shapes = sample(SAMPLES)
+tic = time.time()
+x_sample = sample(SAMPLES)
+print(f"elapsed time {time.time() - tic:.2f} s")
+
+
+# --------------------------------- sample diagnostics --------------------------------
+# a sample is a microstructure only if its blobs are round disks: a merged pair of
+# fibers scores well below 1, which is what separates this model from the vae
+def sample_stats(masks):
+    counts, roundness = [], []
+    for mask in masks:
+        labels, count = ndimage.label(mask)
+        counts.append(count)
+        for k in range(1, count + 1):
+            pixels = np.argwhere(labels == k)
+            if len(pixels) < 8:  # speckle, not a fiber
+                roundness.append(0.0)
+                continue
+            radius = np.sqrt(((pixels - pixels.mean(axis=0)) ** 2).sum(axis=1).max())
+            roundness.append(len(pixels) / (np.pi * radius**2))
+    return np.mean(counts), np.mean(roundness), masks.mean()
+
+
+X_val = (X_val + 1) / 2
+for name, masks in [
+    ("data", X_val[:, 0].numpy() >= THRESHOLD),
+    ("samples", (x_sample >= THRESHOLD)[:, 0].numpy()),
+]:
+    blobs, roundness, area = sample_stats(masks)
+    print(f"{name:<8} {blobs:.1f} fibers, roundness {roundness:.2f}, area {area:.2f}")
 
 # --------------------------------------- export --------------------------------------
 model.T = T
@@ -203,19 +270,22 @@ model.betas = betas
 model.alphas = alphas
 model.alpha_bars = alpha_bars
 model.posterior_variance = posterior_variance
-torch.save(model, MODEL_DIR / f"shape_diffusion_{T}_{RESOLUTION}.pt2")
+torch.save(model, MODEL_DIR / f"fiber_diffusion_{T}_{RESOLUTION}.pt2")
 
 # ----------------------------------- postprocessing ----------------------------------
 fig, ax = plt.subplots()
 ax.plot(train_cost, "k")
+ax.plot(val_cost, "r")
 ax.set_yscale("log")
 ax.set_xlabel("epoch")
 ax.set_ylabel("cost")
 plt.show()
 
-fig, ax = plt.subplots(4, 4, figsize=(4, 4), dpi=RESOLUTION)
-for axis, image in zip(ax.flat, gen_shapes):
-    axis.imshow(image[0].T, cmap="binary", origin="lower", vmin=0, vmax=1)
+fig, ax = plt.subplots(2, 4, figsize=(8, 4), dpi=RESOLUTION // 2)
+for i in range(4):
+    ax[0, i].imshow(X_val[i, 0], cmap="binary", vmin=0, vmax=1)
+    ax[1, i].imshow(x_sample[i, 0], cmap="binary", vmin=0, vmax=1)
+for axis in ax.ravel():
     axis.set_aspect("equal")
     axis.axis("off")
     axis.set_rasterized(True)

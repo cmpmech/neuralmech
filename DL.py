@@ -7,6 +7,22 @@ from torch.autograd import grad
 from NN import SIRENsine
 
 
+# ------------------------------------- embeddings ------------------------------------
+def sinusoidal_embedding(t: torch.Tensor, dim: int) -> torch.Tensor:
+    """Transformer-style sine/cosine embedding of integer positions (e.g. timesteps).
+
+    Args:
+        t: Integer positions, shape (batch,).
+        dim: Embedding size, even; half sines and half cosines over log-spaced
+            frequencies from 1 to 1/10000.
+    """
+    half = dim // 2
+    scale = math.log(10000) / (half - 1)
+    freqs = torch.exp(-torch.arange(half, device=t.device) * scale)
+    angles = t[:, None].float() * freqs[None]
+    return torch.cat([torch.sin(angles), torch.cos(angles)], dim=-1)
+
+
 # ------------------------------- weight initialization -------------------------------
 def init_weights(model, activation=None):
     """Initialize all linear and convolutional weights to suit the activation."""

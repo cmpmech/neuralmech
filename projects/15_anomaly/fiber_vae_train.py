@@ -1,4 +1,3 @@
-import math
 import time
 from functools import partial
 from pathlib import Path
@@ -13,7 +12,7 @@ from torchinfo import summary
 from tqdm import tqdm
 
 from DL import Standardizer, build_ae_cnn_config, init_weights
-from NN import DCN, VAE, SlotDecoder, SlotEncoder, SlotPrior
+from NN import DCN, MLP, VAE
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
@@ -25,24 +24,24 @@ torch.backends.cudnn.deterministic = True
 
 # -------------------------------------- settings -------------------------------------
 # hyperparameters
-EPOCHS = 3000
+EPOCHS = 800
 LR = 1e-3
 REGULARIZATION = 1e-2
 BATCH_SIZE = 32
-BETA = 1.0  # kl weight; 1 is the plain evidence lower bound
+BETA = 4.0  # kl weight; 1 is the plain evidence lower bound
 PRIOR_STEPS = 20000
 PRIOR_REGULARIZATION = 1e-4
+PRIOR_LATENT = 64
+PRIOR_WIDTH = 512
+PRIOR_BETA = 0.1
 
 # define loss
 # both terms are summed per image, so BETA weighs nats against nats and BETA = 1 is the
 # evidence lower bound. with a mean reduction the weight would instead have to absorb
-# the ratio of pixel count to latent size.
-# BETA stays at 1 because raising it is not how this latent is fixed. a larger BETA does
-# pull the aggregate posterior towards a standard normal, but only by spending
-# reconstruction: on a 128 grid the intersection over union falls from 0.97 to 0.70 as
-# BETA goes from 1 to 32. that trades along the rate-distortion curve instead of moving
-# it. the prior fitted below moves it
-recon_loss = nn.BCEWithLogitsLoss(reduction="sum")
+# the ratio of pixel count to latent size. BETA trades reconstruction for a latent that
+# sits closer to its prior: 1 to 4 costs 0.01 intersection over union and halves the
+# distance of the codes to the standard normal
+recon_loss = nn.MSELoss(reduction="sum")
 
 
 def kl_div(mean_pred, logvar_pred):
@@ -59,22 +58,12 @@ def cost_fun(x_pred, mean_pred, logvar_pred, x):
 
 
 # model settings
-# the code is a grid of GRID x GRID slots of CELL dimensions each, plus one GLOBAL
-# vector shared by the whole image. a slot is anchored to a place, so the encoder never
-# has to invent an order for the fibers, and the map from code to image stays
-# translation equivariant. a flat code has to learn a fiber at every position
-# separately, which is what a bottleneck of 450 images cannot pay for: on a 128 grid the
-# flat code reaches 0.89 intersection over union with 346k parameters, this one reaches
-# 0.98 with 31k. DEPTH follows from how far it is from the slot grid up to the image
 RESOLUTION = 256
-GRID = 8
-CELL = 4
-GLOBAL = 4  # carries the factors that belong to the image, above all the fiber radius
-LATENT = GRID**2 * CELL + GLOBAL
-DEPTH = round(math.log2(RESOLUTION // GRID))
+DEPTH = 5
 CONV_LAYERS = 1
 CHANNEL_DIM = 2
 KERNEL_SIZE = 3
+LATENT_CHANNELS = 4  # per cell of the coarse grid
 THRESHOLD = 0.5
 act = partial(nn.PReLU, init=0.2)
 
@@ -109,42 +98,44 @@ def augment(x):
 # --------------------------- instantiate model & optimizer ---------------------------
 channels, strides = build_ae_cnn_config(DEPTH, CONV_LAYERS, CHANNEL_DIM, 2)
 channels[0] = 1  # true input size (in case CHANNEL_DIM != 1)
+red_resolution = RESOLUTION // 2**DEPTH
+LATENT = red_resolution**2 * LATENT_CHANNELS
 
-Encoder = SlotEncoder(
+# the code stays on the coarse grid: a 1x1 conv reads mean and logvar per cell instead
+# of a linear layer over the flattened features, which halves the parameters and lifts
+# the intersection over union from 0.81 to 0.97. flattening is channel major, so the
+# mean channels come first and VAE splits the vector in the middle as before
+Encoder = nn.Sequential(
     DCN(
-        channels,
+        channels + [2 * LATENT_CHANNELS],
+        # one entry short of the conv count on purpose: the 1x1 conv emits mean, logvar
         [[nn.GroupNorm(1, channel), act()] for channel in channels[1:]],
-        KERNEL_SIZE,
-        stride=strides,
-        padding=KERNEL_SIZE // 2,
+        [KERNEL_SIZE] * (len(channels) - 1) + [1],
+        stride=strides + [1],
+        padding=[KERNEL_SIZE // 2] * (len(channels) - 1) + [0],
+        bias=[False] * (len(channels) - 1) + [True],
         dim=2,
     ),
-    channels[-1],
-    CELL,
-    GLOBAL,
+    nn.Flatten(),
 )
 
-upsamplings = [
+upsamplings = [None] + [
     nn.Upsample(scale_factor=2, mode="nearest") if s == 2 else None
     for s in strides[::-1]
 ]
 
-decoder_channels = channels[::-1]
-decoder_channels[0] = CELL + GLOBAL  # the code enters as channels, not as a flat vector
-
-Decoder = SlotDecoder(
+Decoder = nn.Sequential(
+    nn.Unflatten(1, (LATENT_CHANNELS, red_resolution, red_resolution)),
     DCN(
-        decoder_channels,
-        # one entry short of the conv count on purpose: the last conv emits raw logits
-        [[nn.GroupNorm(1, channel), act()] for channel in decoder_channels[1:-1]],
-        KERNEL_SIZE,
+        [LATENT_CHANNELS] + channels[::-1],
+        # one entry short of the conv count on purpose: the last conv is linear
+        [[nn.GroupNorm(1, channel), act()] for channel in channels[::-1][:-1]],
+        [1] + [KERNEL_SIZE] * (len(channels) - 1),
         stride=1,
-        padding=KERNEL_SIZE // 2,
+        padding=[0] + [KERNEL_SIZE // 2] * (len(channels) - 1),
         pre_modules=upsamplings,
         dim=2,
     ),
-    GRID,
-    CELL,
 )
 
 model = VAE(Encoder, Decoder).to(device)
@@ -168,12 +159,10 @@ pbar = tqdm(range(EPOCHS), desc="Training: ", ncols=90)
 for epoch in pbar:
     model.train()
     for x in train_loader:
-        x_target = augment(x[0])  # binary image, the target of the logits
-        x = standardizex(x_target).to(device)  # standardized encoder input
-        x_target = x_target.to(device)
+        x = standardizex(augment(x[0])).to(device)  # unwrap, augment & standardize
         optimizer.zero_grad()
         x_pred, mean_pred, logvar_pred = model(x)
-        cost, recon, kl = cost_fun(x_pred, mean_pred, logvar_pred, x_target)
+        cost, recon, kl = cost_fun(x_pred, mean_pred, logvar_pred, x)
         cost.backward()
         optimizer.step()
         train_cost[epoch] += recon.item()  # the rate is tracked on its own below
@@ -184,8 +173,9 @@ for epoch in pbar:
     # and is not comparable to the sampled, augmented training pass
     model.eval()
     with torch.no_grad():
-        x_pred, mean_pred, logvar_pred = model(standardizex(X_val).to(device))
-        cost, recon, kl = cost_fun(x_pred, mean_pred, logvar_pred, X_val.to(device))
+        x = standardizex(X_val).to(device)
+        x_pred, mean_pred, logvar_pred = model(x)
+        cost, recon, kl = cost_fun(x_pred, mean_pred, logvar_pred, x)
     val_cost[epoch] = recon.item()
     val_rate[epoch] = kl.item()
     if cost.item() < best_cost:  # the exported model is the best one, not the last one
@@ -203,21 +193,25 @@ model.load_state_dict(best_state)
 model.eval()
 
 # ----------------------------------- learned prior -----------------------------------
-# a standard normal treats every slot as independent, and no product of independent
-# slots can say that two neighbouring places are never both filled. that is the whole
-# content of the fibers not overlapping, so a code drawn from a standard normal decodes
-# into merged worms no matter how the rate is throttled. the fix is not to force the
-# codes onto a fixed prior but to fit a prior to the codes, which is how every latent
-# generative model of images is built (vq-vae with a pixelcnn over the codes, or a
-# latent diffusion model over the codes of a nearly unregularized autoencoder)
+# the rate term pulls the codes towards a standard normal, but 450 images never fill 256
+# dimensions, and a standard normal treats every cell of the grid as independent, so a
+# draw from it places fibers that overlap. the distribution the codes actually reached
+# is learned instead: a second, much smaller variational autoencoder fitted to the codes
+# (the two-stage construction of dai and wipf, 2019). a sample is a draw from the
+# standard normal of the second stage decoded twice.
 # the symmetries are free codes just as they are free images
 with torch.no_grad():
     encoded = [
         model.encode(standardizex(transform(X_train, k)).to(device)) for k in range(8)
     ]
-    codes = torch.cat([torch.chunk(e, chunks=2, dim=1)[0] for e in encoded])
+    mean_train, logvar_train = torch.chunk(torch.cat(encoded), chunks=2, dim=1)
+standardizez = Standardizer(mean_train)
 
-prior = SlotPrior(GRID, CELL, GLOBAL).to(device)
+prior = VAE(
+    MLP([LATENT, PRIOR_WIDTH, PRIOR_WIDTH, 2 * PRIOR_LATENT], [act(), act()]),
+    MLP([PRIOR_LATENT, PRIOR_WIDTH, PRIOR_WIDTH, LATENT], [act(), act()]),
+).to(device)
+init_weights(prior, act())
 prior_optimizer = torch.optim.AdamW(
     prior.parameters(), lr=LR, weight_decay=PRIOR_REGULARIZATION
 )
@@ -228,47 +222,48 @@ prior_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
 tic = time.time()
 pbar = tqdm(range(PRIOR_STEPS), desc="Prior:    ", ncols=90)
 for step in pbar:
-    batch = codes[torch.randint(0, codes.shape[0], (BATCH_SIZE * 4,), device=device)]
-    cost = -prior.log_prob(batch).mean()  # plain maximum likelihood on the codes
+    ids = torch.randint(0, mean_train.shape[0], (4 * BATCH_SIZE,), device=device)
+    z = standardizez(mean_train[ids])
     prior_optimizer.zero_grad()
+    z_pred, mean_pred, logvar_pred = prior(z)
+    recon = recon_loss(z_pred, z) / z.shape[0]
+    cost = recon + PRIOR_BETA * kl_div(mean_pred, logvar_pred).sum()
     cost.backward()
     prior_optimizer.step()
     prior_scheduler.step()
     if step % print_every == 0:
-        pbar.set_postfix({"nll": f"{cost.item():.2e}"})
+        pbar.set_postfix({"cost": f"{cost.item():.2e}"})
 prior.eval()
-print(f"elapsed time {time.time() - tic:.2f} s")
+toc = time.time()
+print(f"elapsed time {toc - tic:.2f} s")
 
 # --------------------------------- latent diagnostics --------------------------------
-# a code drawn from the prior only decodes into a microstructure of its own if the prior
-# really is the distribution of the codes, so both priors are measured rather than
-# assumed, side by side against the data they are supposed to reproduce
+# a code drawn from a prior only decodes into a microstructure of its own if the prior
+# really is the distribution of the codes, so both priors are decoded side by side
 with torch.no_grad():
-    x_pred, mean_pred, logvar_pred = model(standardizex(X_val).to(device))
-    mean_train, logvar_train = torch.chunk(
-        model.encode(standardizex(X_train).to(device)), chunks=2, dim=1
-    )
+    x = standardizex(X_val).to(device)
+    x_pred, mean_pred, logvar_pred = model(x)
+    recon = recon_loss(x_pred, x) / x.shape[0]  # of the exported model, not the last
     x_normal = model.decode(torch.randn(X_val.shape[0], LATENT, device=device))
-    x_learned = model.decode(prior.sample(X_val.shape[0]))
-p_recon = torch.sigmoid(x_pred)
-x_recon = p_recon >= THRESHOLD
+    z = prior.decode(torch.randn(X_val.shape[0], PRIOR_LATENT, device=device))
+    x_learned = model.decode(standardizez.inverse(z))
+x_recon = standardizex.inverse(x_pred.cpu()) >= THRESHOLD
+x_normal = standardizex.inverse(x_normal.cpu()).clamp(0, 1)
+x_learned = standardizex.inverse(x_learned.cpu()).clamp(0, 1)
 
-# the intersection over union is read on the fibers alone: they cover an eighth of the
-# image, so counting the matching background would inflate it
-X_val = X_val.to(device)
+# the intersection over union is read on the fibers alone: counting the matching
+# background would inflate it
 intersection = (x_recon * X_val).sum(dim=(1, 2, 3))
 union = ((x_recon + X_val) >= 1).sum(dim=(1, 2, 3))
 iou = (intersection / union).mean()
-bce = recon_loss(x_pred, X_val) / X_val.shape[0]  # of the exported model, not the last
 
 kl_dim = kl_div(mean_train, logvar_train)
 active = kl_dim > 0.05  # a collapsed dimension decodes as pure prior noise, harmlessly
+print(f"iou {iou:.3f} recon {recon:.2e} kl {kl_dim.sum():.1f} au {active.sum()}")
 
 
-# a sample is a microstructure only if its components are round disks covering the right
-# area, so a prior is scored on the samples themselves, not on summary statistics of the
-# codes: a latent can match the standard normal in every marginal and still be empty
-# between the codes it was trained on
+# a sample is a microstructure only if its blobs are round disks: a merged pair of
+# fibers scores well below 1, so the roundness is what tells the two priors apart
 def sample_stats(masks):
     counts, roundness = [], []
     for mask in masks:
@@ -284,19 +279,19 @@ def sample_stats(masks):
     return np.mean(counts), np.mean(roundness), masks.mean()
 
 
-print(f"iou {iou:.3f} bce {bce:.0f} kl {kl_dim.sum():.1f} au {active.sum()}")
 for name, masks in [
-    ("data", X_val[:, 0].cpu().numpy() >= THRESHOLD),
-    ("reconstruction", x_recon[:, 0].cpu().numpy()),
-    ("normal prior", (torch.sigmoid(x_normal) >= THRESHOLD)[:, 0].cpu().numpy()),
-    ("learned prior", (torch.sigmoid(x_learned) >= THRESHOLD)[:, 0].cpu().numpy()),
+    ("data", X_val[:, 0].numpy() >= THRESHOLD),
+    ("reconstruction", x_recon[:, 0].numpy()),
+    ("normal prior", (x_normal >= THRESHOLD)[:, 0].numpy()),
+    ("learned prior", (x_learned >= THRESHOLD)[:, 0].numpy()),
 ]:
     blobs, roundness, area = sample_stats(masks)
-    print(f"{name:<15} {blobs:.2f} fibers, roundness {roundness:.3f}, area {area:.3f}")
+    print(f"{name:<15} {blobs:.1f} fibers, roundness {roundness:.2f}, area {area:.2f}")
 
 # --------------------------------------- export --------------------------------------
 model.standardizer = standardizex  # just for saving
-model.prior = prior  # so a sample is one call on the loaded model
+model.prior = prior  # a sample is decode(standardizez.inverse(prior.decode(randn)))
+model.standardizez = standardizez
 torch.save(model, MODEL_DIR / f"fiber_vae_{LATENT}_{BETA}_{RESOLUTION}.pt2")
 
 # ----------------------------------- postprocessing ----------------------------------
@@ -313,10 +308,10 @@ plt.show()
 # invisible in the reconstruction and only shows up in what they decode into
 fig, ax = plt.subplots(4, 4, figsize=(8, 8), dpi=RESOLUTION // 2)
 for i in range(4):
-    ax[0, i].imshow(X_val.cpu()[i, 0], cmap="binary", vmin=0, vmax=1)
-    ax[1, i].imshow(x_recon.cpu()[i, 0], cmap="binary", vmin=0, vmax=1)
-    ax[2, i].imshow(torch.sigmoid(x_normal).cpu()[i, 0], cmap="binary", vmin=0, vmax=1)
-    ax[3, i].imshow(torch.sigmoid(x_learned).cpu()[i, 0], cmap="binary", vmin=0, vmax=1)
+    ax[0, i].imshow(X_val[i, 0], cmap="binary", vmin=0, vmax=1)
+    ax[1, i].imshow(x_recon[i, 0], cmap="binary", vmin=0, vmax=1)
+    ax[2, i].imshow(x_normal[i, 0], cmap="binary", vmin=0, vmax=1)
+    ax[3, i].imshow(x_learned[i, 0], cmap="binary", vmin=0, vmax=1)
 for axis in ax.ravel():
     axis.set_aspect("equal")
     axis.axis("off")
@@ -325,8 +320,8 @@ fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 plt.show()
 
 # the pooled active dimensions against the standard normal the rate term pulls them
-# towards. they follow it closely, which is exactly why the marginals are no evidence:
-# the codes are still far too sparse in 260 dimensions for a draw to land among them
+# towards. matching marginals are no evidence: the codes are still far too sparse in 256
+# dimensions for a draw to land among them
 z = mean_train[:, active].flatten().cpu()
 grid = torch.linspace(-4, 4, 200)
 fig, ax = plt.subplots()
