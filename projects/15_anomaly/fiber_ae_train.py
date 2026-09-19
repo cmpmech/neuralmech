@@ -64,6 +64,10 @@ bottleneck_strides = [1] * bottleneck_layers
 
 channels += bottleneck_channels
 strides += bottleneck_strides
+# the bottleneck reduces channels alone, so its convs are 1x1 (no padding)
+conv_count = len(channels) - 1 - bottleneck_layers
+kernel_sizes = [kernel_size] * conv_count + [1] * bottleneck_layers
+paddings = [kernel_size // 2] * conv_count + [0] * bottleneck_layers
 
 Encoder = nn.Sequential()
 Encoder.append(
@@ -73,9 +77,9 @@ Encoder.append(
             [nn.GroupNorm(1, channel), act()]
             for channel in channels[1:]
         ],
-        kernel_size,
+        kernel_sizes,
         stride=strides,
-        padding=kernel_size // 2,
+        padding=paddings,
         dim=2,
     )
 )
@@ -94,9 +98,9 @@ Decoder.append(
             [nn.GroupNorm(1, channel), act()]
             for channel in channels[-2:0:-1]
         ],
-        kernel_size,
+        kernel_sizes[::-1],
         stride=1,
-        padding=kernel_size // 2,
+        padding=paddings[::-1],
         dim=2,
         pre_modules=upsamplings,
     )
