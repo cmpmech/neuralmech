@@ -1,8 +1,10 @@
 # Probabilistic Deep Learning
 
 Toy problems for **Chapter 5 (Probabilistic Deep Learning)**, on equipping
-predictions with uncertainty. Two targets recur: a 1D Gaussian for the sampling
-demonstrations, and the noisy $\sin$ from Chapter 3 for the regression models.
+predictions with uncertainty. Three targets recur: a 1D Gaussian for the sampling
+demonstrations, the noisy $\sin$ from Chapter 3 for the regression models, and the
+Forrester function for the optimization demonstration. The dimensionality study
+multiplies that same $\sin$ with itself across $N$ dimensions.
 
 ## Drivers
 
@@ -36,3 +38,11 @@ demonstrations, and the noisy $\sin$ from Chapter 3 for the regression models.
   the same fit on a Latin hypercube design, rebuilt at every budget and reusing every
   sample that still falls in a stratum of its own, as the baseline the active strategy
   has to beat
+- `active_dimensionality_sine.py`
+  the same three designs -- active, Latin hypercube and uniform -- against the $\sin$
+  multiplied with itself across $N$ dimensions, showing how the advantage of the active
+  design fades once the budget grows linearly while the volume grows exponentially
+- `active_bayesian_optimization.py`
+  Bayesian optimization of the Forrester function, where the next sample minimizes the
+  lower confidence bound of the posterior, so the surrogate is learned and minimized at
+  once, and the shallow local minimum is sampled before the global one is found

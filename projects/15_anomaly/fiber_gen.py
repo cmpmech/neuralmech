@@ -88,7 +88,6 @@ num_circles = 10
 for num_squares in range(num_circles + 1):
     domains = np.zeros((samples, N, N))
     for i in range(samples):
-        # radius = np.random.uniform(0.02, 0.2)
         radius = np.random.uniform(0.05, 0.1)
         radius = 0.08
         domains[i] = generate_squares(N, num_circles - num_squares, num_squares, radius)
@@ -103,7 +102,9 @@ for num_squares in range(num_circles + 1):
         ax.axis("off")
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         plt.savefig(
-            f"../../results/rgb_pdf/fibers_anomaly.pdf", bbox_inches="tight", pad_inches=0
+            f"../../results/rgb_pdf/fibers_anomaly.pdf",
+            bbox_inches="tight",
+            pad_inches=0,
         )
         plt.show()
 
