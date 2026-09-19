@@ -80,9 +80,8 @@ Use `from torch import nn` (the repo's de-facto form), not `import torch.nn as n
   ```
   # -------------------------------------- settings -------------------------------------
   ```
-- **Flush-left at column 0, always** — even inside an `if`/`for`/`else` block. The
-  `~/.local/bin/fix_banners` filter strips any leading indentation from `# ----`
-  lines, so keep banners un-indented to begin with.
+- **Flush-left at column 0, always** — even inside an `if`/`for`/`else` block; never
+  indent a `# ----` line.
 - **Controlled vocabulary** (verb/noun, reused across files — keep the set small):
   `settings`, `prepare data`, `create data`, `load data`, `load image`,
   `preprocessing`, `instantiate model & optimizer`, `training`, `postprocessing`,

@@ -26,3 +26,4 @@ projects/*/outputs/
 *.vtu
 *.pvtu
 *.vtm
+.ruff_cache/
