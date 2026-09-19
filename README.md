@@ -81,7 +81,7 @@ pip install -r requirements.txt
 > [!NOTE]
 > The requirements are currently broader than necessary and will be trimmed down later.
 
-### Submodules
+### mlhp
 
 [mlhp](https://gitlab.com/hpfem/code/mlhp) is included as a git submodule. To clone recursively use
 
@@ -89,11 +89,9 @@ pip install -r requirements.txt
 git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
 ```
 
-#### Installation of mlhp
-
 - for now, use `pip install mlhp` ([for more advanced physics](solvers/README.md#building-mlhp-from-source) C++ compilation will be needed)
 
-### Installation of cuwave
+### cuwave
 
 - the GPU finite difference wave solver behind the wave and transient topology optimization drivers
 - covered by the requirements, or install it on its own with
