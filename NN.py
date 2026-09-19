@@ -23,6 +23,13 @@ def get_layer_param(param, i):  # in case param is a list
     return param[i] if isinstance(param, list) else param
 
 
+class Passthrough(nn.Module):
+    """Identity that ignores extra forward arguments (a conditioned ``nn.Identity``)."""
+
+    def forward(self, x: torch.Tensor, *args) -> torch.Tensor:
+        return x
+
+
 # ------------------------------- primary architectures -------------------------------
 
 
@@ -615,6 +622,44 @@ class ResidualBlock(nn.Module):
         return identity + self.module(x)
 
 
+class ConditionedResidualBlock(nn.Module):
+    """Residual block whose hidden state is shifted by a projected conditioning vector.
+
+    The pattern of diffusion U-Nets: ``module_in(x)``, plus a per-channel bias computed
+    from the condition (e.g. a timestep embedding), then ``module_out``, added to the
+    (optionally projected) input.
+
+    Args:
+        module_in: First transformation, e.g. norm -> activation -> conv.
+        module_out: Second transformation applied after the conditioning shift.
+        embedding: Maps the condition vector to one bias per output channel of
+            ``module_in``.
+        projection: Optional projection of the input to the output shape.
+    """
+
+    def __init__(
+        self,
+        module_in: nn.Module,
+        module_out: nn.Module,
+        embedding: nn.Module,
+        projection: nn.Module | None = None,
+    ) -> None:
+        super().__init__()
+        self.module_in = module_in
+        self.module_out = module_out
+        self.embedding = embedding
+        self.projection = projection
+
+    def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
+        identity = x
+        if self.projection is not None:
+            identity = self.projection(x)
+        h = self.module_in(x)
+        bias = self.embedding(condition)
+        h = h + bias.view(*bias.shape, *([1] * (h.dim() - 2)))
+        return identity + self.module_out(h)
+
+
 class ResNet(nn.Module):
     """Converts a base model into a residual network by adding skip connections.
 
@@ -1001,13 +1046,21 @@ class UNet(nn.Module):
     the previous output concatenated with the matching skip along the channel axis (in
     reverse order), so each up module must accept (input + skip) channels.
 
+    Any extra arguments of `forward` (e.g. a timestep embedding for diffusion models)
+    are passed on to every down, bottleneck and up module, so a conditioned block such
+    as ``ConditionedResidualBlock`` slots in without subclassing.
+
     Args:
-        downs: Encoder modules, ordered shallow-to-deep. Each is expected to downsample
-            its input.
-        ups: Decoder modules, ordered deep-to-shallow. Same length as `downs`. Each is
-            expected to upsample its input.
+        downs: Encoder modules, ordered shallow-to-deep. Without `downsamplers` each is
+            expected to downsample its input.
+        ups: Decoder modules, ordered deep-to-shallow. Same length as `downs`. Without
+            `upsamplers` each is expected to upsample its input.
         bottleneck: Module applied at the deepest resolution between encoder and
             decoder. Defaults to identity.
+        downsamplers: Optional per-level modules applied after each down module. The
+            skip is taken before, so it keeps the full resolution of its level.
+        upsamplers: Optional per-level modules applied before each up module, ordered
+            deep-to-shallow, so the up module receives (upsampled + skip) channels.
     """
 
     def __init__(
@@ -1015,20 +1068,27 @@ class UNet(nn.Module):
         downs: list[nn.Module],
         ups: list[nn.Module],
         bottleneck: nn.Module | None = None,
+        downsamplers: list[nn.Module] | None = None,
+        upsamplers: list[nn.Module] | None = None,
     ) -> None:
         super().__init__()
         self.downs = nn.ModuleList(downs)
         self.ups = nn.ModuleList(ups)
-        self.bottleneck = bottleneck or nn.Identity()
+        self.bottleneck = bottleneck or Passthrough()
+        self.downsamplers = nn.ModuleList(
+            downsamplers or [nn.Identity() for _ in downs]
+        )
+        self.upsamplers = nn.ModuleList(upsamplers or [nn.Identity() for _ in ups])
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, *args) -> torch.Tensor:
         skips = []
-        for down in self.downs:
-            x = down(x)
+        for down, downsample in zip(self.downs, self.downsamplers):
+            x = down(x, *args)
             skips.append(x)
-        x = self.bottleneck(x)
-        for up, skip in zip(self.ups, reversed(skips)):
-            x = up(torch.cat([x, skip], dim=1))
+            x = downsample(x)
+        x = self.bottleneck(x, *args)
+        for up, upsample, skip in zip(self.ups, self.upsamplers, reversed(skips)):
+            x = up(torch.cat([upsample(x), skip], dim=1), *args)
         return x
 
 
