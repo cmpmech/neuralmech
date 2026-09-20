@@ -137,6 +137,7 @@ protobuf==6.33.0
 psutil==7.1.3
 ptyprocess==0.7.0
 pure_eval==0.2.3
+pybliometrics==4.4.1
 pyarrow==23.0.1
 Pygments==2.19.2
 pymc==5.27.0
@@ -165,6 +166,7 @@ setuptools==80.9.0
 shap==0.50.0
 shapely==2.1.2
 simplejson==3.20.2
+soundfile==0.14.0
 six==1.17.0
 slicer==0.0.8
 SQLAlchemy==2.0.45

@@ -113,6 +113,7 @@ pip install cuwave
 | [`projects/`](projects/)                 | main drivers; see [projects](projects/README.md)                           |
 | [`DL.py`](DL.py)                         | deep learning utilities                                                    |
 | [`NN.py`](NN.py)                         | network architectures                                                      |
+| [`ML.py`](ML.py)                         | classical machine learning models                                          |
 | [`postprocessing.py`](postprocessing.py) | postprocessing helpers                                                     |
 | [`solvers/`](solvers/)                   | classical physics solvers                                                  |
 

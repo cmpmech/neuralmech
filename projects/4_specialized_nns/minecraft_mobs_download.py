@@ -24,7 +24,7 @@ DATASET_PATH = DATA_DIR / "minecraft_mobs.npz"
 # -------------------------------------- settings -------------------------------------
 API = "https://minecraft.wiki/api.php"
 HEADERS = {
-    "User-Agent": "mob-sound-research-script/0.1 (contact: leon.herrmann@uni-weimar.de)"
+    "User-Agent": "mob-sound-research-script/0.1 (contact: neuralmech@pm.me)"
 }
 ROOT_CATEGORY = "Category:Mob sounds"
 REQUEST_DELAY = 0.3  # seconds between requests, be polite to the wiki
