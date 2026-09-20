@@ -5,7 +5,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from scipy import ndimage
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset, random_split
 from torchinfo import summary
@@ -28,7 +27,7 @@ EPOCHS = 800
 LR = 1e-3
 REGULARIZATION = 1e-2
 BATCH_SIZE = 32
-BETA = 4.0  # kl weight; 1 is the plain evidence lower bound
+BETA = 16.0  # kl weight; 1 is the plain evidence lower bound
 PRIOR_STEPS = 20000
 PRIOR_REGULARIZATION = 1e-4
 PRIOR_LATENT = 64
@@ -181,7 +180,7 @@ with torch.no_grad():
     encoded = [
         model.encode(standardizex(transform(X_train, k)).to(device)) for k in range(8)
     ]
-    mean_train, logvar_train = torch.chunk(torch.cat(encoded), chunks=2, dim=1)
+    mean_train, _ = torch.chunk(torch.cat(encoded), chunks=2, dim=1)
 standardizez = Standardizer(mean_train)
 
 prior = VAE(
@@ -214,11 +213,10 @@ prior.eval()
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
-# --------------------------------- latent diagnostics --------------------------------
+# ------------------------------------- validation ------------------------------------
 with torch.no_grad():
     x = standardizex(X_val).to(device)
-    x_pred, mean_pred, logvar_pred = model(x)
-    recon = recon_loss(x_pred, x) / x.shape[0]
+    x_pred, _, _ = model(x)
     x_normal = model.decode(torch.randn(X_val.shape[0], LATENT, device=device))
     z = prior.decode(torch.randn(X_val.shape[0], PRIOR_LATENT, device=device))
     x_learned = model.decode(standardizez.inverse(z))
@@ -230,35 +228,7 @@ x_learned = standardizex.inverse(x_learned.cpu()).clamp(0, 1)
 intersection = (x_recon * X_val).sum(dim=(1, 2, 3))
 union = ((x_recon + X_val) >= 1).sum(dim=(1, 2, 3))
 iou = (intersection / union).mean()
-
-kl_dim = kl_div(mean_train, logvar_train)
-active = kl_dim > 0.05
-print(f"iou {iou:.3f} recon {recon:.2e} kl {kl_dim.sum():.1f} au {active.sum()}")
-
-
-def sample_stats(masks):
-    counts, roundness = [], []
-    for mask in masks:
-        labels, count = ndimage.label(mask)
-        counts.append(count)
-        for k in range(1, count + 1):
-            pixels = np.argwhere(labels == k)
-            if len(pixels) < 8:  # speckle, not a fiber
-                roundness.append(0.0)
-                continue
-            radius = np.sqrt(((pixels - pixels.mean(axis=0)) ** 2).sum(axis=1).max())
-            roundness.append(len(pixels) / (np.pi * radius**2))
-    return np.mean(counts), np.mean(roundness), masks.mean()
-
-
-for name, masks in [
-    ("data", X_val[:, 0].numpy() >= THRESHOLD),
-    ("reconstruction", x_recon[:, 0].numpy()),
-    ("normal prior", (x_normal >= THRESHOLD)[:, 0].numpy()),
-    ("learned prior", (x_learned >= THRESHOLD)[:, 0].numpy()),
-]:
-    blobs, roundness, area = sample_stats(masks)
-    print(f"{name:<15} {blobs:.1f} fibers, roundness {roundness:.2f}, area {area:.2f}")
+print(f"iou {iou:.3f}")
 
 # --------------------------------------- export --------------------------------------
 model.standardizer = standardizex  # just for saving
@@ -287,13 +257,4 @@ for axis in ax.ravel():
     axis.axis("off")
     axis.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-plt.show()
-
-z = mean_train[:, active].flatten().cpu()
-grid = torch.linspace(-4, 4, 200)
-fig, ax = plt.subplots()
-ax.hist(z.numpy(), bins=60, range=(-4, 4), density=True, color="k")
-ax.plot(grid, torch.exp(-0.5 * grid**2) / np.sqrt(2 * np.pi), "r")
-ax.set_xlabel("latent")
-ax.set_ylabel("density")
 plt.show()

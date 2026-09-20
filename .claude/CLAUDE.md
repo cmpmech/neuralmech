@@ -12,6 +12,7 @@ The detailed conventions live in skills under `.claude/skills/`. Invoke them by 
 |---|---|
 | `neuralmech-style` | Writing or editing ANY `.py` in `code/` (drivers, library, helpers), cleaning a file to match style, or auditing a project. The authoritative rules + house style: hard rules (paths, seeds, model loading, imports, no aligned `=`), banners, ALL_CAPS constants, the 10-step structure, no legends, README shape, chapter/naming registries, and a report-only audit mode. |
 | `optimize_code` | Iterative improvement against a metric (wall clock, validation error, accuracy, memory). |
+| `sweep-dump` | Sweeping a driver over a few constants (beta, latent size, data size, epochs) and dumping per-config sample images + an overview contact sheet + metrics table into `results/<sweep>/` for the user to judge; applying the pick afterwards. |
 | `pvpython` | Writing or editing pvpython/ParaView render scripts in `projects/0_pvpython/` — render pipeline, point-cloud sphere glyphs (avoiding impostor speckles), the shared `.cmap/` colormaps + Spectral pitfall, supersampled AA, transparent backgrounds, legacy-VTK point export. |
 | `mlhp` | Writing or editing any mlhp-based FEM driver — full Python API (meshes/grids, refinement, implicit CSG, hp/B-spline bases, fields, quadrature/FCM, elasticity/Poisson integrands, BCs, sparse + matrix-free assembly, solvers, postprocessing, numbering conventions) plus the `projects/16_elastic_fem/` voxel-FEM recipes (NumPy + CUDA matrix-free, CT geometry loading). |
 

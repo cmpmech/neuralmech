@@ -21,6 +21,7 @@ BASE_DIR = Path(__file__).parent
 MODEL_DIR = (BASE_DIR / "../../models").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+DUMP_DIR = (RESULTS_DIR / "topopt_dump").resolve()
 ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_latent_diffusion"
 
 torch.manual_seed(0)
@@ -45,33 +46,32 @@ DEGREE = 3
 QUAD_ORDER = DEGREE + 1
 
 # physics
-VOLFRAC = 0.6  # 0.7
+VOLFRAC = 0.6
 RMIN = 2
 E0, EMIN, NU = 1.0, 1e-9, 0.3
 LOAD = -1.0
 
-# simp penalisation continuation: ramp the exponent to sharpen the design over time
-PENAL0, PENAL_INC, PENAL_MAX = 3.0, 0.02, 1.0  # TODO SIMP NOT NEEDED
+# simp penalisation: exponent of the stiffness interpolation (1 = linear, no penalty)
+PENAL = 1.0
 
-# volume penalty continuation: grow the quadratic constraint weight with iterations
-PENALTY0, PENALTY_INC, PENALTY_MAX = (
-    1.0,
-    1.0,
-    500.0,
-)  # TODO increase? NOT ADDITIVE BUT MULTIPLICATIVE -> SHOULD BE SLOWER IN BEGINNING BUT HIGHER IN THE END
+# volume constraint (augmented lagrangian: penalty plus a slowly integrated multiplier)
+PENALTY = 2.0
+MULTIPLIER_STEP = 0.1
 
 # optimization (adam on the latent, polynomial lr decay (BETA * iter + 1) ** ALPHA)
-ITERS = 200
-LR = 1e-3  # a sample is far more sensitive to its starting noise than to a code
+ITERS = 800
+LR = 3e-3  # a sample is far more sensitive to its starting noise than a code
 ALPHA = -0.5
-BETA = 0.1
+BETA = 0.01
 CLIP = 0.1  # gradient-norm clipping
+DRIFT_PENALTY = 0.0  # trust region on the starting direction, off by default
 
 # deterministic ddim subsequence: differentiable end to end, fewer unet evaluations
-DDIM_STEPS = 25
+DDIM_STEPS = 10
 
 # postprocessing
 THRESHOLD = 0.5
+DUMP_TAG = "default"  # names the dump figure, bump it per experiment
 
 # --------------------------- instantiate model & optimizer ---------------------------
 model = torch.load(
@@ -180,12 +180,16 @@ density_filter = DensityFilter(RMIN, (RESOLUTION, RESOLUTION))
 
 
 def simp(rho):  # simp stiffness interpolation between void and solid
-    return EMIN + rho**penal * (E0 - EMIN)
+    return EMIN + rho**PENAL * (E0 - EMIN)
 
+
+# compliance of the decoded starting design, the yardstick for the optimization
+u_init = np.zeros(ndof)
+u_init[free] = fem.solve(simp(rho_init), force_free)
+compliance_init = force @ u_init
 
 # ------------------------------------ optimization -----------------------------------
-penal = PENAL0
-penalty = PENALTY0
+multiplier = 0.0
 compliance0 = None
 drift_history = [0] * ITERS
 start = latent.detach().clone()
@@ -205,13 +209,17 @@ for it in pbar:
         compliance0 = compliance  # normalise the compliance sensitivity once
 
     # compliance sensitivity on the design grid, then the classic sensitivity filter
-    dc = -penal * rho ** (penal - 1) * (E0 - EMIN) * fem.element_energy(u)
+    dc = -PENAL * rho ** (PENAL - 1) * (E0 - EMIN) * fem.element_energy(u)
     dc = density_filter.sensitivity(rho, dc)
 
-    # quadratic volume penalty: (mean_rho / VOLFRAC - 1) ** 2, weight grows each iter
+    # volume constraint g = mean_rho / VOLFRAC - 1 <= 0, enforced by an augmented
+    # lagrangian: the penalty pulls the design in, the multiplier holds it there. the
+    # weight is clipped at zero, so an inactive constraint does not push material back
     mean_rho = rho.mean()
-    dv = 2 * (mean_rho / VOLFRAC - 1) / (VOLFRAC * RESOLUTION**2)
-    sensitivity = dc / compliance0 + penalty * dv
+    g = mean_rho / VOLFRAC - 1
+    dg = 1 / (VOLFRAC * RESOLUTION**2)
+    weight = max(0.0, multiplier + PENALTY * g)
+    sensitivity = dc / compliance0 + weight * dg
 
     # the sensitivity is the incoming gradient of rho, so backpropagation through the
     # whole reverse chain turns it into a gradient on the starting noise
@@ -219,20 +227,21 @@ for it in pbar:
     sensitivity = torch.from_numpy(sensitivity).reshape(1, 1, RESOLUTION, RESOLUTION)
     rho_pred.backward(sensitivity.to(device))
 
-    # angle travelled on the shell, the counterpart of the rarity of the vae code
-    cosine = torch.cosine_similarity(latent.detach().flatten(), start.flatten(), dim=0)
-    drift_history[it] = torch.arccos(cosine.clamp(-1, 1)).item()
+    # angle travelled on the shell, the counterpart of the rarity of the vae code. the
+    # penalty is on 1 - cos, not on the angle, whose derivative is singular at the start
+    cosine = torch.cosine_similarity(latent.flatten(), start.flatten(), dim=0)
+    (DRIFT_PENALTY * (1 - cosine)).backward()
+    drift_history[it] = torch.arccos(cosine.detach().clamp(-1, 1)).item()
 
     torch.nn.utils.clip_grad_norm_([latent], CLIP)
     optimizer.step()
     scheduler.step()
 
-    penal = min(penal + PENAL_INC, PENAL_MAX)
-    penalty = min(penalty + PENALTY_INC, PENALTY_MAX)
+    multiplier = max(0.0, multiplier + MULTIPLIER_STEP * g)
     pbar.set_postfix(
         c=f"{compliance:.2e}",
         vol=f"{mean_rho:.3f}",
-        p=f"{penal:.2f}",
+        m=f"{weight:.1e}",
         a=f"{drift_history[it]:.1e}",
     )
 
@@ -253,8 +262,30 @@ rho_thresh = (rho > THRESHOLD).astype(float)
 u = np.zeros(ndof)
 u[free] = fem.solve(simp(rho_thresh), force_free)
 compliance_thresh = force @ u
-print(f"thresholded c {compliance_thresh:.3e} vol {rho_thresh.mean():.3f}")
+print(
+    f"compliance {compliance_init:.3e} -> {compliance:.3e} "
+    f"(thresholded {compliance_thresh:.3e}) vol {rho.mean():.3f}"
+)
 print(f"latent drift {drift_history[0]:.3e} -> {drift_history[-1]:.3e} rad")
+
+# ---------------------------------------- dump ---------------------------------------
+# annotated side by side of the final and thresholded design, one file per experiment
+DUMP_DIR.mkdir(parents=True, exist_ok=True)
+fig, axes = plt.subplots(1, 2, figsize=(8, 4.4), dpi=150)
+for ax, field in zip(axes, (rho, rho_thresh)):
+    ax.imshow(field.T, origin="lower", cmap="binary", vmin=0.0, vmax=1.0)
+    ax.set_aspect("equal")
+    ax.axis("off")
+fig.suptitle(
+    f"diffusion [{DUMP_TAG}]  c {compliance_init:.3e} -> {compliance:.3e}  "
+    f"thresh {compliance_thresh:.3e}\n"
+    f"vol {rho.mean():.3f} -> {rho_thresh.mean():.3f}  penal {PENAL:.1f}  "
+    f"lr {LR:.1e}  iters {ITERS}",
+    fontsize=8,
+)
+fig.subplots_adjust(left=0, right=1, top=0.86, bottom=0)
+plt.savefig(DUMP_DIR / f"topopt_latent_diffusion_{DUMP_TAG}.png")
+plt.close()
 
 if not args.book and not args.animate:
     fig, ax = plt.subplots()

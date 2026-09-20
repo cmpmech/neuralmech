@@ -67,7 +67,7 @@ MAX_CIRCLES = 20
 MAX_RADIUS = 0.2
 
 # ------------------------- generate normal data -------------------------
-samples = 500
+samples = 1000
 
 domains = np.zeros((samples, N, N))
 for i in range(samples):

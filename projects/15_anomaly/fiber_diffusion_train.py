@@ -4,7 +4,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from scipy import ndimage
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset, random_split
 from torchinfo import summary
@@ -39,8 +38,8 @@ T = 200
 RESOLUTION = 256
 CHANNELS = [32, 64, 128, 256]
 EMBEDDING = 128
-THRESHOLD = 0.5
 SAMPLES = 50
+DATA_SAMPLES = 500  # the dataset holds more; the first 500 are the original training set
 
 
 # ----------------------------------- noise schedule ----------------------------------
@@ -68,7 +67,7 @@ def noise(x0, t, eps=None):
 
 # ------------------------------------ prepare data -----------------------------------
 # binary images scaled to [-1, 1]
-data = torch.from_numpy(np.load(DATA_DIR / f"fibers_{RESOLUTION}.npy"))
+data = torch.from_numpy(np.load(DATA_DIR / f"fibers_{RESOLUTION}.npy")[:DATA_SAMPLES])
 data = 2 * data.to(torch.float32).unsqueeze(1) - 1
 
 dataset = TensorDataset(data)
@@ -228,29 +227,7 @@ x_sample = sample(SAMPLES)
 print(f"elapsed time {time.time() - tic:.2f} s")
 
 
-# --------------------------------- sample diagnostics --------------------------------
-def sample_stats(masks):
-    counts, roundness = [], []
-    for mask in masks:
-        labels, count = ndimage.label(mask)
-        counts.append(count)
-        for k in range(1, count + 1):
-            pixels = np.argwhere(labels == k)
-            if len(pixels) < 8:
-                roundness.append(0.0)
-                continue
-            radius = np.sqrt(((pixels - pixels.mean(axis=0)) ** 2).sum(axis=1).max())
-            roundness.append(len(pixels) / (np.pi * radius**2))
-    return np.mean(counts), np.mean(roundness), masks.mean()
-
-
 X_val = (X_val + 1) / 2
-for name, masks in [
-    ("data", X_val[:, 0].numpy() >= THRESHOLD),
-    ("samples", (x_sample >= THRESHOLD)[:, 0].numpy()),
-]:
-    blobs, roundness, area = sample_stats(masks)
-    print(f"{name:<8} {blobs:.1f} fibers, roundness {roundness:.2f}, area {area:.2f}")
 
 # --------------------------------------- export --------------------------------------
 model.T = T

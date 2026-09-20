@@ -28,62 +28,95 @@ candidate is constrained to lie on the learned manifold of fiber microstructures
     reverse chain is differentiated end to end. The noise is constrained to the shell
     of the standard normal instead of being penalized towards its mode.
 
-`topopt_reference.py`
+`topopt_latent_reference.py`
     The classical density-based optimization the latent drivers are compared against:
     the same beam, discretization and volume fraction, but every voxel of the design
     grid is a design variable of its own, updated by the optimality criterion. Free of
-    any learned manifold, it reaches a compliance of 28.9 against 31.4 for the
-    variational autoencoder and 36.5 for the diffusion model.
+    any learned manifold, it reaches a compliance of 30.5 against 30.8 for the
+    autoencoder, 32.4 for the variational autoencoder and 31.6 for the diffusion
+    model, all at a volume fraction of 0.6.
 
 ## Non-obvious technicalities (authored by Claude)
 
-The autoencoder only ever emits arrangements of circular fibers, which cover
-roughly 4-28% of the domain. Read as material, those fibers would be disconnected
-blobs with no load path, so the density is inverted (`rho = 1 - decoded`): the
-fibers become voids punched out of a solid plate. A decoded training sample starts
-around 0.89 material fraction; reaching the target of 0.6 forces the optimizer off
-the strict fiber manifold, where the holes grow and merge into elongated voids.
+The autoencoder only ever emits arrangements of circular fibers, which cover roughly
+4-28% of the domain. Read as material, those fibers would be disconnected blobs with no
+load path, so the density is inverted (`rho = 1 - decoded`): the fibers become voids
+punched out of a solid plate. A decoded training sample starts around 0.89 material
+fraction; reaching the target of 0.6 forces the optimizer off the strict fiber
+manifold, where the holes grow and merge into elongated voids.
 
-The compliance sensitivity is computed on the design grid exactly as in a
-classical solver, then handed to autograd as the incoming gradient of `rho`
+The compliance sensitivity is computed on the design grid exactly as in a classical
+solver, then handed to autograd as the incoming gradient of `rho`
 (`rho.backward(sensitivity)`); backpropagation through the decoder turns it into a
-gradient on the latent code. The volume penalty weight is ramped over the
-iterations so the design first migrates to the target fraction and then rearranges
-its holes toward the load path at (nearly) fixed volume.
+gradient on the latent code. The design first migrates to the target fraction and then
+rearranges its holes toward the load path at (nearly) fixed volume.
 
-The two decoders emit different quantities. The autoencoder is trained with a mean
-squared error on standardized images, so its output is undone with
-`standardizer.inverse`. The variational autoencoder is trained with a binary cross
-entropy on logits, so its output passes through a sigmoid instead, which also bounds
-the density to $(0, 1)$ without an explicit clamp. Only the latent mean is optimized;
-sampling is switched off, so the design stays deterministic.
+None of the three latent drivers penalizes the intermediate densities, `PENAL = 1`.
+SIMP exists to make a voxel-wise design choose between solid and void, and the decoders
+already emit what is essentially a binary image: thresholding the converged density
+changes the compliance by under a percent. The reference driver keeps `PENAL = 3`,
+where every voxel is free and the penalization is what stops the optimizer from filling
+the domain with grey.
 
-The latent penalty is $-w \log p(z)$ under the prior that the training driver fits to
-the codes themselves. The optimization therefore returns a maximum a posteriori design:
-the most probable code that still carries the load. The penalty is added before the
-gradient is clipped, so it competes with the compliance sensitivity inside the same
-clipping budget rather than on top of it.
+The volume constraint itself is an augmented Lagrangian rather than a plain penalty. A
+penalty alone has to grow without bound to close the gap, and a weight large enough to
+do so swamps the compliance sensitivity: the volume then overshoots the target and
+swings around it instead of settling. The driver therefore carries a multiplier
+alongside the penalty, $w = \max(0, \lambda + c\,g)$ with $g = \bar\rho / V^* - 1$, and
+integrates the multiplier slowly, $\lambda \leftarrow \max(0, \lambda + \eta\, g)$. The
+proportional part reacts to a violation immediately, the multiplier accumulates the
+weight the constraint actually needs, and clipping at zero keeps an inactive constraint
+from pushing material back in. Both terms are small numbers: the compliance sensitivity
+is normalized by the initial compliance, which puts the balanced weight at order one,
+not at the hundreds the additive ramp used to reach.
 
-Reading $\|z\|^2$ as the negative log density instead would require the codes to follow
-a standard normal, and they do not: the trained prior scores a real code at $+664$ nats
-and a draw from $\mathcal{N}(0, I)$ at $-1016$ nats, about $1700$ nats apart, so a
-penalty on the norm would pull the design toward codes the decoder has never seen. The
-learned density is far sharper than the quadratic it replaces, hence $w = 10^{-5}$
-rather than $10^{-3}$; the two move the code by about the same amount per iteration.
-Over a run the code still travels from $-644$ to $+765$ nats, because reaching the
-volume target of $0.6$ means leaving the strict fiber manifold.
+Both decoders are trained on standardized images, so their output is undone with
+`standardizer.inverse` and clamped to $[0, 1]$. The variational model is the two-stage
+one, and the design variable is the code of its *second* stage, not the image code: the
+second stage is fitted to the first stage's codes and its own prior is a standard
+normal by construction, so the design can be initialized from a plain draw and its
+rarity read off directly.
+
+That is what the latent penalty measures, $w \cdot \tfrac{1}{2}\|z\|^2$, the negative
+log density of the second-stage code under its prior up to a constant. The optimization
+therefore returns a maximum a posteriori design: the most probable code that still
+carries the load. The penalty is added before the gradient is clipped, so it competes
+with the compliance sensitivity inside the same clipping budget rather than on top of
+it.
+
+A penalty on the log density pulls toward the mode, and the mode of a standard normal
+is not a typical draw from it: the mass sits on a shell of radius $\sqrt{D}$, which the
+diffusion driver below has to take seriously. Here it does no harm, because $D = 64$
+and that shell is about $9\%$ wide. At $w = 10^{-3}$ the code comes to rest at $0.87$
+of the shell radius, well inside the bulk, and the compliance is the same as for a
+design whose code is held exactly on the shell. Only at $w \ge 10^{-1}$ does the mode
+win: the code collapses to a fifth of the shell radius and the compliance rises by a
+fifth with it. The same penalty in the $D = 65536$ of the diffusion model would be
+ruinous at any weight, which is why that driver constrains the radius instead of
+penalizing it.
 
 The noise of a diffusion model is not a latent code of the same kind, and the penalty
 that keeps the variational code probable has no counterpart here. The most probable
 point of the standard normal the chain starts from is the origin, and the origin is not
 a plausible draw: it denoises into the mean of the data, not into a microstructure. In
 $D = 65536$ dimensions essentially all the mass of that normal sits in a thin shell at
-radius $\sqrt{D}$, so the driver constrains rather than penalizes,
-$x_T = \sqrt{D}\, z / \|z\|$ with the direction $z$ as the design variable. This is
-the reparameterization the penalty was reaching for: it costs no weight to tune, and
-the sampler is never handed a noise level the model was not trained to denoise. A
-penalty $w(\|x_T\|/\sqrt{D} - 1)^2$ on the free noise reaches the same shell, but only
+radius $\sqrt{D}$, so the driver constrains rather than penalizes, $x_T = \sqrt{D}\, z
+/ \|z\|$ with the direction $z$ as the design variable. This is the reparameterization
+the penalty was reaching for: it costs no weight to tune, and the sampler is never
+handed a noise level the model was not trained to denoise. A penalty
+$w(\|x_T\|/\sqrt{D} - 1)^2$ on the free noise reaches the same shell, but only
 approximately and with one more weight to balance against the compliance.
+
+The direction is otherwise unconstrained, and `DRIFT_PENALTY` puts a trust region on
+it, $w (1 - \cos(x_T, x_T^0))$ against the direction the run started from. It is
+written on the cosine rather than on the angle because the derivative of $\arccos$ is
+singular exactly where the run starts. Off by default: it buys manifold fidelity and
+pays in compliance, monotonically. At $w = 0$ the design ends at compliance $31.2$ with
+the holes merged into elongated voids and the direction $5 \cdot 10^{-2}$ radians from
+its start; at $10^4$, $34.8$ and $1.5 \cdot 10^{-2}$ radians; at $3 \cdot 10^5$, $47.0$
+and $3 \cdot 10^{-3}$ radians, with the sample still a set of strictly circular fibers.
+Which end of that is wanted depends on whether the design or the microstructure is the
+point.
 
 Differentiating the sampler requires the deterministic variant: the stochastic sampler
 of the training driver injects a fresh draw at every step, so its output is not a
@@ -95,11 +128,20 @@ skipped in the backward one (a straight-through estimator): towards the end of t
 chain it saturates over most of the image and would otherwise zero the sensitivity
 exactly where the design lives.
 
-The two priors constrain the design very differently. The autoencoder leaves its
-manifold under the volume penalty -- the holes grow and merge into elongated voids --
-while the diffusion sampler keeps emitting circular fibers and reaches the target
-fraction by rearranging and adding holes instead. The sampler is also far more
-sensitive to its input than the decoder is to a code: a learning rate of $5 \cdot
-10^{-2}$, which the variational driver uses, wipes the fibers out within two
-iterations, hence $10^{-3}$ here. The angle the direction travels over a whole run
-stays below $10^{-2}$ radians.
+All three priors are left behind once the volume constraint bites: the circular fibers
+grow and merge into elongated voids with a load path between them. How far the sampler
+can be pushed decides how much of that happens. With the 25-step chain and a learning
+rate of $10^{-3}$ the direction travels less than $10^{-2}$ radians over a whole run,
+the samples stay strictly circular, and the compliance only tracks the volume, ending
+near 48. Ten steps and $3 \cdot 10^{-3}$ move it by $5 \cdot 10^{-2}$ radians and reach
+31.6, on par with the two autoencoders. The shorter chain is what makes the larger step
+usable: a 25-step sample is sharper and its gradient correspondingly more brittle, so
+the same learning rate collapses the volume instead of rearranging the holes. It is
+also two and a half times cheaper per iteration, which pays for the longer run.
+
+The learning rates are large for Adam ($1.5 \cdot 10^{-1}$ and $3 \cdot 10^{-1}$ on the
+codes) because the design variable is a latent code, not a network weight: there are a
+few hundred of them, they are updated a few hundred times, and each has to travel a
+distance comparable to its own scale. At the original $5 \cdot 10^{-2}$ over 200
+iterations none of the drivers finished moving, which is most of why their compliances
+used to sit a third above the reference.

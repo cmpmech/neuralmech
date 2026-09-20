@@ -14,8 +14,7 @@ torch.backends.cudnn.deterministic = True
 SAMPLES = 4
 PRIOR_LATENT = 64
 THRESHOLD = 0.5
-MODEL = "fiber_vae_256_4.0_256.pt2"
-TEMPERATURE = 0.5  # cheating
+MODEL = "fiber_vae_256_16.0_256.pt2"
 
 # ------------------------------------- load model ------------------------------------
 model = torch.load(MODEL_DIR / MODEL, weights_only=False, map_location=device)
@@ -24,7 +23,7 @@ model.eval()
 # -------------------------------------- sampling -------------------------------------
 with torch.no_grad():
     z = model.prior.decode(
-        torch.randn(SAMPLES, PRIOR_LATENT, device=device) * TEMPERATURE
+        torch.randn(SAMPLES, PRIOR_LATENT, device=device)
     )
     x = model.decode(model.standardizez.inverse(z))
 x = (model.standardizer.inverse(x) >= THRESHOLD).cpu()

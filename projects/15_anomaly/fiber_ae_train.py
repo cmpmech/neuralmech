@@ -39,8 +39,10 @@ print(f"compression ratio {compression * 100:.2f} %")
 
 # ----------------------------- prepare data -----------------------------
 domain_size = 256
+samples = 500  # the dataset holds more; the first 500 are the original training set
 
-data = torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_{domain_size}.npy"))
+data = np.load(BASE_DIR / f"../../data/fibers_{domain_size}.npy")[:samples]
+data = torch.from_numpy(data)
 data = data.to(torch.float32).unsqueeze(1)
 
 dataset = TensorDataset(data)

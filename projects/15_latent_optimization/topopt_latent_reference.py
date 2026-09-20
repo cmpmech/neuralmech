@@ -16,7 +16,8 @@ from solvers.optimization import DensityFilter, StructuredFEM, dsimp, simp
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
-ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_reference"
+DUMP_DIR = (RESULTS_DIR / "topopt_dump").resolve()
+ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_latent_reference"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -45,6 +46,7 @@ LOAD = -1.0
 
 # postprocessing
 THRESHOLD = 0.5
+DUMP_TAG = "default"  # names the dump figure, bump it per experiment
 
 # optimization (optimality criterion)
 MOVE = 0.2
@@ -167,9 +169,33 @@ rho_thresh = (rho > THRESHOLD).astype(float)
 u = np.zeros(ndof)
 u[free] = fem.solve(simp(rho_thresh, PENAL, EMIN, E0), force_free)
 compliance_thresh = force @ u
-print(f"thresholded  c {compliance_thresh:.3e} vol {rho_thresh.mean():.3f}")
+print(
+    f"compliance {history[0]:.3e} -> {compliance:.3e} "
+    f"(thresholded {compliance_thresh:.3e}) vol {rho.mean():.3f}"
+)
 
-fields = ((rho, "topopt_reference"), (rho_thresh, "topopt_reference_thresh"))
+fields = (
+    (rho, "topopt_latent_reference"),
+    (rho_thresh, "topopt_latent_reference_thresh"),
+)
+
+# ---------------------------------------- dump ---------------------------------------
+# annotated side by side of the final and thresholded design, one file per experiment
+DUMP_DIR.mkdir(parents=True, exist_ok=True)
+fig, axes = plt.subplots(1, 2, figsize=(8, 4.4), dpi=150)
+for ax, field in zip(axes, (rho, rho_thresh)):
+    ax.imshow(field.T, origin="lower", cmap="binary", vmin=0.0, vmax=1.0)
+    ax.set_aspect("equal")
+    ax.axis("off")
+fig.suptitle(
+    f"reference [{DUMP_TAG}]  c {history[0]:.3e} -> {compliance:.3e}  "
+    f"thresh {compliance_thresh:.3e}\nvol {rho.mean():.3f} -> {rho_thresh.mean():.3f}  "
+    f"penal {PENAL:.1f}  iters {it + 1}",
+    fontsize=8,
+)
+fig.subplots_adjust(left=0, right=1, top=0.86, bottom=0)
+plt.savefig(DUMP_DIR / f"topopt_latent_reference_{DUMP_TAG}.png")
+plt.close()
 
 if not args.book and not args.animate:
     for field, name in fields:
@@ -221,7 +247,7 @@ ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 if args.book:
-    plt.savefig(RGB_PDF_DIR / "topopt_reference_uy.pdf", transparent=True)
+    plt.savefig(RGB_PDF_DIR / "topopt_latent_reference_uy.pdf", transparent=True)
     plt.close()
 elif not args.animate:
     plt.show()
