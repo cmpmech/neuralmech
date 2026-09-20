@@ -52,7 +52,7 @@ plt.show()
 
 
 # ------------------------- book postprocessing --------------------------
-anomaly_deg = 0  # 1 # 10
+anomaly_deg = 0  # 1-10
 sample = 0
 
 # reconstructions

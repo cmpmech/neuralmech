@@ -31,9 +31,7 @@ model = torch.load(
 model.eval()
 standardizex = model.standardizer
 
-# --------------------------- reconstructions ----------------------------
-# reconstructions = []
-# errors = []
+# --------------------------- reconstruction ----------------------------
 with torch.no_grad():
     reconstruction = standardizex.inverse(model(standardizex(data))).cpu()
     error = (reconstruction - data.cpu()) ** 2
@@ -86,11 +84,3 @@ plt.show()
 
 mse = torch.mean(error, dim=(1, 2, 3))
 print(f"mse: {mse.item():.3e}")
-
-# # -------------------------------- export --------------------------------
-# for i, error in enumerate(errors):
-#     save_csv(
-#         f"../../results/fibers_mean_error_{i}.csv",
-#         x=torch.arange(1, error.shape[0] + 1),
-#         y=torch.mean(error, dim=(1, 2, 3)),
-#     )

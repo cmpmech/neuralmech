@@ -6,13 +6,6 @@ np.random.seed(45)
 
 # -------------------------------- helper --------------------------------
 def generate_circles(N, num_circles, radius=0.1, domain_length=1, iters=2000):
-    # random centers relaxed by pushing overlapping pairs apart; rejection sampling
-    # instead jams at ~0.55 area fraction, this reaches ~0.7 before stalling
-    # TODO enable to give every fiber its own radius. the caller draws one radius
-    # per image, so today every fiber in an image is the same size; drawing it here
-    # instead varies the size within the image. the anomaly sets below then get
-    # varying circles too (their squares keep half_width)
-    # radius = np.random.uniform(0.05, 0.1)
     if num_circles * np.pi * radius**2 > 0.7 * domain_length**2:
         return None  # relaxation never converges above ~0.7, skip the wasted iterations
     spacing = 2 * radius + 2 * domain_length / N  # one pixel gap between fibers
@@ -39,7 +32,9 @@ def generate_circles(N, num_circles, radius=0.1, domain_length=1, iters=2000):
     return domain
 
 
-def generate_squares(N, num_circles, num_squares, half_width=0.1, domain_length=1, max_attempts=200):
+def generate_squares(
+    N, num_circles, num_squares, half_width=0.1, domain_length=1, max_attempts=200
+):
     domain = generate_circles(N, num_circles, half_width, domain_length)
     if domain is None:
         return None

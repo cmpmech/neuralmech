@@ -44,7 +44,6 @@ SAMPLES = 50
 
 
 # ----------------------------------- noise schedule ----------------------------------
-# the cosine schedule of nichol and dhariwal keeps the last step at pure noise for any T
 def cosine_schedule(timesteps, s=0.008):
     steps = torch.linspace(0, 1, timesteps + 1, device=device)
     alpha_bars = torch.cos((steps + s) / (1 + s) * torch.pi / 2) ** 2
@@ -60,7 +59,7 @@ alpha_bars_prev = torch.cat([torch.ones(1, device=device), alpha_bars[:-1]])
 posterior_variance = betas * (1 - alpha_bars_prev) / (1 - alpha_bars)
 
 
-def noise(x0, t, eps=None):  # eq:diffusion_reparam
+def noise(x0, t, eps=None):
     if eps is None:
         eps = torch.randn_like(x0)
     a_bar = alpha_bars[t].view(-1, 1, 1, 1)
@@ -73,7 +72,7 @@ data = torch.from_numpy(np.load(DATA_DIR / f"fibers_{RESOLUTION}.npy"))
 data = 2 * data.to(torch.float32).unsqueeze(1) - 1
 
 dataset = TensorDataset(data)
-split = torch.Generator().manual_seed(0)  # pinned, so the split survives edits above
+split = torch.Generator().manual_seed(0)
 train_data, val_data = random_split(dataset, [0.9, 0.1], generator=split)
 train_loader = DataLoader(
     train_data, batch_size=BATCH_SIZE, shuffle=True, drop_last=True
@@ -82,21 +81,16 @@ train_loader = DataLoader(
 X_val = train_data.dataset.tensors[0][val_data.indices]
 
 
-# the microstructures are invariant under flips and quarter turns, so the eight
-# transforms are free data
+# data augmentation
 def transform(x, k):
     return torch.rot90(x.flip(-1) if k >= 4 else x, k % 4, [-2, -1])
 
 
-# one transform per batch slice rather than one per batch, so a single gradient spans
-# the whole symmetry group instead of being one correlated transform
 def augment(x):
     return torch.cat([transform(part, k) for k, part in enumerate(x.chunk(8))])
 
 
 # --------------------------- instantiate model & optimizer ---------------------------
-# the residual block of diffusion u-nets: pre-activation convs with the timestep
-# embedding added as a per-channel bias in between
 def block(channels_in, channels_out):
     return ConditionedResidualBlock(
         DCN(
@@ -169,7 +163,7 @@ train_cost = [0] * EPOCHS
 val_cost = [0] * EPOCHS
 best_cost = float("inf")
 best_state = None
-val_seed = torch.Generator(device=device).manual_seed(0)  # same t and noise every epoch
+val_seed = torch.Generator(device=device).manual_seed(0)
 tic = time.time()
 pbar = tqdm(range(EPOCHS), desc="Training: ", ncols=90)
 for epoch in pbar:
@@ -179,7 +173,7 @@ for epoch in pbar:
         t = torch.randint(0, T, (x0.shape[0],), device=device)
         xt, eps = noise(x0, t)
         optimizer.zero_grad()
-        cost = cost_fun(denoise(xt, t), eps)  # eq:diffusion_loss
+        cost = cost_fun(denoise(xt, t), eps)
         cost.backward()
         nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
         optimizer.step()
@@ -194,7 +188,7 @@ for epoch in pbar:
         eps = torch.randn(x0.shape, device=device, generator=val_seed)
         xt, eps = noise(x0, t, eps)
         val_cost[epoch] = cost_fun(denoise(xt, t), eps).item()
-    if val_cost[epoch] < best_cost:  # the exported model is the best, not the last one
+    if val_cost[epoch] < best_cost:
         best_cost = val_cost[epoch]
         best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
 
@@ -216,19 +210,15 @@ def sample(n):
     for step in reversed(range(T)):
         t = torch.full((n,), step, device=device)
         eps_pred = denoise(x, t)
-        # the step goes through the predicted clean image, clipped to the data range:
-        # the plain update x - beta / sqrt(1 - alpha_bar) * eps divides by sqrt(alpha),
-        # which blows the near-unit betas at the end of the cosine schedule up into
-        # all-black or all-white images
         x0_pred = (x - torch.sqrt(1 - alpha_bars[step]) * eps_pred) / torch.sqrt(
             alpha_bars[step]
         )
         x0_pred = x0_pred.clamp(-1, 1)
-        x = (  # eq:diffusion_posterior_mean
+        x = (
             torch.sqrt(alpha_bars_prev[step]) * betas[step] * x0_pred
             + torch.sqrt(alphas[step]) * (1 - alpha_bars_prev[step]) * x
         ) / (1 - alpha_bars[step])
-        if step > 0:  # eq:diffusion_sampling
+        if step > 0:
             x = x + torch.sqrt(posterior_variance[step]) * torch.randn_like(x)
     return ((x.clamp(-1, 1) + 1) / 2).cpu()
 
@@ -239,8 +229,6 @@ print(f"elapsed time {time.time() - tic:.2f} s")
 
 
 # --------------------------------- sample diagnostics --------------------------------
-# a sample is a microstructure only if its blobs are round disks: a merged pair of
-# fibers scores well below 1, which is what separates this model from the vae
 def sample_stats(masks):
     counts, roundness = [], []
     for mask in masks:
@@ -248,7 +236,7 @@ def sample_stats(masks):
         counts.append(count)
         for k in range(1, count + 1):
             pixels = np.argwhere(labels == k)
-            if len(pixels) < 8:  # speckle, not a fiber
+            if len(pixels) < 8:
                 roundness.append(0.0)
                 continue
             radius = np.sqrt(((pixels - pixels.mean(axis=0)) ** 2).sum(axis=1).max())

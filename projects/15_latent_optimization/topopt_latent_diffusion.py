@@ -11,20 +11,21 @@ import mlhp
 import numpy as np
 import torch
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 from tqdm import tqdm
 
+from DL import sinusoidal_embedding
 from solvers.optimization import DensityFilter, StructuredFEM
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = (BASE_DIR / "../../data").resolve()
 MODEL_DIR = (BASE_DIR / "../../models").resolve()
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
-ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_latent_vae"
+ANIMATION_DIR = RESULTS_DIR / "animations/animation_frames/topopt_latent_diffusion"
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
-device = torch.device("cpu")  # small decoder; fem runs on cpu, so avoid the bounce
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -32,8 +33,7 @@ parser.add_argument("--animate", action="store_true")
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
-# half mbb beam optimized inside the fiber-microstructure manifold of a variational
-# autoencoder
+# half mbb beam optimized inside the fiber-microstructure manifold of a diffusion model;
 
 # geometry
 RESOLUTION = 256
@@ -45,47 +45,85 @@ DEGREE = 3
 QUAD_ORDER = DEGREE + 1
 
 # physics
-VOLFRAC = 0.7  # 0.6
+VOLFRAC = 0.6  # 0.7
 RMIN = 2
 E0, EMIN, NU = 1.0, 1e-9, 0.3
 LOAD = -1.0
 
 # simp penalisation continuation: ramp the exponent to sharpen the design over time
-PENAL0, PENAL_INC, PENAL_MAX = 3.0, 0.02, 4.0
+PENAL0, PENAL_INC, PENAL_MAX = 3.0, 0.02, 1.0  # TODO SIMP NOT NEEDED
 
 # volume penalty continuation: grow the quadratic constraint weight with iterations
-PENALTY0, PENALTY_INC, PENALTY_MAX = 1.0, 1.0, 100.0
+PENALTY0, PENALTY_INC, PENALTY_MAX = (
+    1.0,
+    1.0,
+    500.0,
+)  # TODO increase? NOT ADDITIVE BUT MULTIPLICATIVE -> SHOULD BE SLOWER IN BEGINNING BUT HIGHER IN THE END
 
 # optimization (adam on the latent, polynomial lr decay (BETA * iter + 1) ** ALPHA)
 ITERS = 200
-LR = 5e-2
+LR = 1e-3  # a sample is far more sensitive to its starting noise than to a code
 ALPHA = -0.5
 BETA = 0.1
 CLIP = 0.1  # gradient-norm clipping
-LATENT_PENALTY = 1e-3
 
-# model settings
-PRIOR_LATENT = 64  # code size of the second stage
+# deterministic ddim subsequence: differentiable end to end, fewer unet evaluations
+DDIM_STEPS = 25
 
 # postprocessing
 THRESHOLD = 0.5
 
 # --------------------------- instantiate model & optimizer ---------------------------
 model = torch.load(
-    MODEL_DIR / "fiber_vae_256_4.0_256.pt2", weights_only=False, map_location=device
+    MODEL_DIR / "fiber_diffusion_200_256.pt2", weights_only=False, map_location=device
 )
 model.eval()
+model.requires_grad_(False)
 
-latent = nn.Parameter(torch.randn(1, PRIOR_LATENT, device=device))
+TIME_CHANNELS = 32  # width of the sinusoidal timestep embedding
+steps = torch.linspace(model.T - 1, 0, DDIM_STEPS).long().to(device)
+alpha_bars = model.alpha_bars[steps]
+alpha_bars_prev = torch.cat([alpha_bars[1:], torch.ones(1, device=device)])
+
+
+def denoise(x, t):
+    embedding = model["time"](sinusoidal_embedding(t, TIME_CHANNELS))
+    return model["head"](model["unet"](x, embedding))
+
+
+# the mass of a standard normal sits on a shell of radius sqrt(D), so the latent is
+# parameterized by direction alone and the radius is pinned to that shell
+DIMENSION = RESOLUTION**2
+latent = nn.Parameter(torch.randn(1, 1, RESOLUTION, RESOLUTION, device=device))
+
+
+def noise():
+    return np.sqrt(DIMENSION) * latent / latent.norm()
+
+
+def step(x, alpha_bar, alpha_bar_prev, t):  # eq:ddim_step
+    eps_pred = denoise(x, t)
+    x0_pred = (x - torch.sqrt(1 - alpha_bar) * eps_pred) / torch.sqrt(alpha_bar)
+    # clamp in the forward pass only, it saturates and would cut the gradient
+    x0_pred = x0_pred + (x0_pred.clamp(-1, 1) - x0_pred).detach()
+    x = torch.sqrt(alpha_bar_prev) * x0_pred
+    x = x + torch.sqrt(1 - alpha_bar_prev) * eps_pred
+    return x, x0_pred
 
 
 def forward():
-    code = model.standardizez.inverse(model.prior.decode(latent))
-    fibers = model.standardizer.inverse(model.decode(code)).clamp(0.0, 1.0)
+    x = noise()
+    for i in range(DDIM_STEPS):
+        t = steps[i].repeat(x.shape[0])
+        # recompute each step in the backward pass, the activations do not fit on a gpu
+        x, x0_pred = checkpoint(
+            step, x, alpha_bars[i], alpha_bars_prev[i], t, use_reentrant=False
+        )
+    fibers = ((x0_pred + 1) / 2).clamp(0.0, 1.0)
     return 1.0 - fibers
 
 
-rho_init = forward()[0, 0].detach().cpu().numpy()  # decoded starting design
+rho_init = forward()[0, 0].detach().cpu().numpy()  # sampled starting design
 
 optimizer = torch.optim.Adam([latent], lr=LR)
 scheduler = torch.optim.lr_scheduler.LambdaLR(
@@ -149,7 +187,8 @@ def simp(rho):  # simp stiffness interpolation between void and solid
 penal = PENAL0
 penalty = PENALTY0
 compliance0 = None
-rarity_history = [0] * ITERS
+drift_history = [0] * ITERS
+start = latent.detach().clone()
 
 if args.animate:
     ANIMATION_DIR.mkdir(parents=True, exist_ok=True)
@@ -175,15 +214,14 @@ for it in pbar:
     sensitivity = dc / compliance0 + penalty * dv
 
     # the sensitivity is the incoming gradient of rho, so backpropagation through the
-    # decoder turns it into a gradient on the latent code
+    # whole reverse chain turns it into a gradient on the starting noise
     optimizer.zero_grad()
     sensitivity = torch.from_numpy(sensitivity).reshape(1, 1, RESOLUTION, RESOLUTION)
     rho_pred.backward(sensitivity.to(device))
 
-    # negative log density of the code under the standard normal prior
-    rarity = 0.5 * (latent**2).sum()
-    (LATENT_PENALTY * rarity).backward()
-    rarity_history[it] = rarity.item()
+    # angle travelled on the shell, the counterpart of the rarity of the vae code
+    cosine = torch.cosine_similarity(latent.detach().flatten(), start.flatten(), dim=0)
+    drift_history[it] = torch.arccos(cosine.clamp(-1, 1)).item()
 
     torch.nn.utils.clip_grad_norm_([latent], CLIP)
     optimizer.step()
@@ -195,7 +233,7 @@ for it in pbar:
         c=f"{compliance:.2e}",
         vol=f"{mean_rho:.3f}",
         p=f"{penal:.2f}",
-        d=f"{rarity_history[it]:.1f}",
+        a=f"{drift_history[it]:.1e}",
     )
 
     if args.animate:
@@ -216,13 +254,13 @@ u = np.zeros(ndof)
 u[free] = fem.solve(simp(rho_thresh), force_free)
 compliance_thresh = force @ u
 print(f"thresholded c {compliance_thresh:.3e} vol {rho_thresh.mean():.3f}")
-print(f"latent rarity {rarity_history[0]:.3e} -> {rarity_history[-1]:.3e}")
+print(f"latent drift {drift_history[0]:.3e} -> {drift_history[-1]:.3e} rad")
 
 if not args.book and not args.animate:
     fig, ax = plt.subplots()
-    ax.plot(rarity_history, "k")
+    ax.plot(drift_history, "k")
     ax.set_xlabel("iteration")
-    ax.set_ylabel("negative log density")
+    ax.set_ylabel("latent angle")
     plt.show()
 
     for field in (rho_init, rho, rho_thresh):
@@ -237,9 +275,9 @@ if not args.book and not args.animate:
 # -------------------------------- book postprocessing --------------------------------
 elif args.book:
     fields = (
-        (rho_init, "topopt_latent_vae_init"),
-        (rho, "topopt_latent_vae"),
-        (rho_thresh, "topopt_latent_vae_thresh"),
+        (rho_init, "topopt_latent_diffusion_init"),
+        (rho, "topopt_latent_diffusion"),
+        (rho_thresh, "topopt_latent_diffusion_thresh"),
     )
     for field, name in fields:
         fig, ax = plt.subplots(figsize=(RESOLUTION / 100, RESOLUTION / 100), dpi=150)

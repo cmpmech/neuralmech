@@ -1,8 +1,6 @@
 import argparse
 import os
 
-# pardiso runs on mkl threads; keep the small numpy assembly off blas threads so
-# it does not oversubscribe against mkl's pool
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import time
@@ -34,12 +32,9 @@ parser.add_argument("--animate", action="store_true")
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
-# half mbb beam optimized inside the fiber-microstructure manifold of an autoencoder:
-# the design is decoded from a latent vector, so it can only be an arrangement of
-# circular fibers. fibers are read as holes, so the matrix stays connected and load-
-# bearing (fibers as material would be disconnected blobs with no load path)
+# half mbb beam optimized inside the fiber-microstructure manifold of an autoencoder
 
-# geometry (the autoencoder fixes the design grid to a square unit domain)
+# geometry
 RESOLUTION = 256
 LENGTHS = [1.0, 1.0]
 
@@ -49,7 +44,7 @@ DEGREE = 3
 QUAD_ORDER = DEGREE + 1
 
 # physics
-VOLFRAC = 0.6  # material fraction; the perforated matrix is nearly solid
+VOLFRAC = 0.6
 RMIN = 2
 E0, EMIN, NU = 1.0, 1e-9, 0.3
 LOAD = -1.0
@@ -77,14 +72,13 @@ model = torch.load(
 model.eval()
 standardizer = model.standardizer
 
-# start on the manifold: encode one real fiber sample and optimize its latent code
 seed = torch.from_numpy(np.load(DATA_DIR / f"fibers_{RESOLUTION}.npy")[0]).float()
 seed = seed.reshape(1, 1, RESOLUTION, RESOLUTION).to(device)
 with torch.no_grad():
     latent = nn.Parameter(model.encode(standardizer(seed)))
 
 
-def forward():  # latent -> decoded fibers -> material density (fibers are holes)
+def forward():
     fibers = standardizer.inverse(model.decode(latent))
     return (1.0 - fibers).clamp(0.0, 1.0)
 

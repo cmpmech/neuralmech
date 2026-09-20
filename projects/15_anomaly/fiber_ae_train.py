@@ -73,10 +73,7 @@ Encoder = nn.Sequential()
 Encoder.append(
     DCN(
         channels,
-        [
-            [nn.GroupNorm(1, channel), act()]
-            for channel in channels[1:]
-        ],
+        [[nn.GroupNorm(1, channel), act()] for channel in channels[1:]],
         kernel_sizes,
         stride=strides,
         padding=paddings,
@@ -94,10 +91,7 @@ Decoder = nn.Sequential()
 Decoder.append(
     DCN(
         channels[::-1],
-        [
-            [nn.GroupNorm(1, channel), act()]
-            for channel in channels[-2:0:-1]
-        ],
+        [[nn.GroupNorm(1, channel), act()] for channel in channels[-2:0:-1]],
         kernel_sizes[::-1],
         stride=1,
         padding=paddings[::-1],
@@ -160,13 +154,12 @@ fig, ax = plt.subplots()
 ax.plot(train_cost, "k")
 ax.plot(val_cost, "r")
 ax.set_yscale("log")
-# plt.savefig(BASE_DIR / '../../tmp/history.png')
 plt.show()
 
 # testing
 model.eval()
 
-# x = next(iter(train_loader))
+# x = next(iter(train_loader)) # for debugging
 x = next(iter(val_loader))
 x = standardizex(x[0]).to(device)  # unwrap & standardize
 x_pred = model(x)
@@ -181,5 +174,4 @@ for i in range(2):
     ax[i].axis("off")
     ax[i].set_rasterized(True)
 fig.tight_layout(pad=0)
-# plt.savefig(BASE_DIR / '../../tmp/prediction.png')
 plt.show()

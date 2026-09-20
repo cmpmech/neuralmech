@@ -15,15 +15,25 @@ candidate is constrained to lie on the learned manifold of fiber microstructures
     the surrounding matrix stays connected and load-bearing.
 
 `topopt_latent_vae.py`
-    The same optimization carried out on the latent mean of the fiber variational
+    The same optimization carried out in the latent space of the fiber variational
     autoencoder (`../15_anomaly/fiber_vae_train.py`,
-    `models/fiber_vae_260_1.0_256.pt2`). A penalty on the negative log density under the
-    learned prior keeps the code probable, so the design stays typical of the training
-    set.
+    `models/fiber_vae_256_4.0_256.pt2`). The design variable is the code of the second
+    stage, whose prior is a standard normal, and a penalty on its negative log density
+    keeps the code probable, so the design stays typical of the training set.
 
-`test_vae.py`
-    Decodes one code drawn from a standard normal next to one drawn from the learned
-    prior, which tests whether the model generates rather than only reconstructs.
+`topopt_latent_diffusion.py`
+    The same optimization inside the fiber diffusion model
+    (`../15_anomaly/fiber_diffusion_train.py`, `models/fiber_diffusion_200_256.pt2`).
+    The design variable is the noise the sampler starts from, and the deterministic
+    reverse chain is differentiated end to end. The noise is constrained to the shell
+    of the standard normal instead of being penalized towards its mode.
+
+`topopt_reference.py`
+    The classical density-based optimization the latent drivers are compared against:
+    the same beam, discretization and volume fraction, but every voxel of the design
+    grid is a design variable of its own, updated by the optimality criterion. Free of
+    any learned manifold, it reaches a compliance of 28.9 against 31.4 for the
+    variational autoencoder and 36.5 for the diffusion model.
 
 ## Non-obvious technicalities (authored by Claude)
 
@@ -62,3 +72,34 @@ learned density is far sharper than the quadratic it replaces, hence $w = 10^{-5
 rather than $10^{-3}$; the two move the code by about the same amount per iteration.
 Over a run the code still travels from $-644$ to $+765$ nats, because reaching the
 volume target of $0.6$ means leaving the strict fiber manifold.
+
+The noise of a diffusion model is not a latent code of the same kind, and the penalty
+that keeps the variational code probable has no counterpart here. The most probable
+point of the standard normal the chain starts from is the origin, and the origin is not
+a plausible draw: it denoises into the mean of the data, not into a microstructure. In
+$D = 65536$ dimensions essentially all the mass of that normal sits in a thin shell at
+radius $\sqrt{D}$, so the driver constrains rather than penalizes,
+$x_T = \sqrt{D}\, z / \|z\|$ with the direction $z$ as the design variable. This is
+the reparameterization the penalty was reaching for: it costs no weight to tune, and
+the sampler is never handed a noise level the model was not trained to denoise. A
+penalty $w(\|x_T\|/\sqrt{D} - 1)^2$ on the free noise reaches the same shell, but only
+approximately and with one more weight to balance against the compliance.
+
+Differentiating the sampler requires the deterministic variant: the stochastic sampler
+of the training driver injects a fresh draw at every step, so its output is not a
+function of $x_T$ alone. The chain is therefore a 25-step DDIM subsequence of the 200
+trained steps. Each step is wrapped in `torch.utils.checkpoint`, as the activations of
+25 u-net evaluations at $256^2$ do not fit at once, which costs one extra forward pass
+per iteration. The clamp of the predicted clean image is kept in the forward pass but
+skipped in the backward one (a straight-through estimator): towards the end of the
+chain it saturates over most of the image and would otherwise zero the sensitivity
+exactly where the design lives.
+
+The two priors constrain the design very differently. The autoencoder leaves its
+manifold under the volume penalty -- the holes grow and merge into elongated voids --
+while the diffusion sampler keeps emitting circular fibers and reaches the target
+fraction by rearranging and adding holes instead. The sampler is also far more
+sensitive to its input than the decoder is to a code: a learning rate of $5 \cdot
+10^{-2}$, which the variational driver uses, wipes the fibers out within two
+iterations, hence $10^{-3}$ here. The angle the direction travels over a whole run
+stays below $10^{-2}$ radians.
