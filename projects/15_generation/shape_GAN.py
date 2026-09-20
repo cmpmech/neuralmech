@@ -1,7 +1,6 @@
 import argparse
-from datetime import datetime
-from pathlib import Path
 import time
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,23 +11,26 @@ from tqdm import tqdm
 
 from DL import init_weights
 from NN import DCN, MLP
+from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
+ANIMATION_DIR = (RESULTS_DIR / "animations/shape_gan").resolve()
 DATA_DIR = (BASE_DIR / "../../data").resolve()
-RESULTS_DIR = (BASE_DIR / "../../results/shape_GAN").resolve()
-MODELS_DIR = (BASE_DIR / "../../models").resolve()
-RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+MODEL_DIR = (BASE_DIR / "../../models").resolve()
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
+parser.add_argument("--animate", action="store_true")
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
-# unconditional GAN: the discriminator outputs a probability and both networks are
-# trained with binary cross-entropy. the unlabelled baseline for shape_cgan_train.py
 # hyperparameters
 epochs = 1000
 batch_size = 64
@@ -48,13 +50,12 @@ start_size = 4  # spatial grid the latent is projected onto before upsampling
 labels = ["circle", "ellipse", "square", "triangle", "cross", "star"]
 
 # sampling
-n_samples = 16
+samples = 16
 sample_every = 10
 sample_seed = 7
 print_every = 10
-run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-# ----------------------------------- prepare data ------------------------------------
+# ------------------------------------ prepare data -----------------------------------
 # all six classes pooled into one unlabelled set
 X = [np.load(DATA_DIR / f"shapes_{label}_{domain_size}.npy") for label in labels]
 X = np.concatenate(X, axis=0).astype(np.float32)
@@ -65,12 +66,6 @@ train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_las
 
 
 # --------------------------------------- model ---------------------------------------
-# the upsampling lives in the pre_modules slot DCN's docstring reserves for resampling,
-# and a learned ConvTranspose2d goes there rather than a fixed nn.Upsample. nearest
-# neighbour interpolation followed by 3x3 convolutions is a low-pass pipeline: it
-# rounded off exactly the corners that separate a square from a blob. kernel 2 with
-# stride 2 divides evenly, so the transposed convolution never overlaps itself and the
-# checkerboard artefact it is usually blamed for cannot arise
 class Generator(nn.Module):
     def __init__(self, z_dim, base):
         super().__init__()
@@ -98,8 +93,6 @@ class Generator(nn.Module):
 
 
 class Discriminator(nn.Module):
-    # strided convolutions down to a single score. batch normalization is kept here,
-    # unlike the WGAN critic where it would break the gradient penalty
     def __init__(self, base):
         super().__init__()
         channels = [1, base, base * 2, base * 4, base * 8, base * 16]
@@ -108,14 +101,12 @@ class Discriminator(nn.Module):
             [nn.BatchNorm2d(channels[i + 1]), nn.LeakyReLU(0.2, inplace=True)]
             for i in range(1, len(channels) - 1)
         ]
-        self.trunk = DCN(
-            channels, post, kernel_size=4, stride=2, padding=1, dim=2
-        )
+        self.trunk = DCN(channels, post, kernel_size=4, stride=2, padding=1, dim=2)
         self.score = MLP([base * 16, 1])
 
     def forward(self, x):
-        features = self.trunk(x).mean(dim=(2, 3))  # global average pool
-        return self.score(features).view(-1)  # logits; the loss applies the sigmoid
+        features = self.trunk(x).mean(dim=(2, 3))
+        return self.score(features).view(-1)  # logits, the loss applies the sigmoid
 
 
 # --------------------------- instantiate model & optimizer ---------------------------
@@ -130,12 +121,10 @@ optimizer_d = torch.optim.Adam(discriminator.parameters(), lr=lr, betas=betas)
 
 # --------------------------------------- helper --------------------------------------
 @torch.no_grad()
-def save_samples(epoch):
-    # the same fixed latents every time, so a grid changes only because the generator
-    # changed and not because the noise did
+def sample_figure():
     generator.eval()
     torch.manual_seed(sample_seed)
-    z = torch.randn(n_samples, latent_dim, device=device)
+    z = torch.randn(samples, latent_dim, device=device)
     grid = ((generator(z) + 1.0) / 2.0)[:, 0].cpu()
     generator.train()
 
@@ -146,28 +135,29 @@ def save_samples(epoch):
         axis.axis("off")
         axis.set_rasterized(True)
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    plt.savefig(RESULTS_DIR / f"samples_{run_id}_{epoch:04d}.png")
-    plt.close()
+    return fig
 
 
 @torch.no_grad()
 def mode_spread(n=32):
-    # mean pairwise distance between generated images. a collapsed generator returns
-    # nearly the same picture whatever the latent, driving this towards zero
+    # a collapsed generator returns nearly the same picture whatever the latent
     generator.eval()
     z = torch.randn(n, latent_dim, device=device)
-    samples = generator(z).reshape(n, -1)
-    distances = torch.cdist(samples, samples)
+    generated = generator(z).reshape(n, -1)
+    distances = torch.cdist(generated, generated)
     generator.train()
-    return (distances.sum() / (n * (n - 1))).item() / samples.shape[1] ** 0.5
+    return (distances.sum() / (n * (n - 1))).item() / generated.shape[1] ** 0.5
 
 
 # -------------------------------------- training -------------------------------------
+if args.animate:
+    ANIMATION_DIR.mkdir(parents=True, exist_ok=True)
+
 generator_cost = [0] * epochs
 discriminator_cost = [0] * epochs
 spread = [0] * epochs
 
-start_time = time.perf_counter()
+tic = time.time()
 pbar = tqdm(range(epochs), desc="Training: ", ncols=90)
 for epoch in pbar:
     for x in train_loader:
@@ -176,7 +166,6 @@ for epoch in pbar:
         real_labels = torch.empty(batch, device=device).uniform_(*real_target)
         fake_labels = torch.empty(batch, device=device).uniform_(*fake_target)
 
-        # the discriminator learns to separate real from generated
         z = torch.randn(batch, latent_dim, device=device)
         fake = generator(z)
         cost_d = cost_fun(discriminator(real), real_labels)
@@ -186,7 +175,6 @@ for epoch in pbar:
         cost_d.backward()
         optimizer_d.step()
 
-        # the generator learns to make the discriminator call its output real
         z = torch.randn(batch, latent_dim, device=device)
         cost_g = cost_fun(discriminator(generator(z)), real_labels)
 
@@ -201,8 +189,10 @@ for epoch in pbar:
     generator_cost[epoch] /= len(train_loader)
     spread[epoch] = mode_spread()
 
-    if epoch % sample_every == 0 or epoch == epochs - 1:
-        save_samples(epoch)
+    if args.animate and epoch % sample_every == 0:
+        fig = sample_figure()
+        fig.savefig(ANIMATION_DIR / f"frame_{epoch // sample_every}.jpg")
+        plt.close(fig)
 
     if epoch % print_every == 0:
         pbar.set_postfix(
@@ -212,86 +202,38 @@ for epoch in pbar:
                 "spread": f"{spread[epoch]:.4f}",
             }
         )
-training_time = time.perf_counter() - start_time
+toc = time.time()
+print(f"elapsed time {toc - tic:.2f} s")
 
-# ------------------------------------ export model -----------------------------------
-torch.save(
-    {
-        "generator": generator.state_dict(),
-        "discriminator": discriminator.state_dict(),
-        "generator_cost": generator_cost,
-        "discriminator_cost": discriminator_cost,
-        "spread": spread,
-        "latent_dim": latent_dim,
-        "domain_size": domain_size,
-        "labels": labels,
-        "run_id": run_id,
-    },
-    MODELS_DIR / f"shape_GAN_{domain_size}.pt2",
-)
+# --------------------------------------- export --------------------------------------
+torch.save(generator, MODEL_DIR / f"shape_GAN_{domain_size}.pt2")
 
 # ----------------------------------- postprocessing ----------------------------------
-fig, ax = plt.subplots()
+fig_samples = sample_figure()
+
+fig_cost, ax = plt.subplots()
 ax.plot(discriminator_cost, "k")
 ax.plot(generator_cost, "r")
 ax.set_xlabel("epoch")
-ax.set_ylabel("loss")
-fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-plt.savefig(RESULTS_DIR / f"loss_{run_id}.png")
-if not args.book:
-    plt.show()
-plt.close()
+ax.set_ylabel("cost")
 
-fig, ax = plt.subplots()
+fig_spread, ax = plt.subplots()
 ax.plot(spread, "k")
 ax.set_xlabel("epoch")
 ax.set_ylabel("mode spread")
-fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-plt.savefig(RESULTS_DIR / f"spread_{run_id}.png")
+
 if not args.book:
     plt.show()
-plt.close()
-
-np.savetxt(
-    RESULTS_DIR / f"history_{run_id}.csv",
-    np.column_stack(
-        [
-            np.arange(1, epochs + 1),
-            np.asarray(discriminator_cost),
-            np.asarray(generator_cost),
-            np.asarray(spread),
-        ]
-    ),
-    delimiter=",",
-    header="epoch,discriminator_loss,generator_loss,mode_spread",
-    comments="",
-)
-
-summary_path = RESULTS_DIR / f"summary_{run_id}.txt"
-with open(summary_path, "w", encoding="utf-8") as f:
-    f.write("shape unconditional GAN training summary\n")
-    f.write(f"run_id: {run_id}\n")
-    f.write(f"device: {device}\n")
-    f.write("architecture: NN.DCN and NN.MLP, ConvTranspose resampler in pre_modules\n")
-    f.write("conditioning: none, unconditional baseline\n")
-    f.write(f"labels: {','.join(labels)}\n")
-    f.write(f"domain_size: {domain_size}\n")
-    f.write(f"samples: {len(X)}\n")
-    f.write(f"epochs: {epochs}\n")
-    f.write(f"batch_size: {batch_size}\n")
-    f.write(f"learning_rate: {lr}\n")
-    f.write(f"betas: {betas}\n")
-    f.write(f"latent_dim: {latent_dim}\n")
-    f.write(f"base_channels: {base_channels}\n")
-    f.write(f"label_smoothing_real: {real_target}\n")
-    f.write("loss: BCEWithLogitsLoss\n")
-    g_parameters = sum(p.numel() for p in generator.parameters())
-    d_parameters = sum(p.numel() for p in discriminator.parameters())
-    f.write(f"generator_parameters: {g_parameters}\n")
-    f.write(f"discriminator_parameters: {d_parameters}\n")
-    f.write(f"training_time_seconds: {training_time:.2f}\n")
-    f.write(f"final_discriminator_loss: {discriminator_cost[-1]:.8e}\n")
-    f.write(f"final_generator_loss: {generator_cost[-1]:.8e}\n")
-    f.write(f"final_mode_spread: {spread[-1]:.8e}\n")
-    f.write(f"sample_seed: {sample_seed}\n")
-print(f"saved {summary_path}")
+# -------------------------------- book postprocessing --------------------------------
+else:
+    fig_samples.savefig(RGB_PDF_DIR / "shape_gan_samples.pdf")
+    fig_cost.savefig(RGB_PDF_DIR / "shape_gan_cost.pdf")
+    fig_spread.savefig(RGB_PDF_DIR / "shape_gan_spread.pdf")
+    plt.close("all")
+    save_csv(
+        CSV_DIR / "shape_gan_history.csv",
+        x=np.arange(1, epochs + 1),
+        y1=discriminator_cost,
+        y2=generator_cost,
+        y3=spread,
+    )

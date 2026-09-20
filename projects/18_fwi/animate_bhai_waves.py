@@ -37,7 +37,6 @@ frame_dir.mkdir(parents=True, exist_ok=True)
 void = indicator == MIN_INDICATOR
 
 for i, snap in enumerate(snaps):
-    # normalize wave field to [0, 1] and apply colormap
     normalized = np.clip((snap + SCALE) / (2 * SCALE), 0, 1)
     rgb = (cmr.fusion(normalized)[:, :, :3] * 255).astype(np.uint8)
     rgb[void] = VOID_GREY

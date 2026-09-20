@@ -43,7 +43,6 @@ labels = ["circle", "ellipse", "square", "triangle", "cross", "star"]
 
 
 # ----------------------------------- noise schedule ----------------------------------
-# the cosine schedule of nichol and dhariwal keeps the last step at pure noise for any T
 def cosine_schedule(timesteps, s=0.008):
     steps = torch.linspace(0, 1, timesteps + 1, device=device)
     alpha_bars = torch.cos((steps + s) / (1 + s) * torch.pi / 2) ** 2
@@ -59,7 +58,7 @@ alpha_bars_prev = torch.cat([torch.ones(1, device=device), alpha_bars[:-1]])
 posterior_variance = betas * (1 - alpha_bars_prev) / (1 - alpha_bars)
 
 
-def noise(x0, t):  # eq:diffusion_reparam
+def noise(x0, t):
     eps = torch.randn_like(x0)
     a_bar = alpha_bars[t].view(-1, 1, 1, 1)
     return torch.sqrt(a_bar) * x0 + torch.sqrt(1 - a_bar) * eps, eps
@@ -76,8 +75,6 @@ train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, drop_las
 
 
 # --------------------------- instantiate model & optimizer ---------------------------
-# the residual block of diffusion u-nets: pre-activation convs with the timestep
-# embedding added as a per-channel bias in between
 def block(channels_in, channels_out):
     return ConditionedResidualBlock(
         DCN(
@@ -156,12 +153,12 @@ for epoch in pbar:
         t = torch.randint(0, T, (x0.shape[0],), device=device)
         xt, eps = noise(x0, t)
         optimizer.zero_grad()
-        cost = cost_fun(denoise(xt, t), eps)  # eq:diffusion_loss
+        cost = cost_fun(denoise(xt, t), eps)
         cost.backward()
         nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
         optimizer.step()
         train_cost[epoch] += cost.item()
-    train_cost[epoch] /= len(train_loader)  # avg per batch
+    train_cost[epoch] /= len(train_loader)
     scheduler.step()
 
     if epoch % print_every == 0:
@@ -178,19 +175,15 @@ def sample(n):
     for step in reversed(range(T)):
         t = torch.full((n,), step, device=device)
         eps_pred = denoise(x, t)
-        # the step goes through the predicted clean image, clipped to the data range:
-        # the plain update x - beta / sqrt(1 - alpha_bar) * eps divides by sqrt(alpha),
-        # which blows the near-unit betas at the end of the cosine schedule up into
-        # all-black or all-white images
         x0_pred = (x - torch.sqrt(1 - alpha_bars[step]) * eps_pred) / torch.sqrt(
             alpha_bars[step]
         )
         x0_pred = x0_pred.clamp(-1, 1)
-        x = (  # eq:diffusion_posterior_mean
+        x = (
             torch.sqrt(alpha_bars_prev[step]) * betas[step] * x0_pred
             + torch.sqrt(alphas[step]) * (1 - alpha_bars_prev[step]) * x
         ) / (1 - alpha_bars[step])
-        if step > 0:  # eq:diffusion_sampling
+        if step > 0:
             x = x + torch.sqrt(posterior_variance[step]) * torch.randn_like(x)
     return ((x.clamp(-1, 1) + 1) / 2).cpu()
 

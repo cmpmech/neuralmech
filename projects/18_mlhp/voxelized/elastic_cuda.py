@@ -9,15 +9,15 @@ import mlhp
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../../data"
-RESULTS_DIR = BASE_DIR / "../../../results/3D"
+DATA_DIR = (BASE_DIR / "../../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../../results/3D").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dim", type=int, default=2, choices=[2, 3])
 parser.add_argument("--ct", type=str, default=None)
 args = parser.parse_args()
 
-# -------------------------------- simulation settings --------------------------------
+# -------------------------------------- settings -------------------------------------
 D = args.dim
 
 DEGREE = 1
@@ -117,7 +117,6 @@ print(f"preintegration: {time.time() - tic:.2f}s")
 
 # -------------------------------------- assembly -------------------------------------
 tic = time.time()
-# allocateSparseMatrix is only needed to size the condensed vector; it is never filled
 matrix = mlhp.allocateSparseMatrix(basis, dirichlet[0])
 vector = mlhp.allocateRhsVector(matrix)
 del matrix
@@ -136,7 +135,7 @@ del vector
 efts = np.array(basis.locationMaps())
 print(f"assembly: {time.time() - tic:.2f}s")
 
-# --------------------------------------- cuda ----------------------------------------
+# ---------------------------------------- cuda ---------------------------------------
 cuda_source = (BASE_DIR / "../../../solvers/kernels/mlhp_kernels.cu").read_text()
 cuda_options = (("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()) + compiler_options
 
@@ -150,7 +149,6 @@ else:
 Ku_kernel = module.get_function("Ku_kernel")
 K_diag_kernel = module.get_function("K_diag_kernel")
 
-# for indexing in kernel
 ndof_e = K_local.shape[0]
 grid = (N_elems + BLOCK - 1) // BLOCK
 
@@ -186,7 +184,7 @@ K_diag_kernel(
         ndof_e,
     ),
 )
-K_diag_gpu[constrained_gpu] = 1.0  # boundary conditions
+K_diag_gpu[constrained_gpu] = 1.0
 cp.cuda.Stream.null.synchronize()
 print(f"K_diag: {time.time() - tic:.3f}s")
 
@@ -269,5 +267,5 @@ if D == 2:
     fig.colorbar(cb)
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.tight_layout(pad=0)
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.show()

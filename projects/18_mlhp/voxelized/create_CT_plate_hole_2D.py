@@ -4,9 +4,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../../data"
+DATA_DIR = (BASE_DIR / "../../../data").resolve()
 
-# ------------------------------------ ct settings ------------------------------------
+# -------------------------------------- settings -------------------------------------
 Nx = 320
 Ny = 160
 Lx = 2.0
@@ -25,8 +25,8 @@ np.savez(out, indicator=indicator, Lx=Lx, Ly=Ly)
 print(f"\tsaved {out}\n\tshape={indicator.shape}\n\tvoxels={np.prod(indicator.shape)}")
 
 # ----------------------------------- postprocessing ----------------------------------
-# fig, ax = plt.subplots()
-# ax.imshow(indicator.T, origin="lower", cmap="binary", vmin=0, vmax=255)
-# ax.axis("off")
-# fig.tight_layout(pad=0)
-# plt.show()
+fig, ax = plt.subplots()
+ax.imshow(indicator.T, origin="lower", cmap="binary", vmin=0, vmax=255)
+ax.axis("off")
+fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+plt.show()

@@ -63,15 +63,14 @@ ITERS = 800
 LR = 3e-3  # a sample is far more sensitive to its starting noise than a code
 ALPHA = -0.5
 BETA = 0.01
-CLIP = 0.1  # gradient-norm clipping
+CLIP = 0.1
 DRIFT_PENALTY = 0.0  # trust region on the starting direction, off by default
 
-# deterministic ddim subsequence: differentiable end to end, fewer unet evaluations
 DDIM_STEPS = 10
 
 # postprocessing
 THRESHOLD = 0.5
-DUMP_TAG = "default"  # names the dump figure, bump it per experiment
+DUMP_TAG = "default"
 
 # --------------------------- instantiate model & optimizer ---------------------------
 model = torch.load(
@@ -91,8 +90,6 @@ def denoise(x, t):
     return model["head"](model["unet"](x, embedding))
 
 
-# the mass of a standard normal sits on a shell of radius sqrt(D), so the latent is
-# parameterized by direction alone and the radius is pinned to that shell
 DIMENSION = RESOLUTION**2
 latent = nn.Parameter(torch.randn(1, 1, RESOLUTION, RESOLUTION, device=device))
 
@@ -101,7 +98,7 @@ def noise():
     return np.sqrt(DIMENSION) * latent / latent.norm()
 
 
-def step(x, alpha_bar, alpha_bar_prev, t):  # eq:ddim_step
+def step(x, alpha_bar, alpha_bar_prev, t):
     eps_pred = denoise(x, t)
     x0_pred = (x - torch.sqrt(1 - alpha_bar) * eps_pred) / torch.sqrt(alpha_bar)
     # clamp in the forward pass only, it saturates and would cut the gradient
@@ -123,7 +120,7 @@ def forward():
     return 1.0 - fibers
 
 
-rho_init = forward()[0, 0].detach().cpu().numpy()  # sampled starting design
+rho_init = forward()[0, 0].detach().cpu().numpy()
 
 optimizer = torch.optim.Adam([latent], lr=LR)
 scheduler = torch.optim.lr_scheduler.LambdaLR(
@@ -139,7 +136,6 @@ basis = mlhp.makeHpTensorSpace(mesh, degree=DEGREE, nfields=2)
 ndof = basis.ndof()
 efts = np.array(basis.locationMaps())
 
-# all elements are identical, so one reference element is preintegrated and reused
 mesh_local = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1, 1], lengths=elem_lengths))
 basis_local = mlhp.makeHpTensorSpace(mesh_local, degree=DEGREE, nfields=2)
 
@@ -164,7 +160,7 @@ def face_dofs(face, ifield):
     return np.array(mlhp.combineDirichletDofs([bc])[0])
 
 
-symmetry = face_dofs(0, 0)  # left edge
+symmetry = face_dofs(0, 0)
 roller = np.intersect1d(face_dofs(2, 1), face_dofs(1, 1))  # bottom-right corner
 load_dof = np.intersect1d(face_dofs(3, 1), face_dofs(0, 1))  # top-left corner
 
@@ -179,11 +175,10 @@ fem = StructuredFEM(efts, free, ndof, K_locals, (RESOLUTION, RESOLUTION), SUB_VO
 density_filter = DensityFilter(RMIN, (RESOLUTION, RESOLUTION))
 
 
-def simp(rho):  # simp stiffness interpolation between void and solid
+def simp(rho):
     return EMIN + rho**PENAL * (E0 - EMIN)
 
 
-# compliance of the decoded starting design, the yardstick for the optimization
 u_init = np.zeros(ndof)
 u_init[free] = fem.solve(simp(rho_init), force_free)
 compliance_init = force @ u_init
@@ -206,29 +201,21 @@ for it in pbar:
     u[free] = fem.solve(simp(rho), force_free)
     compliance = force @ u
     if compliance0 is None:
-        compliance0 = compliance  # normalise the compliance sensitivity once
+        compliance0 = compliance
 
-    # compliance sensitivity on the design grid, then the classic sensitivity filter
     dc = -PENAL * rho ** (PENAL - 1) * (E0 - EMIN) * fem.element_energy(u)
     dc = density_filter.sensitivity(rho, dc)
 
-    # volume constraint g = mean_rho / VOLFRAC - 1 <= 0, enforced by an augmented
-    # lagrangian: the penalty pulls the design in, the multiplier holds it there. the
-    # weight is clipped at zero, so an inactive constraint does not push material back
     mean_rho = rho.mean()
     g = mean_rho / VOLFRAC - 1
     dg = 1 / (VOLFRAC * RESOLUTION**2)
     weight = max(0.0, multiplier + PENALTY * g)
     sensitivity = dc / compliance0 + weight * dg
 
-    # the sensitivity is the incoming gradient of rho, so backpropagation through the
-    # whole reverse chain turns it into a gradient on the starting noise
     optimizer.zero_grad()
     sensitivity = torch.from_numpy(sensitivity).reshape(1, 1, RESOLUTION, RESOLUTION)
     rho_pred.backward(sensitivity.to(device))
 
-    # angle travelled on the shell, the counterpart of the rarity of the vae code. the
-    # penalty is on 1 - cos, not on the angle, whose derivative is singular at the start
     cosine = torch.cosine_similarity(latent.flatten(), start.flatten(), dim=0)
     (DRIFT_PENALTY * (1 - cosine)).backward()
     drift_history[it] = torch.arccos(cosine.detach().clamp(-1, 1)).item()
@@ -269,7 +256,6 @@ print(
 print(f"latent drift {drift_history[0]:.3e} -> {drift_history[-1]:.3e} rad")
 
 # ---------------------------------------- dump ---------------------------------------
-# annotated side by side of the final and thresholded design, one file per experiment
 DUMP_DIR.mkdir(parents=True, exist_ok=True)
 fig, axes = plt.subplots(1, 2, figsize=(8, 4.4), dpi=150)
 for ax, field in zip(axes, (rho, rho_thresh)):

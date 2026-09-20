@@ -4,7 +4,7 @@ import numpy as np
 
 # ------------------------------ parametrized regression ------------------------------
 class LinearRegression:  # limited to 1D outputs
-    """Linear fit trained by gradient descent on the mean squared error."""
+    """linear fit trained by gradient descent on the mean squared error."""
 
     def __init__(self):
         self.weight = 0
@@ -34,7 +34,7 @@ class LinearRegression:  # limited to 1D outputs
         return train_cost, val_cost
 
 class LogisticRegression: # limited to 1D outputs
-    """Binary classifier trained by gradient descent on the cross-entropy."""
+    """binary classifier trained by gradient descent on the cross-entropy."""
 
     def __init__(self):
         self.weights = np.zeros(2)
@@ -74,7 +74,7 @@ class LogisticRegression: # limited to 1D outputs
         return (self.forward(x) > 0.5).astype(float)
 
 class PolynomialRegression: # limited to 1D in- & outputs
-    """Polynomial fit of degree p from the ridge-regularized normal equations."""
+    """polynomial fit of degree p from the ridge-regularized normal equations."""
 
     def __init__(self, p, regularization):
         self.p = p
@@ -97,12 +97,12 @@ class PolynomialRegression: # limited to 1D in- & outputs
         self.w = np.linalg.solve(A, b)
 
 class BayesianPolynomialRegression: # limited to 1D outputs
-    """Bayesian polynomial regression with a closed-form Gaussian posterior.
+    """polynomial regression with a closed-form Gaussian posterior over the weights.
 
-    A Gaussian prior N(0, regularization^-1) on the weights and Gaussian observation
-    noise of standard deviation `noise` give a Gaussian posterior over the weights. Its
-    mean is the ridge solution, its covariance is the epistemic uncertainty, and
-    `noise` is the aleatoric uncertainty.
+    A Gaussian prior N(0, regularization^-1) on the weights and observation noise of
+    standard deviation `noise` give a Gaussian posterior whose mean is the ridge
+    solution and whose covariance is the epistemic uncertainty; `noise` is the
+    aleatoric uncertainty.
     """
 
     def __init__(self, p: int, regularization: float, noise: float):
@@ -113,8 +113,7 @@ class BayesianPolynomialRegression: # limited to 1D outputs
         self.covariance = None
 
     def feature_matrix(self, X: np.ndarray) -> np.ndarray:
-        """Expand (N, D) inputs into all monomials up to degree p, cross terms
-        included."""
+        """expand (N, D) inputs into all monomials up to degree p, cross terms too."""
         columns = [np.ones(X.shape[0])]
         for degree in range(1, self.p + 1):
             for ids in combinations_with_replacement(range(X.shape[1]), degree):
@@ -133,6 +132,6 @@ class BayesianPolynomialRegression: # limited to 1D outputs
         self.w = self.covariance@Phi.T@y / self.noise**2
 
     def epistemic_std(self, X: np.ndarray) -> np.ndarray:
-        """Standard deviation of the predictive mean, excluding the aleatoric noise."""
+        """standard deviation of the predictive mean, excluding the aleatoric noise."""
         Phi = self.feature_matrix(X)
         return np.sqrt(np.einsum("ij,jk,ik->i", Phi, self.covariance, Phi))

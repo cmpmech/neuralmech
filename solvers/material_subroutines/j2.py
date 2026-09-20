@@ -1,11 +1,9 @@
-"""Small-strain J2 (von Mises) plasticity as an mlhp user-material subroutine.
+"""small-strain J2 (von Mises) plasticity as an mlhp user-material subroutine.
 
-History layout per material point (NHISTORY doubles):
-    [stress (6), backstress (6), equivalent plastic strain (1)]
-in Voigt order [xx, yy, zz, xy, yz, xz] with engineering shear. The driver
-works in 2D, so the callbacks expand the 3-component plane-strain state to the
-6-component routine (ezz = exz = eyz = 0) and reduce the consistent tangent
-back to the 3x3 block over the in-plane components [xx, yy, xy].
+History per material point is [stress (6), backstress (6), equivalent plastic strain]
+in Voigt order [xx, yy, zz, xy, yz, xz] with engineering shear. The callbacks expand
+the 3-component plane-strain state to the 6-component routine and reduce the
+consistent tangent back to the in-plane [xx, yy, xy] block.
 """
 
 from solvers.material_subroutines import build_subroutine
@@ -166,8 +164,7 @@ _SOURCE = r"""
 
 
 def build(tmpdir=None):
-    """Compile the J2 subroutine and return the loaded library exposing
-    material_address and update_address as integer function pointers."""
+    """compile the subroutine; exposes `material_address` and `update_address`."""
     return build_subroutine(
         "_j2_subroutine", _SOURCE, ["material_address", "update_address"], tmpdir
     )

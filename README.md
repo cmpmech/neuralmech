@@ -86,7 +86,7 @@ pip install -r requirements.txt
 [mlhp](https://gitlab.com/hpfem/code/mlhp) is included as a git submodule. To clone recursively use
 
 ```
-git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
+git clone --recurse-submodules https://github.com/cmpmech/neuralmech
 ```
 
 - for now, use `pip install mlhp` ([for more advanced physics](solvers/README.md#building-mlhp-from-source) C++ compilation will be needed)
@@ -111,7 +111,6 @@ pip install cuwave
 | [`models/`](models/)                     | trained networks                                                           |
 | [`results/`](results/)                   | results for postprocessing                                                 |
 | [`projects/`](projects/)                 | main drivers; see [projects](projects/README.md)                           |
-| [`templates/`](templates/)               | elements with repeated use (e.g., `training_loop.py`)                      |
 | [`DL.py`](DL.py)                         | deep learning utilities                                                    |
 | [`NN.py`](NN.py)                         | network architectures                                                      |
 | [`postprocessing.py`](postprocessing.py) | postprocessing helpers                                                     |

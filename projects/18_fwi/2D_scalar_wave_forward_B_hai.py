@@ -1,3 +1,4 @@
+import argparse
 import time
 from pathlib import Path
 
@@ -12,6 +13,10 @@ from helper import MIN_INDICATOR, Lx, Ly, Nx, Ny, build, dx, indicator
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
 T = 8e-5
@@ -46,5 +51,9 @@ ax.set_aspect("equal")
 ax.axis("off")
 ax.set_rasterized(True)
 fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-plt.savefig(RGB_PDF_DIR / "CTwaves2D.pdf", bbox_inches="tight", pad_inches=0)
-plt.show()
+
+if not args.book:
+    plt.show()
+# -------------------------------- book postprocessing --------------------------------
+else:
+    plt.savefig(RGB_PDF_DIR / "CTwaves2D.pdf")

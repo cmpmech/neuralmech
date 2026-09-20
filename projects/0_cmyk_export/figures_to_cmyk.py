@@ -44,7 +44,7 @@ def up_to_date(source, target):
 
 
 def pdf_to_cmyk(source, target):
-    """convert a pdf to cmyk via ghostscript; vector content stays vector."""
+    """convert a pdf to CMYK via ghostscript; vector content stays vector."""
     run([
         "gs", "-dNOPAUSE", "-dBATCH", "-dSAFER", "-sDEVICE=pdfwrite",
         "-dProcessColorModel=/DeviceCMYK", "-sColorConversionStrategy=CMYK",
@@ -54,19 +54,19 @@ def pdf_to_cmyk(source, target):
 
 
 def pdf_to_png(source, target):
-    """rasterize a pdf to a transparent rgb png at DPI (pdftocairo appends .png)."""
+    """rasterize a pdf to a transparent RGB png at DPI (pdftocairo appends .png)."""
     run(["pdftocairo", "-png", "-transp", "-r", str(DPI), "-singlefile",
          str(source), str(target.with_suffix(""))])
 
 
 def raster_to_cmyk(source, target):
-    """convert a raster image to a cmyk pdf; alpha is kept as a soft mask."""
+    """convert a raster image to a CMYK pdf; alpha is kept as a soft mask."""
     run(["convert", str(source), "-profile", str(ICC_SRGB),
          "-profile", str(ICC_CMYK), str(target)])
 
 
 def raster_to_rgb_pdf(source, target):
-    """wrap a raster image into an rgb pdf; alpha is kept as a soft mask."""
+    """wrap a raster image into an RGB pdf; alpha is kept as a soft mask."""
     run(["convert", str(source), "-profile", str(ICC_SRGB), str(target)])
 
 

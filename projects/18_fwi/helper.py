@@ -54,17 +54,22 @@ frequency = WAVESPEED / (POINTS_PER_WAVELENGTH * dx[0])
 
 
 def build(T: float) -> tuple[ScalarWave, object, cp.ndarray]:
-    """Simulation, corner point source, and padded material for a run of length T.
+    """simulation, corner point source, and padded material for a run of length T.
 
     Only the number of steps depends on T, so the grid above is shared and this
     is all a driver has to rebuild when it changes the simulated duration.
     """
     N = math.ceil(T / dt)
     sim = ScalarWave(
-        (Nx, Ny), dx, N, dt, THREADS, space_order=SPACE_ORDER,
-        wavespeed=WAVESPEED, density=DENSITY,
+        (Nx, Ny),
+        dx,
+        N,
+        dt,
+        THREADS,
+        space_order=SPACE_ORDER,
+        wavespeed=WAVESPEED,
+        density=DENSITY,
     )
-    # source in the origin corner, spread over the cell volume by point_source
     t = np.linspace(0, (N - 1) * dt, N)
     source = point_source(sim, (0.0, 0.0), sineburst(t, AMPLITUDE, frequency, CYCLES))
 

@@ -41,7 +41,7 @@ N = 96
 NX, NY = np.array(LENGTHS).astype(int) * N
 SUB_VOXELS = 6
 DEGREE = 3
-QUAD_ORDER = DEGREE + 1  # integration
+QUAD_ORDER = DEGREE + 1
 
 # physics
 VOLFRAC = 0.5
@@ -61,7 +61,7 @@ THRESHOLD = 0.5
 # optimization (per-ansatz lr and polynomial lr decay (BETA * iter + 1) ** ALPHA)
 ANSATZ = "dcn"  # dcn, mlp or linear
 MAX_ITER = 150
-CLIP = 0.1  # gradient-norm clipping
+CLIP = 0.1
 HYPERPARAMS = {
     "dcn": dict(lr=5e-3, alpha=-0.5, beta=0.2),
     "mlp": dict(lr=5e-3, alpha=-0.5, beta=0.2),
@@ -73,7 +73,7 @@ BETA = HYPERPARAMS[ANSATZ]["beta"]
 
 
 # ----------------------------------- design ansatz -----------------------------------
-class gaussian(nn.Module):  # smooth, saturating activation; not in torch.nn
+class Gaussian(nn.Module):  # smooth, saturating activation; not in torch.nn
     def __init__(self, sigma):
         super().__init__()
         self.sigma = sigma
@@ -82,7 +82,6 @@ class gaussian(nn.Module):  # smooth, saturating activation; not in torch.nn
         return torch.exp(-(x**2) / (2 * self.sigma**2))
 
 
-# every ansatz exposes parameters and a forward() returning a (1, 1, NX, NY) density
 if ANSATZ == "dcn":  # convolutional generator: fixed latent image -> density field
     CHANNELS = [32, 16, 8, 4, 2]
     N_UP = len(CHANNELS) - 1  # number of x2 upsamplings -> latent starts at NX/16
@@ -93,14 +92,12 @@ if ANSATZ == "dcn":  # convolutional generator: fixed latent image -> density fi
     KERNEL_SIZE, STRIDE, PADDING = 5, 1, 2
     SIGMA = 0.5
 
-    # the reference generator normalizes BEFORE each conv (on the input channels):
-    # upsample then batchnorm both go in the pre-conv slot
     pre_modules = [
         [nn.Upsample(scale_factor=2, mode="nearest"), nn.BatchNorm2d(CHANNELS[i])]
         for i in range(len(CHANNELS) - 1)
     ]
-    ACTIVATIONS = [gaussian(SIGMA) for _ in range(len(CHANNELS) - 2)]
-    ACTIVATIONS += [nn.Softmax(dim=1)]  # two channels compete -> crisp binary density
+    ACTIVATIONS = [Gaussian(SIGMA) for _ in range(len(CHANNELS) - 2)]
+    ACTIVATIONS += [nn.Softmax(dim=1)]
 
     model = DCN(
         CHANNELS,
@@ -112,8 +109,6 @@ if ANSATZ == "dcn":  # convolutional generator: fixed latent image -> density fi
         bias=True,
     ).to(device)
 
-    # reference init: xavier_normal convs with zero bias, plus a tiny last conv so both
-    # softmax channels start ~equal (near-uniform rho ~ 0.5 lets fine trusses emerge)
     for m in model.modules():
         if isinstance(m, nn.Conv2d):
             nn.init.xavier_normal_(m.weight)
@@ -132,14 +127,12 @@ elif ANSATZ == "mlp":  # coordinate network: (x, y) -> density (implicit field)
     HIDDEN_LAYERS, NEURONS = 5, 128
     LAYERS = [2] + HIDDEN_LAYERS * [NEURONS] + [2]
     ACTIVATIONS = [nn.ReLU(inplace=True) for _ in range(len(LAYERS) - 2)]
-    ACTIVATIONS += [nn.Softmax(dim=1)]  # two channels compete -> crisp binary density
+    ACTIVATIONS += [nn.Softmax(dim=1)]
     normalizations = [nn.BatchNorm1d(NEURONS) for _ in range(len(LAYERS) - 2)]
 
-    # norm then activation after each layer; the last (softmax) layer has no norm
     post_modules = [[nm, act] for nm, act in zip(normalizations + [None], ACTIVATIONS)]
     model = MLP(LAYERS, post_modules).to(device)
     init_weights(model, ACTIVATIONS[0])
-    # near-uniform start: tiny last layer -> softmax ~ 0.5 ~ volfrac (no big first step)
     last_linear = [m for m in model.modules() if isinstance(m, nn.Linear)][-1]
     nn.init.normal_(last_linear.weight, std=0.01)
     nn.init.zeros_(last_linear.bias)
@@ -200,12 +193,12 @@ def face_dofs(face, ifield):
     return np.array(mlhp.combineDirichletDofs([bc])[0])
 
 
-symmetry = face_dofs(0, 0)  # left edge
+symmetry = face_dofs(0, 0)
 roller = np.intersect1d(face_dofs(2, 1), face_dofs(1, 1))  # bottom-right corner
 load_dof = np.intersect1d(face_dofs(3, 1), face_dofs(0, 1))  # top-left corner
 
 fixed = np.unique(np.concatenate([symmetry, roller]))
-free = np.setdiff1d(np.arange(ndof), fixed)  # all non-fixed dofs
+free = np.setdiff1d(np.arange(ndof), fixed)
 
 force = np.zeros(ndof)
 force[load_dof] = LOAD
@@ -235,13 +228,11 @@ for it in pbar:
     u[free] = fem.solve(simp(rho, penal, EMIN, E0), force_free)
     compliance = force @ u
     if compliance0 is None:
-        compliance0 = compliance  # normalise the compliance sensitivity once
+        compliance0 = compliance
 
-    # compliance sensitivity, mapped back to the design grid
     dc = -dsimp(rho, penal, EMIN, E0) * fem.element_energy(u)
     dc = density_filter.sensitivity(rho, dc)
 
-    # quadratic volume penalty: (mean_rho / VOLFRAC - 1) ** 2, weight grows each iter
     mean_rho = rho.mean()
     dv = 2 * (mean_rho / VOLFRAC - 1) / (VOLFRAC * NX * NY)
     sensitivity = dc / compliance0 + penalty * dv
@@ -252,7 +243,7 @@ for it in pbar:
     optimizer.step()
     scheduler.step()
     if ANSATZ == "linear":
-        rho_var.data.clamp_(0.0, 1.0)  # keep design variables in [0, 1]
+        rho_var.data.clamp_(0.0, 1.0)
 
     penal = min(penal + PENAL_INC, PENAL_MAX)
     penalty = min(penalty + PENALTY_INC, PENALTY_MAX)
@@ -295,7 +286,6 @@ for field, name in ((rho, "neuraltopopt_mbb"), (rho_thresh, "neuraltopopt_mbb_th
     else:
         plt.close()
 
-# y-displacement evaluated on the thresholded structure (void left transparent)
 indicator_field = mlhp.scalarFieldFromVoxelData(
     mlhp.FloatVector(rho_thresh.ravel("C").astype(np.float32)),
     nvoxels=[NX, NY],

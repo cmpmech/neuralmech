@@ -25,6 +25,8 @@ house style. To audit a project without editing, see **Audit mode** at the end.
 - **Constants**: module-level config in `ALL_CAPS` (see Constants).
 - **No `__main__` guard** and **no docstrings** in drivers; they run top-to-bottom.
 - **No plot legends** (`ax.legend()` / `label=`) — see Postprocessing.
+- **No comment longer than one line**, and no `# eq:...` tags — see Comments & prints.
+  Longer explanations move to the README's technicalities section.
 - **`init_weights(model, activation)` after `.to(device)`** — never before.
 
 Details and the rest of the style follow.
@@ -235,12 +237,78 @@ if PATIENCE is not None and best_state is not None:
 
 ## Comments & prints
 
-- Minimal. Explain **WHY**, not WHAT — never restate what a name or general
-  knowledge already says.
+**Comments are the single most over-produced thing in this repo. The default is no
+comment.** Write one only when a reader who knows the method would otherwise stop and
+ask "why that?" — and then write one line.
+
+### Hard limits
+
+- **Never more than one line.** A two-line comment is already too long; a three- or
+  four-line paragraph is a defect, not a style nit. If the explanation does not fit
+  on one line, it does not belong in the code (see *Where the prose goes*).
+- **No comment above a `def`, `class`, or banner that explains the method.** The
+  banner and the name carry that. A driver is read top to bottom; it is not a paper.
+- **No LaTeX cross-reference tags.** `# eq:diffusion_loss`, `# eq:ddim_step`,
+  `# see sec:...` — never. The book references the code, not the other way round.
+- **No restating the line.** Delete on sight:
+  ```python
+  features = self.trunk(x).mean(dim=(2, 3))  # global average pool     NO
+  train_cost[epoch] /= len(train_loader)     # avg per batch           NO
+  symmetry = face_dofs(0, 0)                 # left edge               NO
+  x = standardizex(x[0]).to(device)          # unwrap & standardize    NO
+  model.standardizer = standardizex          # just for saving         NO
+  free = np.setdiff1d(np.arange(ndof), fixed)  # all non-fixed dofs    NO
+  # the discriminator learns to separate real from generated           NO
+  # compliance sensitivity, mapped back to the design grid             NO
+  ```
+- **No narrating the algorithm.** If the comment paraphrases the next three lines of
+  code in words, it adds nothing. The method's name in the banner is enough.
+
+### What survives
+
+Only two kinds, both one line:
+
+1. **A trailing note on an `ALL_CAPS` setting** saying what the knob means, its unit,
+   or the alternative value — information that is genuinely not in the code:
+   ```python
+   SAFETY = 0.95  # fraction of the stable time step
+   BETA = 16.0  # kl weight; 1 is the plain evidence lower bound
+   DTYPE = cp.float64  # cp.float32 for single precision
+   ANSATZ = "dcn"  # dcn, mlp or linear
+   ```
+2. **A one-line WHY for a choice that looks wrong or arbitrary** and would otherwise
+   be "fixed" by the next reader:
+   ```python
+   return None  # relaxation never converges above ~0.7, skip the wasted iterations
+   logvar_pred = logvar_pred.clamp(-10, 10)  # prevent exp overflow
+   # no normalization anywhere, batch statistics would invalidate the gradient penalty
+   ```
+
+The fixed `settings` sub-comments (`# hyperparameters`, `# define loss`,
+`# model settings`, and the domain groups `# geometry`, `# physics`,
+`# discretization`) are structure, not prose, and always stay.
+
+### Where the prose goes
+
+Everything longer belongs in the project `README.md`, under
+`## Non-obvious technicalities (authored by Claude)`. That section exists precisely
+so the driver stays a clean read. When cleaning a file, do not delete a real insight —
+**move it**: cut the paragraph out of the `.py` and write it into that README section
+in book prose (LaTeX math allowed there). The code keeps at most a one-line pointer,
+and usually not even that.
+
+### Rest
+
 - **ASCII only** everywhere (code and READMEs): no greek letters, no arrows/unicode.
-- Lowercase in comments and `print` strings, except real identifiers/abbreviations.
+- **Lowercase comments, almost exclusively** (author preference): every `#` comment
+  and `print` string starts lowercase and stays lowercase; the only capitals are
+  real identifiers and abbreviations (`MKL`, `CG`, `RESOLUTION`, `nn.GELU`). Never
+  "fix" a comment to sentence case when cleaning. Docstrings follow the same rule;
+  only their body paragraphs of real sentences use sentence case (see **Docstrings**).
 - Prints are rare — elapsed time (`print(f"elapsed time {toc - tic:.2f} s")`),
   or save locations in export/data-gen scripts.
+- Commented-out alternative settings (`# BENCHMARK = "levy"`) are fine in the
+  `settings` block; commented-out *code* elsewhere is dead and gets deleted.
 
 ## argparse
 
@@ -283,10 +351,56 @@ elapsed-time print.
   `solvers` / `optimization.py` — but **ask the author first** before moving a
   helper to a shared module.
 - Library/shared code uses docstrings + argument type hints; drivers do not (and
-  drivers have no `__main__` guard — they run top-to-bottom).
+  drivers have no `__main__` guard — they run top-to-bottom). Docstring shape is
+  fixed, see **Docstrings** below.
 - Function names: verb-noun by default. Naming registry (recurring banner labels,
   constant names, and local-variable names) is below — reuse from it before
   inventing a new name.
+
+## Docstrings (library, `helper.py`, solvers, tooling scripts only)
+
+Same spirit as comments: short, lowercase, WHY not WHAT. Google style, one shape:
+
+```python
+class ICNN(nn.Module):
+    """input convex neural network.
+
+    Stack of `ICNNLayer`s threading the input x into every layer. With convex
+    non-decreasing activations and `clamp_z_()` after each optimizer step, the
+    output is convex in x.
+
+    Reference: https://arxiv.org/abs/1609.07152
+
+    Args:
+        layers: layer sizes from input to output.
+        activations: activation module (or None) after each layer.
+    """
+```
+
+- **Summary**: one line on the opening-quote line, **lowercase** like a comment
+  (`"""sample the weights and apply the linear map."""`), ends in a period, fits
+  in 88 columns. Capitals only for identifiers, abbreviations, and proper names
+  (`MMA`, `U-Net`, `E(2)`, `Voigt`, `Gaussian`, `KL`). A one-liner closes on the
+  same line; anything longer closes with `"""` on its own line — never on the last
+  text line.
+- **Body**: at most one short paragraph, and only for a contract or a WHY the name
+  does not carry (shapes, ordering, what is deliberately not done). The body is
+  the only place with real sentences, and real sentences get sentence case. No
+  "Suggested ordering" blocks, no restating the arguments, no design essays — that
+  prose goes to the README.
+- **References**: URLs only (arxiv/doi), never `(Author year)` in a docstring. One
+  link is `Reference: <url>`; several are a `References:` block with one indented
+  URL per line. Placed after the body, before `Args:`. A comment may still say
+  `(Sigmund 2001)` when the docstring above already carries the link.
+- **Args**: `name: lowercase fragment.` with a 4-space hanging indent, only for
+  arguments that are not self-explanatory (skip `inputs: number of inputs.`).
+  Group same-kind arguments: `kernel_size, padding, bias: convolution geometry,
+  ...`. `Returns:` (lowercase fragment) only when the shape or tuple layout is not
+  obvious; a short return note may also just end the summary (`...; returns (t, q)`).
+- Identifiers in single backticks (`` `MLP` ``), never RST roles (`:class:`) or
+  double backticks. ASCII only.
+- Module docstrings only where the module is not a driver and its purpose is not
+  obvious from the file name (`solvers/optimization.py`, the material subroutines).
 
 ## README shape
 
@@ -440,8 +554,9 @@ projects/3_mlp") rather than edit: read every `.py` in `projects/<N>_*/` (skip
 & seeds, model loading, import grouping, the 10-step order, aligned `=`,
 `ALL_CAPS` constants, banners (87-char, vocabulary, none on scaffolding), argparse
 flags, the training-loop checklist, plotting (palette, no legends, book figures save
-`.pdf` with `set_rasterized` on raster fields, `:.2e`/`:.2f`), comments/docstrings, `__main__`
-guard, `init_weights` order, and `save_csv` usage. This is style enforcement, not
+`.pdf` with `set_rasterized` on raster fields, `:.2e`/`:.2f`), **comment bloat (every
+multi-line comment, every `# eq:` tag, every comment that restates its line)**,
+docstrings, `__main__` guard, `init_weights` order, and `save_csv` usage. This is style enforcement, not
 code review — don't critique comment wording or variable choices beyond the
 registries.
 

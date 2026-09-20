@@ -12,8 +12,8 @@ import numpy as np
 import scipy.sparse as sp
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../../data"
-RESULTS_DIR = BASE_DIR / "../../../results/3D"
+DATA_DIR = (BASE_DIR / "../../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../../results/3D").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dim", type=int, default=2, choices=[2, 3])
@@ -22,7 +22,7 @@ parser.add_argument("--smooth", type=int, default=3)
 parser.add_argument("--ct", type=str, default=None)
 args = parser.parse_args()
 
-# -------------------------------- simulation settings --------------------------------
+# -------------------------------------- settings -------------------------------------
 D = args.dim
 DEGREE = args.degree  # degree the forward problem is solved at; the cycle runs at p=1
 
@@ -73,10 +73,9 @@ material = (
     else mlhp.isotropicElasticMaterial(mlhp.scalarField(D, 1.0), nu_field)
 )
 
-# per-voxel material stiffness, for coarse-level coefficient averaging
 stiff_vox = E * np.maximum(indicator.astype(np.float64) / 255.0, ALPHA)
 
-# --------------------------------------- cuda ----------------------------------------
+# ---------------------------------------- cuda ---------------------------------------
 cuda_source = (BASE_DIR / "../../../solvers/kernels/mlhp_kernels.cu").read_text()
 cuda_options = ("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()
 module = cp.RawModule(code=cuda_source, options=cuda_options)
@@ -88,9 +87,7 @@ K_diag_kernel = module.get_function("K_diag_subvoxel_kernel")
 indicator_gpu = cp.array(indicator.ravel("C"), dtype=cp.uint8)
 
 
-# ------------------------------- vertex / dof bookkeeping ----------------------------
-# local positions (within an element field block) of the 2^D corner/vertex modes,
-# detected empirically per degree from the cardinal shape functions of one element.
+# ------------------------------ vertex / dof bookkeeping -----------------------------
 def vertex_local_positions(degree):
     mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1] * D, lengths=[1.0] * D))
     basis = mlhp.makeHpTrunkSpace(mesh, degree=degree, nfields=1)
@@ -114,7 +111,7 @@ CORNERS = list(product([0, 1], repeat=D))
 
 def vertex_dofmap(basis, nelems, degree):
     efts = np.array(basis.locationMaps())
-    lpf = efts.shape[1] // D  # local dofs per field block
+    lpf = efts.shape[1] // D
     vpos = VPOS[degree]
     Ny = nelems[1]
     Nz = nelems[2] if D == 3 else 1
@@ -205,7 +202,6 @@ def make_level(degree, nelems, subvoxel):
         K_refs, ndof_e = preintegrate(degree, elem_lengths, 1)
         K_refs_gpu = cp.array(K_refs.ravel("C"), dtype=DTYPE)
         K_e_gpu = cp.zeros(N_elems * ndof_e * ndof_e, dtype=DTYPE)
-        # effective per-element coefficient = average voxel stiffness over the element
         f = [nvoxels[d] // nelems[d] for d in range(D)]
         if D == 2:
             E_eff = stiff_vox.reshape(nelems[0], f[0], nelems[1], f[1]).mean((1, 3))
@@ -237,7 +233,7 @@ def make_level(degree, nelems, subvoxel):
     K_diag_kernel((grid,), (BLOCK,), (K_diag_gpu, efts_gpu, K_e_gpu, N_elems, ndof_e))
     K_diag_gpu[constrained_gpu] = 1.0
 
-    mask = cp.ones(ndof, dtype=DTYPE)  # 1 on free dofs, 0 on constrained
+    mask = cp.ones(ndof, dtype=DTYPE)
     mask[constrained_gpu] = 0.0
 
     return {
@@ -254,7 +250,6 @@ def make_level(degree, nelems, subvoxel):
         "N_elems": N_elems,
         "grid": grid,
         "mask": mask,
-        # preallocated V-cycle work buffers (reused every iteration)
         "Ku": cp.empty(ndof, dtype=DTYPE),
         "x": cp.empty(ndof, dtype=DTYPE),
         "r": cp.empty(ndof, dtype=DTYPE),
@@ -281,7 +276,7 @@ print(f"hierarchy ({len(levels)} levels): {[lv['ndof'] for lv in levels]}")
 print(f"assembly: {time.time() - tic:.2f}s")
 
 
-# ----------------------------- inter-grid transfer operators -------------------------
+# --------------------------- inter-grid transfer operators ---------------------------
 def build_injection(level_fine, level_coarse):
     dm_f = vertex_dofmap(
         level_fine["basis"], level_fine["nelems"], level_fine["degree"]
@@ -347,20 +342,15 @@ print(f"transfer operators: {time.time() - tic:.2f}s")
 
 
 # ------------------------------------- multigrid -------------------------------------
-# fused elementwise kernels: one launch each, writing into preallocated buffers.
-# identity rows on constrained dofs: o = a*mask + u*(1-mask)
 apply_idrows = cp.ElementwiseKernel(
     "T a, T mask, T u", "T o", "o = a * mask + u * (T(1) - mask)", "apply_idrows"
 )
-# masked residual r = (b - Ku) * mask
 masked_sub = cp.ElementwiseKernel(
     "T b, T Ku, T mask", "T r", "r = (b - Ku) * mask", "masked_sub"
 )
-# masked correction x = (x + y) * mask
 masked_add = cp.ElementwiseKernel(
     "T x, T y, T mask", "T o", "o = (x + y) * mask", "masked_add"
 )
-# Chebyshev first half-step: r=(b-Ku)*mask; d=Dinv*r*inv_theta; x=(x+d)*mask
 cheb_first = cp.ElementwiseKernel(
     "T b, T Ku, T Dinv, T mask, float64 inv_theta, T x_in",
     "T r, T d, T x_out",
@@ -371,7 +361,6 @@ cheb_first = cp.ElementwiseKernel(
     """,
     "cheb_first",
 )
-# Chebyshev recurrence step: d=c1*d+c2*Dinv*(b-Ku)*mask; x=(x+d)*mask
 cheb_next = cp.ElementwiseKernel(
     "T b, T Ku, T Dinv, T mask, float64 c1, float64 c2, T x_in, T d_in",
     "T d_out, T x_out",
@@ -402,7 +391,6 @@ def matvec(level, u, out):
     return out
 
 
-# per-level diagonal inverse and Chebyshev smoothing band (top of D^-1 A spectrum)
 def estimate_lmax(level):
     v = cp.asarray(np.random.RandomState(0).rand(level["ndof"]), dtype=DTYPE)
     v *= level["mask"]
@@ -422,7 +410,6 @@ for lv in levels:
     lv["cheb_a"] = lv["cheb_b"] / EIG_RATIO
 
 
-# Chebyshev-accelerated Jacobi smoother (damps the high end of D^-1 A), in-place on x
 def smooth(level, b, x, deg):
     Ku, r, d, mask, Dinv = (
         level["Ku"],
@@ -445,8 +432,6 @@ def smooth(level, b, x, deg):
     return x
 
 
-# dense inverse of the (small) coarsest operator, precomputed once on the GPU so
-# the coarse solve inside every V-cycle is a single gemv with no host transfer
 def build_coarse_inverse():
     lvl = levels[L]
     ne, nd_e, ndof = lvl["N_elems"], lvl["ndof_e"], lvl["ndof"]
@@ -483,7 +468,7 @@ def vcycle(i, b):
     return x
 
 
-# ------------------------------------- load vector -----------------------------------
+# ------------------------------------ load vector ------------------------------------
 fine = levels[0]
 matrix = mlhp.allocateSparseMatrix(fine["basis"], fine["dirichlet"][0])
 vector = mlhp.allocateRhsVector(matrix)
@@ -505,7 +490,7 @@ rhs_gpu = cp.array(rhs, dtype=DTYPE)
 del vector
 
 # --------------------------------------- solve ---------------------------------------
-A0_out = cp.empty(fine["ndof"], dtype=DTYPE)  # dedicated buffer for the CG operator
+A0_out = cp.empty(fine["ndof"], dtype=DTYPE)
 A0 = cp_splinalg.LinearOperator(
     (fine["ndof"],) * 2, matvec=lambda u: matvec(fine, u, A0_out)
 )

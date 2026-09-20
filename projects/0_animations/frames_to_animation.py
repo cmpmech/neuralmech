@@ -1,15 +1,10 @@
-"""
-Convert a folder of animation frames (PNG/JPG) to a video file.
+"""convert a folder of animation frames (PNG/JPG) to an H.264 video with ffmpeg.
 
-Uses ffmpeg (H.264 + AAC-less) for smallest file size at good quality.
-Adjust `crf` (0=lossless, 51=worst; 18-23 is visually lossless range).
+`--crf` trades size for quality (0 lossless, 51 worst; 18-23 is visually lossless).
 
 Usage:
-    python frames_to_animation.py --frames_dir ../../results/animations/animation_frames \
-                                   --output     ../../results/animations/balls.mp4 \
-                                   --pattern    "balls_%d.jpg" \
-                                   --fps        30 \
-                                   --crf        20
+    python frames_to_animation.py --frames_dir ../../results/animations/frames \
+        --output ../../results/animations/balls.mp4 --pattern "balls_%d.jpg" --fps 30
 """
 
 import argparse

@@ -9,15 +9,15 @@ import mlhp
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../../data"
-RESULTS_DIR = BASE_DIR / "../../../results/3D"
+DATA_DIR = (BASE_DIR / "../../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../../results/3D").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dim", type=int, default=2, choices=[2, 3])
 parser.add_argument("--ct", type=str, default=None)
 args = parser.parse_args()
 
-# -------------------------------- simulation settings --------------------------------
+# -------------------------------------- settings -------------------------------------
 D = args.dim
 
 DEGREE = 2
@@ -103,12 +103,11 @@ quadrature = mlhp.gridQuadrature(nsubcells=[SUB_VOXELS] * D)
 tic = time.time()
 K_locals = mlhp.integratePartitionMatrices(
     basis_local, integrand, quadrature, mlhp.absoluteQuadratureOrder([QUAD_ORDER] * D)
-)  # (nsubvoxels_e, ndof_e, ndof_e)
+)
 print(f"preintegration ({nsubvoxels_e} subvoxels): {time.time() - tic:.2f}s")
 
 # -------------------------------------- assembly -------------------------------------
 tic = time.time()
-# allocateSparseMatrix is only needed to size the condensed vector; it is never filled
 matrix = mlhp.allocateSparseMatrix(basis, dirichlet[0])
 vector = mlhp.allocateRhsVector(matrix)
 del matrix
@@ -127,7 +126,7 @@ del vector
 efts = np.array(basis.locationMaps())
 print(f"assembly: {time.time() - tic:.2f}s")
 
-# --------------------------------------- cuda ----------------------------------------
+# ---------------------------------------- cuda ---------------------------------------
 cuda_source = (BASE_DIR / "../../../solvers/kernels/mlhp_kernels.cu").read_text()
 cuda_options = (("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()) + compiler_options
 module = cp.RawModule(code=cuda_source, options=cuda_options)
@@ -135,7 +134,6 @@ assemble_K_e_kernel = module.get_function("assemble_K_e_kernel")
 Ku_kernel = module.get_function("Ku_subvoxel_kernel")
 K_diag_kernel = module.get_function("K_diag_subvoxel_kernel")
 
-# for indexing in kernel
 N_elems = int(np.prod(nelems))
 Ny_elem, Nz_elem = nelems[1], nelems[2] if D == 3 else 1  # 1 as dummy for 2D
 Ny_vox, Nz_vox = nvoxels[1], nvoxels[2] if D == 3 else 1  # 1 as dummy for 2D
@@ -157,7 +155,6 @@ print(f"GPU upload: {time.time() - tic:.3f}s")
 
 
 # ------------------------------------ cuda kernels -----------------------------------
-# assemble each element matrix K_e = sum_s E_s(indicator) * K_locals[s]
 K_e_gpu = cp.zeros(N_elems * ndof_e * ndof_e, dtype=DTYPE)
 cp.cuda.Stream.null.synchronize()
 tic = time.time()
@@ -256,5 +253,5 @@ if D == 2:
     fig.colorbar(cb)
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.tight_layout(pad=0)
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.show()

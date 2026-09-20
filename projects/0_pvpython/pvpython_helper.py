@@ -1,5 +1,5 @@
 # run with pvpython
-"""Shared helpers for the 0_pvpython render scripts."""
+"""shared helpers for the 0_pvpython render scripts."""
 import json
 
 from paraview.simple import GetActiveCamera, SaveScreenshot
@@ -8,14 +8,14 @@ from PIL import Image
 
 
 def clean_view(view):
-    """Hide the orientation widget; white background (transparent on save)."""
+    """hide the orientation widget; white background (transparent on save)."""
     view.OrientationAxesVisibility = 0
     view.Background = [1, 1, 1]
     view.UseColorPaletteForBackground = 0
 
 
 def view_from_x(view):
-    """Point the camera from +X (Z up), framed on the data; return the camera."""
+    """point the camera from +X (Z up), framed on the data; return the camera."""
     view.ResetCamera()
     camera = GetActiveCamera()
     camera.SetPosition(1, -0.5, 0.5)
@@ -26,7 +26,7 @@ def view_from_x(view):
 
 
 def orbit(view, azimuth=0.0, elevation=0.0, roll=0.0):
-    """Rotate the camera about the focal point and refit; return the camera.
+    """rotate the camera about the focal point and refit; return the camera.
 
     From a front view the angles (deg) map to world axes: azimuth=view-up,
     elevation=horizontal screen axis, roll=view axis (Y/X/Z when view-up is +Y).
@@ -40,8 +40,10 @@ def orbit(view, azimuth=0.0, elevation=0.0, roll=0.0):
 
 
 def register_cmaps(cmap_dir):
-    """Register every .cmap in cmap_dir as a named preset (by content, since
-    ImportPresets rejects the extension). Apply with lut.ApplyPreset(name, True)."""
+    """register every .cmap in cmap_dir as a named preset for `lut.ApplyPreset`.
+
+    Added by content, since ImportPresets rejects the extension.
+    """
     presets = vtkSMTransferFunctionPresets.GetInstance()
     for cmap_file in sorted(cmap_dir.glob("*.cmap")):
         text = cmap_file.read_text()
@@ -49,8 +51,10 @@ def register_cmaps(cmap_dir):
 
 
 def save_png(out_path, view, resolution, supersample=1):
-    """Save view as a transparent PNG; render at supersample x resolution and
-    downscale (LANCZOS) to anti-alias. supersample=1 skips the resize."""
+    """save the view as a transparent PNG, anti-aliased by supersampled rendering.
+
+    Renders at `supersample` times the resolution and downscales with LANCZOS.
+    """
     out_path = str(out_path)
     SaveScreenshot(out_path, view,
                    ImageResolution=[supersample * r for r in resolution],

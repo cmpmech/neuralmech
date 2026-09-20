@@ -9,19 +9,17 @@ import mlhp
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../../data"
-RESULTS_DIR = BASE_DIR / "../../../results/3D"
+DATA_DIR = (BASE_DIR / "../../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../../results/3D").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dim", type=int, default=2, choices=[2, 3])
 parser.add_argument("--ct", type=str, default=None)
 args = parser.parse_args()
 
-# -------------------------------- simulation settings --------------------------------
+# -------------------------------------- settings -------------------------------------
 D = args.dim
 
-# Bmat stores one ndof_e x ndof_e stiffness at each of the n_mf^D = (2*DEGREE+1)^D
-# moment-fitting points, so memory grows steeply with DEGREE in 3D; lower it for 3D runs.
 DEGREE = 3
 ALPHA = 1e-4
 SUB_VOXELS = 32  # 128  # 32  # 40
@@ -57,7 +55,6 @@ assert all(n % SUB_VOXELS == 0 for n in nvoxels), (
 nelems = [n // SUB_VOXELS for n in nvoxels]
 N_elems = int(np.prod(nelems))
 
-# per-sub-voxel Young's modulus (material E=1 in the integrand; weighting lives in E_elem)
 E_float = np.maximum(indicator.astype(np.float64) / 255.0, ALPHA)
 nu_field = mlhp.scalarField(D, NU)
 
@@ -78,10 +75,7 @@ bc_list = [
 dirichlet = mlhp.combineDirichletDofs(bc_list)
 constrained_dofs = np.array(dirichlet[0])
 
-# ------------------------------------ preintegration ----------------------------------
-# Element-independent for a uniform Cartesian mesh: the moment matrix M maps per-sub-voxel
-# material values to moment-fitting weights, Bmat holds the unit-material per-Gauss-point
-# stiffness. Both computed once on a single reference element of physical size elem_lengths.
+# ----------------------------------- preintegration ----------------------------------
 kinematics = mlhp.smallStrainKinematics(D)
 material = (
     mlhp.planeStressMaterial(mlhp.scalarField(D, 1.0), nu_field)
@@ -108,7 +102,6 @@ n_mf = (2 * DEGREE + 1) ** D
 assert M.shape == (n_mf, SUB_VOXELS**D), M.shape
 assert Bmat.shape == (n_mf, ndof_e, ndof_e), Bmat.shape
 
-# per-element sub-voxel material values, row-major over sub-voxels (x slowest)
 if D == 2:
     E_elem = (
         (E * E_float)
@@ -125,12 +118,11 @@ else:
     )
 
 # -------------------------------------- assembly -------------------------------------
-# per-element stiffness matrices, never assembled into a global sparse matrix
 tic = time.time()
 weights_elem = detJ * (
     E_elem @ M.T
-)  # [N_elems, n_mf] moment-fitting weights per element
-K_e = np.einsum("ep,pij->eij", weights_elem, Bmat)  # [N_elems, ndof_e, ndof_e]
+)
+K_e = np.einsum("ep,pij->eij", weights_elem, Bmat)
 efts = np.array(basis.locationMaps())
 
 # load vector: Neumann traction on the right face, expanded to the full dof space
@@ -149,7 +141,7 @@ rhs[np.where(interior_mask)[0]] = vector.array
 del vector
 print(f"assembly: {time.time() - tic:.2f}s")
 
-# --------------------------------------- cuda ----------------------------------------
+# ---------------------------------------- cuda ---------------------------------------
 cuda_source = (BASE_DIR / "../../../solvers/kernels/mlhp_kernels.cu").read_text()
 cuda_options = ("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()
 module = cp.RawModule(code=cuda_source, options=cuda_options)
@@ -170,7 +162,7 @@ print(f"GPU upload: {time.time() - tic:.3f}s")
 # ------------------------------------ cuda kernels -----------------------------------
 K_diag_gpu = cp.zeros(ndof, dtype=DTYPE)
 K_diag_kernel((grid,), (BLOCK,), (K_diag_gpu, efts_gpu, K_e_gpu, N_elems, ndof_e))
-K_diag_gpu[constrained_gpu] = 1.0  # identity rows on constrained dofs
+K_diag_gpu[constrained_gpu] = 1.0
 
 
 def get_Ku(u_gpu):
@@ -236,5 +228,5 @@ if D == 2:
     fig.colorbar(cb)
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.tight_layout(pad=0)
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.show()

@@ -1,4 +1,4 @@
-"""Shared building blocks for the structured-grid topology-optimization drivers."""
+"""MMA, structured-grid FEM, and filters shared by the topology optimization drivers."""
 
 import math
 
@@ -13,6 +13,13 @@ RAA0, ALBEFA = 1e-5, 0.1
 
 
 class MMA:
+    """method of moving asymptotes for one constraint, with a bisected dual subsolve.
+
+    `step(xval, f0val, df0dx, fval, dfdx)` returns the next (n, 1) design in [0, 1].
+
+    Reference: https://doi.org/10.1002/nme.1620240207
+    """
+
     def __init__(self, n, move=0.2):
         self.n = int(n)
         self.move = move
@@ -87,13 +94,10 @@ class MMA:
 
 
 class ReferenceMMA:
-    """mmapy's primal-dual interior-point MMA behind the same interface as MMA.
+    """mmapy's primal-dual interior-point MMA behind the interface of `MMA`.
 
-    Same call surface as :class:`MMA` -- ``__init__(n, move)`` and
-    ``step(xval, f0val, df0dx, fval, dfdx)`` returning an ``(n, 1)`` design -- but
-    defers the subproblem to ``mmapy.mmasub`` (the reference interior-point solver,
-    general over the number of constraints) so the two can be swapped to cross-check
-    a design. mmapy is imported lazily so it is needed only on this path.
+    Defers the subproblem to `mmapy.mmasub` so the two can be swapped to cross-check a
+    design; mmapy is imported lazily.
     """
 
     def __init__(self, n, move=0.2):
@@ -149,21 +153,19 @@ class ReferenceMMA:
 
 
 class _StructuredFEM:
-    """Shared structured-grid assembly core for the topology-optimization solvers.
+    """structured-grid assembly core shared by the topology optimization solvers.
 
-    Holds the dimension-agnostic grid<->element reshaping and the design-independent
-    free-dof sparsity, so a SIMP loop assembles by gather + segmented sum into fixed
-    CSC. Subclasses add the (real SPD or complex) factorization and solve. Physics
-    enters through preintegrated unit-material element matrices ``local_mats`` (shape
-    ``(n_sub, ndof_e, ndof_e)``) and grid-shaped coefficient fields the caller
-    interpolates. ``grid_shape`` may be 2D or 3D.
+    Holds the grid <-> element reshaping and the design-independent free-dof sparsity,
+    so a SIMP loop assembles by gather + segmented sum into a fixed CSC. Subclasses add
+    the factorization and solve. Physics enters through unit-material element matrices
+    `local_mats` of shape (n_sub, ndof_e, ndof_e) and grid-shaped coefficient fields.
 
     Args:
-        efts: element location maps, shape ``(n_elems, ndof_e)``.
+        efts: element location maps, shape (n_elems, ndof_e).
         free: indices of the unconstrained dofs.
         ndof: total number of dofs.
-        grid_shape: design-grid resolution per axis, e.g. ``(NX, NY)``.
-        sub_voxels: design sub-cells per element edge (same on every axis).
+        grid_shape: design-grid resolution per axis, 2D or 3D.
+        sub_voxels: design sub-cells per element edge.
     """
 
     def __init__(self, efts, free, ndof, grid_shape, sub_voxels=1):
@@ -236,14 +238,12 @@ class _StructuredFEM:
 
 
 class StructuredFEM(_StructuredFEM):
-    """Penalized real-SPD FEM assemble-and-solve on a structured grid, free dofs only.
+    """real SPD assemble-and-solve on a structured grid, backed by MKL pardiso.
 
-    Backed by MKL pardiso: it registers its analysis on the first assembled system
-    and only refactorizes as the design changes, so each SIMP step refreshes just the
-    matrix values. ``K_locals`` are the unit-material element matrices, so the same
-    object serves scalar (heat) and vector (elasticity) problems. Pardiso runs on MKL
-    threads, so drivers should pin OPENBLAS to one thread. See :class:`_StructuredFEM`
-    for the shared arguments.
+    Pardiso analyzes the sparsity once and only refactorizes as the design changes.
+    `K_locals` are the unit-material element matrices, so the same class serves heat
+    and elasticity. Pardiso runs on MKL threads, so drivers pin OPENBLAS to one thread.
+    See `_StructuredFEM` for the shared arguments.
     """
 
     def __init__(self, efts, free, ndof, K_locals, grid_shape, sub_voxels=1):
@@ -272,16 +272,11 @@ class StructuredFEM(_StructuredFEM):
 
 
 class CGStructuredFEM(_StructuredFEM):
-    """Drop-in :class:`StructuredFEM` variant solved with Jacobi-preconditioned CG.
+    """drop-in `StructuredFEM` variant solved with Jacobi-preconditioned CG.
 
-    Matrix-explicit but factorization-free: each design is assembled into the fixed
-    CSC and solved iteratively, warm-started from the previous design's solution.
-    ``use_cupy=False`` runs mlhp's CG with the scipy matvec wrapped as a linear
-    operator; ``use_cupy=True`` keeps one CSR copy on the GPU (refreshing only the
-    values, since the sparsity is design-independent) and solves with cupyx CG.
-    Iteration counts grow with the SIMP contrast ``E0/EMIN``, so the direct solvers
-    stay faster on small 2D problems. Single right-hand side only. See
-    :class:`StructuredFEM` for the shared arguments.
+    Factorization-free and warm-started from the previous design's solution; the
+    iteration count grows with the SIMP contrast, so the direct solvers stay faster on
+    small 2D problems. See `StructuredFEM` for the shared arguments.
 
     Args:
         use_cupy: solve on the GPU with cupyx CG instead of mlhp CG on the CPU.
@@ -371,16 +366,13 @@ class CGStructuredFEM(_StructuredFEM):
 
 
 class ComplexStructuredFEM(_StructuredFEM):
-    """Complex Helmholtz assemble-and-solve on a structured grid, backed by MKL pardiso.
+    """complex Helmholtz assemble-and-solve on a structured grid, backed by MKL pardiso.
 
-    The system ``S = a K + b M`` mixes a stiffness (K) and a mass (M) element matrix,
-    each scaled by its own per-voxel coefficient field, with ``b`` allowed complex
-    (e.g. a damped ``-(i omega eta + omega^2) kappa^-1``). Its sparsity is
-    design-independent, so pardiso analyzes it once and only refactorizes per design
-    (complex structurally symmetric). The constant ``dS/dvar`` operator is left to the
-    caller, who builds it from ``K_locals``/``M_locals`` and feeds it to
-    :meth:`bilinear` for the adjoint sensitivity. See :class:`_StructuredFEM` for the
-    shared arguments.
+    The system `S = a K + b M` mixes stiffness and mass element matrices, each scaled
+    by its own per-voxel coefficient field, with `b` allowed complex (damping). The
+    caller builds the constant `dS/dvar` from `K_locals` / `M_locals` and feeds it to
+    `bilinear` for the adjoint sensitivity. See `_StructuredFEM` for the shared
+    arguments.
     """
 
     def __init__(self, efts, free, ndof, K_locals, M_locals, grid_shape, sub_voxels=1):
@@ -408,11 +400,13 @@ class ComplexStructuredFEM(_StructuredFEM):
 
 
 class DensityFilter:
-    """Conic density filter on a structured 2D grid, with adjoint and OC variants.
+    """conic density filter of radius `rmin` on a 2D grid, with adjoint and OC variants.
 
-    Precomputes the radius-``rmin`` conic kernel and its normalization on a grid of
-    ``shape``. Works on NumPy arrays by default; pass ``xp=cupy`` (and optionally a
-    ``dtype``) to build and convolve on the GPU instead.
+    Pass `xp=cupy` (and optionally a `dtype`) to build and convolve on the GPU.
+
+    References:
+        https://doi.org/10.1007/s001580050176
+        https://doi.org/10.1002/nme.116
     """
 
     def __init__(self, rmin, shape, xp=np, dtype=None):
@@ -440,28 +434,34 @@ class DensityFilter:
     def adjoint(self, g):  # transpose of the filter, for the chain rule
         return self.ndi.convolve(g / self.Hs, self.kernel, mode="constant", cval=0.0)
 
-    def sensitivity(self, rho, dc):  # classic OC sensitivity filter (Sigmund 2001)
+    def sensitivity(self, rho, dc):  # classic OC sensitivity filter
         num = self.ndi.convolve(rho * dc, self.kernel, mode="constant", cval=0.0)
         return num / (self.xp.maximum(rho, 1e-3) * self.Hs)
 
 
 def simp(x, penal, v_min, v_max):
-    """Solid isotropic material with penalization: interpolate v_min to v_max."""
+    """solid isotropic material with penalization, interpolating v_min to v_max.
+
+    Reference: https://doi.org/10.1007/BF01650949
+    """
     return v_min + x**penal * (v_max - v_min)
 
 
 def dsimp(x, penal, v_min, v_max):
-    """Derivative of :func:`simp` with respect to ``x``."""
+    """derivative of `simp` with respect to x."""
     return penal * x ** (penal - 1) * (v_max - v_min)
 
 
 def projection(x, beta, eta):
-    """Smoothed Heaviside about threshold ``eta`` (NumPy or CuPy array ``x``)."""
+    """smoothed Heaviside projection about the threshold eta (NumPy or CuPy x).
+
+    Reference: https://doi.org/10.1007/s00158-010-0602-y
+    """
     a, b = math.tanh(beta * eta), math.tanh(beta * (1.0 - eta))
     return (a + np.tanh(beta * (x - eta))) / (a + b)
 
 
 def dprojection(x, beta, eta):
-    """Derivative of :func:`projection` with respect to ``x``."""
+    """derivative of `projection` with respect to x."""
     a, b = math.tanh(beta * eta), math.tanh(beta * (1.0 - eta))
     return beta * (1.0 - np.tanh(beta * (x - eta)) ** 2) / (a + b)

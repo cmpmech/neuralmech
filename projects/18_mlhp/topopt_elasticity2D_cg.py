@@ -34,7 +34,7 @@ LENGTHS = [4.0, 1.0]
 NX, NY = np.array(LENGTHS).astype(int) * 150
 SUB_VOXELS = 6
 DEGREE = 3
-QUAD_ORDER = DEGREE + 1  # integration
+QUAD_ORDER = DEGREE + 1
 
 # solver
 USE_CUPY = True  # False  # cupyx CG on the GPU instead of mlhp CG on the CPU
@@ -94,12 +94,12 @@ def face_dofs(face, ifield):
     return np.array(mlhp.combineDirichletDofs([bc])[0])
 
 
-symmetry = face_dofs(0, 0)  # left edge
+symmetry = face_dofs(0, 0)
 roller = np.intersect1d(face_dofs(2, 1), face_dofs(1, 1))  # bottom-right corner
 load_dof = np.intersect1d(face_dofs(3, 1), face_dofs(0, 1))  # top-left corner
 
 fixed = np.unique(np.concatenate([symmetry, roller]))
-free = np.setdiff1d(np.arange(ndof), fixed)  # all non-fixed dofs
+free = np.setdiff1d(np.arange(ndof), fixed)
 
 force = np.zeros(ndof)
 force[load_dof] = LOAD
@@ -111,7 +111,7 @@ fem = CGStructuredFEM(
 )
 
 
-def simp(rho):  # SIMP stiffness interpolation between void and solid
+def simp(rho):
     return EMIN + rho**PENAL * (E0 - EMIN)
 
 
@@ -131,11 +131,9 @@ for it in pbar:
     u[free] = fem.solve(simp(rho), force_free)
     compliance = force @ u
 
-    # compliance sensitivity, mapped back to the design grid
     dc = -PENAL * rho ** (PENAL - 1) * (E0 - EMIN) * fem.element_energy(u)
     dc = density_filter.sensitivity(rho, dc)
 
-    # optimality criterion update with bisection on the volume multiplier
     base = rho * np.maximum(0.0, -dc) ** DAMPING
     lo = np.maximum(0.0, rho - MOVE)
     hi = np.minimum(1.0, rho + MOVE)
@@ -188,7 +186,6 @@ if not args.book and not args.animate:
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         plt.show()
 
-# y-displacement evaluated on the thresholded structure (void left transparent)
 indicator_field = mlhp.scalarFieldFromVoxelData(
     mlhp.FloatVector(rho_thresh.ravel("C").astype(np.float32)),
     nvoxels=[NX, NY],

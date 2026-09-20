@@ -5,21 +5,20 @@ from torch import nn
 
 # ------------------------------- forward operator ------------------------------------
 def A_op(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-    """Masking forward operator: keep the measured pixels, zero the rest."""
+    """masking forward operator: keep the measured pixels, zero the rest."""
     return mask * x
 
 
 def At_op(y: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-    """Adjoint of the masking operator (A^T = A for a 0/1 mask)."""
+    """adjoint of the masking operator (A^T = A for a 0/1 mask)."""
     return mask * y
 
 
 def cg(A_fn, rhs: torch.Tensor, n_iter: int = 10, tol: float = 1e-6) -> torch.Tensor:
-    """Conjugate-gradient solve of A_fn(x) = rhs from x0 = 0, batched and differentiable.
+    """conjugate gradient solve of A_fn(x) = rhs from x = 0.
 
-    A_fn is any callable applying a symmetric positive-definite operator; kept
-    torch-native (rather than scipy) so it runs on the GPU, handles a batch at
-    once, and stays in the autograd graph for backprop through unrolled solvers.
+    Torch-native rather than scipy so it runs batched on the GPU and stays in the
+    autograd graph of an unrolled solver.
     """
     x = torch.zeros_like(rhs)
     r = rhs.clone()  # rhs - A_fn(0) = rhs
@@ -53,6 +52,14 @@ def cg_solve(
 
 # ------------------------------------ MoDL model -------------------------------------
 class MoDL(nn.Module):
+    """model-based deep learning: K unrolled denoise-then-data-consistency iterations.
+
+    The denoiser `D_w` is shared across all iterations; each data-consistency step
+    solves (A^T A + lam I) x = A^T b + lam D_w(x) by CG.
+
+    Reference: https://arxiv.org/abs/1712.02862
+    """
+
     def __init__(self, denoiser: nn.Module, K: int, lam: float, cg_iter: int):
         super().__init__()
         self.K = K
@@ -60,10 +67,10 @@ class MoDL(nn.Module):
         self.cg_iter = cg_iter
         self.D_w = denoiser
 
-    def forward(self, b, mask):  # K unrolled iterations
+    def forward(self, b, mask):
         x = b.clone()
         for _ in range(self.K):
-            z = self.D_w(x)  # D_w is shared across all K iterations
+            z = self.D_w(x)
             rhs = At_op(b, mask) + self.lam * z
             x = cg_solve(mask, rhs, self.lam, self.cg_iter)
         return x
@@ -80,10 +87,9 @@ def born_forward(
     c: float,
     pulse,
 ) -> np.ndarray:
-    """Born-approximation A-scans for one emitter: direct arrival + defect reflections.
+    """Born-approximation A-scans of one emitter: direct arrival and defect echoes.
 
-    `pulse` is a callable mapping time offsets to excitation amplitude. Returns an
-    array of shape (n_sensors, len(t)).
+    `pulse` maps time offsets to the excitation amplitude; returns (sensors, len(t)).
     """
     signals = np.zeros((len(sensor_positions), len(t)))
     for j, sensor_pos in enumerate(sensor_positions):
@@ -111,7 +117,7 @@ def das_backproject(
     t: np.ndarray,
     c: float,
 ) -> np.ndarray:
-    """Delay-and-sum backprojection of one emitter's A-scans onto the (NX, NY) grid."""
+    """delay-and-sum backprojection of one emitter's A-scans onto the (NX, NY) grid."""
     das = np.zeros((len(x), len(y)))
     for ix in range(len(x)):
         for iy in range(len(y)):

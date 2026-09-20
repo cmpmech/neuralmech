@@ -1,5 +1,8 @@
-# vendored from mlhp (MIT): solvers/mlhp_source/mlhp/src/python/mklwrapper.py
-# pure-python ctypes bindings to MKL pardiso/ilu/spmv
+# forked from mlhp's ctypes bindings to MKL pardiso/ilu/spmv (MIT, Philipp Kopp;
+# upstream now lives in solvers/mlhp_source/mlhp/src/python/mlhp/mkl.py). local
+# additions on top of the upstream version: scipy csr input (real and complex,
+# 64-bit indices), symmetricHalf override, refactorize() on a fixed sparsity, and
+# multiple right-hand sides
 
 import ctypes
 import glob
@@ -20,7 +23,7 @@ def loadMkl(*, mklRtPath=None, oneApiRoot=None, verbose=False):
         if verbose:
             print("loadMkl: " + message)
 
-    # Helper functions for oneAPI installation
+    # helper functions for oneAPI installation
     def findLibrary(folder):
         files = glob.glob(os.path.join(folder, "*mkl_rt.*.2"))
         printVerbose(f"Number of files matching: {len(files)}")
@@ -32,7 +35,7 @@ def loadMkl(*, mklRtPath=None, oneApiRoot=None, verbose=False):
         printVerbose(f"Looking in oneAPI root at {root}")
         return findLibrary(os.path.join(root, "mkl", "latest", "lib", "intel64"))
 
-    # Helper function for python mkl package
+    # helper function for python mkl package
     def findRecord(*args):
         directoryPath = os.path.join(*args, "mkl-*.dist-info")
         printVerbose(f"Searching at {directoryPath}")
@@ -49,7 +52,7 @@ def loadMkl(*, mklRtPath=None, oneApiRoot=None, verbose=False):
                     printVerbose(f"Found path: {filepath[0]}")
                     return filepath[0]
 
-    # Try to locate mkl_rt
+    # try to locate mkl_rt
     if path is None and oneApiRoot is not None:
         printVerbose("Checking oneApiRoot function argument")
         path = findOneApi(oneApiRoot)
@@ -90,14 +93,14 @@ class pardisoFactorize:
         self.messageLevel = ctypes.c_int64(messageLevel)
         self._setMatrix(matrix, symmetricHalf)
         self.iparm = (ctypes.c_int64 * 64)()
-        self.iparm[0] = 1  # Do not use default values
-        self.iparm[1] = 3  # Use parallel nested dissection with metis
-        self.iparm[9] = 8  # Pivoting perturbation: 10^-8
+        self.iparm[0] = 1  # do not use default values
+        self.iparm[1] = 3  # use parallel nested dissection with metis
+        self.iparm[9] = 8  # pivoting perturbation: 10^-8
         self.iparm[23] = (
-            1  # Parallel factorization control: 1->improved two-level factorization algorithm
+            1  # parallel factorization control: 1->improved two-level factorization algorithm
         )
-        self.iparm[26] = 0  # Do not perform matrix consistency check
-        self.iparm[34] = 1  # Zero-based indexing
+        self.iparm[26] = 0  # do not perform matrix consistency check
+        self.iparm[34] = 1  # zero-based indexing
         self._callPardiso(12)
 
     def _setMatrix(self, matrix, symmetricHalf=None):
@@ -144,7 +147,7 @@ class pardisoFactorize:
         x = ctypes.cast(0 if rhs is None else solution, ctypes.POINTER(ctypes.c_double))
 
         self.mkl.pardiso_64(
-            self.pt,  # pt        Internal data structure
+            self.pt,  # pt        internal data structure
             ctypes.byref(
                 ctypes.c_int64(1)
             ),  # maxfact   Number of matrix factorizations

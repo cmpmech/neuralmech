@@ -5,34 +5,25 @@ from scipy.integrate import solve_ivp
 
 def _rotation(angle):
     """2D rotation matrix for a counter-clockwise angle (sympy expression)."""
-    return sp.Matrix([[sp.cos(angle), -sp.sin(angle)],
-                      [sp.sin(angle), sp.cos(angle)]])
+    return sp.Matrix([[sp.cos(angle), -sp.sin(angle)], [sp.sin(angle), sp.cos(angle)]])
 
 
 class PlanarMultibody:
-    """Planar rigid-body dynamics of an open kinematic tree.
+    """planar rigid-body dynamics of an open kinematic tree.
 
-    Each body carries one generalized coordinate set by the joint that connects
-    it to its parent: a revolute angle or a prismatic slide. The Lagrangian is
-    built symbolically from the forward kinematics and reduced to the manipulator
-    form ``M(q) qdd = b(q, qd) + Q`` via the Euler-Lagrange equations; the mass
-    matrix and bias term are lambdified to NumPy and integrated with scipy.
-
-    A triple pendulum is three revolute bodies in a chain. A cart-pole is a
-    prismatic cart carrying a revolute pole, with the generalized force ``Q``
-    driving the cart coordinate.
+    Each body carries one generalized coordinate, a revolute angle or a prismatic
+    slide relative to its parent. The Lagrangian is built symbolically from the forward
+    kinematics and reduced to `M(q) qdd = b(q, qd) + Q`, then lambdified to NumPy and
+    integrated with scipy. A triple pendulum is three revolute bodies in a chain; a
+    cart-pole is a prismatic cart carrying a revolute pole.
 
     Args:
-        bodies: list of body specs, in topological order (a parent precedes its
-            children). Each is a dict with keys:
-            ``parent`` (int index of the inboard body, or ``None`` for ground),
-            ``joint`` (``"revolute"`` or ``"prismatic"``),
-            ``anchor`` (joint location ``(x, y)`` in the parent body frame),
-            ``axis`` (slide direction ``(x, y)`` in the parent frame, prismatic
-            only), ``com`` (center-of-mass offset ``(x, y)`` in this body frame
-            from its joint origin), ``mass`` (float), and ``inertia`` (float
-            about the COM; ``0`` for a point mass).
-        g: gravitational acceleration, acting along ``-y``.
+        bodies: body dicts in topological order (parents first) with keys `parent`
+            (index, or None for ground), `joint` ("revolute" or "prismatic"), `anchor`
+            (joint location in the parent frame), `axis` (slide direction in the
+            parent frame, prismatic only), `com` (offset from the joint in the body
+            frame), `mass`, and `inertia` (about the COM, 0 for a point mass).
+        g: gravitational acceleration along -y.
     """
 
     def __init__(self, bodies: list[dict], g: float = 9.81):
@@ -45,8 +36,8 @@ class PlanarMultibody:
         qdd = sp.Matrix(sp.symbols(f"qdd0:{n}", real=True))
 
         origins = [None] * n  # inboard-joint location of each body (world frame)
-        phis = [None] * n     # absolute orientation of each body
-        coms = [None] * n     # center-of-mass location of each body (world frame)
+        phis = [None] * n  # absolute orientation of each body
+        coms = [None] * n  # center-of-mass location of each body (world frame)
 
         T = sp.Integer(0)
         V = sp.Integer(0)
@@ -99,24 +90,22 @@ class PlanarMultibody:
         q_syms, qd_syms = list(q), list(qd)
         self._mass_matrix = sp.lambdify((q_syms, qd_syms), M_sym, "numpy")
         self._bias = sp.lambdify((q_syms, qd_syms), b_sym, "numpy")
-        self._origins = sp.lambdify((q_syms,), sp.Matrix.vstack(*[o.T for o in origins]), "numpy")
-        self._coms = sp.lambdify((q_syms,), sp.Matrix.vstack(*[c.T for c in coms]), "numpy")
+        self._origins = sp.lambdify(
+            (q_syms,), sp.Matrix.vstack(*[o.T for o in origins]), "numpy"
+        )
+        self._coms = sp.lambdify(
+            (q_syms,), sp.Matrix.vstack(*[c.T for c in coms]), "numpy"
+        )
 
     def solve(self, q0, qd0, T: float, dt: float, Q=None):
-        """Integrate the equations of motion from an initial state.
+        """integrate the equations of motion from (q0, qd0) to time T.
+
+        Returns t of shape (steps,) and q of shape (steps, n).
 
         Args:
-            q0: initial generalized coordinates, one per body.
-            qd0: initial generalized velocities.
-            T: end time.
             dt: spacing of the returned samples.
-            Q: optional ``Q(t, q, qd) -> array(n)`` of generalized forces
-                (actuation, joint damping). For a prismatic cart the generalized
-                force equals the physical force on the cart. Defaults to zero.
-
-        Returns:
-            ``(t, q)`` with ``t`` of shape ``(steps,)`` and ``q`` of shape
-            ``(steps, n)``.
+            Q: optional generalized forces `Q(t, q, qd) -> (n,)`, e.g. actuation or
+                joint damping; for a prismatic cart this is the force on the cart.
         """
         q0 = np.asarray(q0, dtype=float)
         qd0 = np.asarray(qd0, dtype=float)
@@ -125,27 +114,28 @@ class PlanarMultibody:
 
         def rhs(t, y):
             q, qd = y[: self.n], y[self.n :]
-            M = np.asarray(self._mass_matrix(q, qd), dtype=float).reshape(self.n, self.n)
+            M = np.asarray(self._mass_matrix(q, qd), dtype=float).reshape(
+                self.n, self.n
+            )
             b = np.asarray(self._bias(q, qd), dtype=float).reshape(self.n)
             qdd = np.linalg.solve(M, b + np.asarray(Q(t, q, qd), dtype=float))
             return np.concatenate([qd, qdd])
 
         steps = int(np.ceil(T / dt))
         t_eval = np.linspace(0, dt * steps, steps + 1)
-        sol = solve_ivp(rhs, (0, t_eval[-1]), np.concatenate([q0, qd0]),
-                        t_eval=t_eval, method="DOP853", rtol=1e-10, atol=1e-10)
+        sol = solve_ivp(
+            rhs,
+            (0, t_eval[-1]),
+            np.concatenate([q0, qd0]),
+            t_eval=t_eval,
+            method="DOP853",
+            rtol=1e-10,
+            atol=1e-10,
+        )
         return sol.t, sol.y[: self.n].T
 
     def forward_kinematics(self, q):
-        """World-frame joint origins and centers of mass for a configuration.
-
-        Args:
-            q: generalized coordinates, one per body.
-
-        Returns:
-            ``(origins, coms)``, each of shape ``(n, 2)``. ``origins[i]`` is the
-            inboard joint of body ``i`` and ``coms[i]`` its center of mass.
-        """
+        """world-frame joint origins and centers of mass, each of shape (n, 2)."""
         q = np.asarray(q, dtype=float)
         origins = np.asarray(self._origins(q), dtype=float).reshape(self.n, 2)
         coms = np.asarray(self._coms(q), dtype=float).reshape(self.n, 2)

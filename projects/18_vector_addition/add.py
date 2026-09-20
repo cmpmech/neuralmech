@@ -1,29 +1,34 @@
-import cupy as cp
 import time
+from pathlib import Path
 
-parallel = True
-# parallel = False
+import cupy as cp
 
-if parallel == True:
-    add_kernel = cp.RawKernel(open('add.cu').read(), 'addParallel')
-else:
-    add_kernel = cp.RawKernel(open('add.cu').read(), 'addSerial')
+BASE_DIR = Path(__file__).parent
 
+# -------------------------------------- settings -------------------------------------
+PARALLEL = True  # False runs the same addition in a single thread
 N = int(1e6)
-x = cp.random.uniform(-1,1, N, dtype=cp.float32)
-y = cp.random.uniform(-1,1, N, dtype=cp.float32)
-z = cp.zeros(N, dtype=cp.float32)
+THREADS = 1024
 
-if parallel == True:
-    threads = (1024,)
-    blocks = ((N + threads[0] - 1) // threads[0],)
+# --------------------------------------- setup ---------------------------------------
+source = (BASE_DIR / "add.cu").read_text()
+if PARALLEL:
+    add_kernel = cp.RawKernel(source, "addParallel")
+    threads = (THREADS,)
+    blocks = ((N + THREADS - 1) // THREADS,)
 else:
+    add_kernel = cp.RawKernel(source, "addSerial")
     threads = (1,)
     blocks = (1,)
 
+x = cp.random.uniform(-1, 1, N, dtype=cp.float32)
+y = cp.random.uniform(-1, 1, N, dtype=cp.float32)
+z = cp.zeros(N, dtype=cp.float32)
+
+# --------------------------------------- solve ---------------------------------------
 cp.cuda.Stream.null.synchronize()
 tic = time.time()
-add_kernel(blocks, threads,(x, y, z, N))
+add_kernel(blocks, threads, (x, y, z, N))
 cp.cuda.Stream.null.synchronize()
 toc = time.time()
-print(f'elapsed time: {(toc-tic) * 1e3:.2f}ms')
+print(f"elapsed time {(toc - tic) * 1e3:.2f} ms")

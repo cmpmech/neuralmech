@@ -8,15 +8,15 @@ import numpy as np
 import scipy.sparse.linalg
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../../data"
-RESULTS_DIR = BASE_DIR / "../../../results/3D"
+DATA_DIR = (BASE_DIR / "../../../data").resolve()
+RESULTS_DIR = (BASE_DIR / "../../../results/3D").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dim", type=int, default=2, choices=[2, 3])
 parser.add_argument("--ct", type=str, default=None)
 args = parser.parse_args()
 
-# -------------------------------- simulation settings --------------------------------
+# -------------------------------------- settings -------------------------------------
 D = args.dim
 
 DEGREE = 1
@@ -97,7 +97,6 @@ K_local_diag = np.diag(K_local)
 print(f"preintegration: {time.time() - tic:.2f}s")
 # -------------------------------------- assembly -------------------------------------
 tic = time.time()
-# allocateSparseMatrix is only needed to size the condensed vector: it is never filled
 matrix = mlhp.allocateSparseMatrix(basis, dirichlet[0])
 vector = mlhp.allocateRhsVector(matrix)
 del matrix
@@ -187,5 +186,5 @@ if D == 2:
     fig.colorbar(cb)
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.tight_layout(pad=0)
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.show()

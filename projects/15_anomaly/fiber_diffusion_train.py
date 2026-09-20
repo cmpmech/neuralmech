@@ -177,7 +177,7 @@ for epoch in pbar:
         nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
         optimizer.step()
         train_cost[epoch] += cost.item()
-    train_cost[epoch] /= len(train_loader)  # avg per batch
+    train_cost[epoch] /= len(train_loader)
     scheduler.step()
 
     model.eval()

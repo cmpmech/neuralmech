@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 import matplotlib.cm as cm
@@ -8,106 +9,101 @@ import torch
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
+DATA_DIR = (BASE_DIR / "../../data").resolve()
+MODEL_DIR = (BASE_DIR / "../../models").resolve()
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 
-# ------------------------------ load data -------------------------------
-domain_size = 128
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+args = parser.parse_args()
 
-labels = ["circle", "ellipse", "square", "triangle", "cross", "star"]
+# -------------------------------------- settings -------------------------------------
+DOMAIN_SIZE = 128
+LABELS = ["circle", "ellipse", "square", "triangle", "cross", "star"]
+BETA = 0.05  # 0.0 reconstructs best, 0.2 gives the tidiest latent space
+SAMPLING_STEPS = 5  # draws per shape from the encoded distribution
+SAMPLESX = 6
+SAMPLESY = 6
+
+# ------------------------------------- load data -------------------------------------
 data = []
-for label in labels:
-    data.append(
-        torch.from_numpy(
-            np.load(BASE_DIR / f"../../data/shapes_{label}_{domain_size}.npy")
-        )
-    )
-    data[-1] = data[-1].to(torch.float32).unsqueeze(1).to(device)
+for label in LABELS:
+    shapes = np.load(DATA_DIR / f"shapes_{label}_{DOMAIN_SIZE}.npy")
+    data.append(torch.from_numpy(shapes).to(torch.float32).unsqueeze(1).to(device))
 
-# -------------------------- load trained model --------------------------
-# beta = 0.0
-beta = 0.05
-# beta = 0.2
-
+# ------------------------------------- load model ------------------------------------
 model = torch.load(
-    BASE_DIR / f"../../models/shape_vae_2_{beta}_{domain_size}.pt2",
+    MODEL_DIR / f"shape_vae_2_{BETA}_{DOMAIN_SIZE}.pt2",
     weights_only=False,
     map_location=device,
 )
 model.eval()
 standardizex = model.standardizer
 
-# ----------------------- latent space projection ------------------------
-sampling_steps = 5
-
+# --------------------------------- latent space walk ---------------------------------
 latents = []
 with torch.no_grad():
     for shape in data:
         latent = []
-        for _ in range(sampling_steps):
+        for _ in range(SAMPLING_STEPS):
             distributions = model.encode(standardizex(shape))
             mean, logvar = torch.chunk(distributions, chunks=2, dim=1)
             std = torch.exp(0.5 * logvar)
             latent.append(mean + torch.randn_like(std) * std)
         latents.append(torch.cat(latent, 0).cpu())
 
-# ------------------------ latent space sampling -------------------------
-samplesx = 6
-samplesy = 6
-x = torch.linspace(-1.0, 1.0, samplesx)  # TODO CHECK
-y = torch.linspace(-1.0, 1.0, samplesy)
+x = torch.linspace(-1.0, 1.0, SAMPLESX)
+y = torch.linspace(-1.0, 1.0, SAMPLESY)
 x, y = torch.meshgrid(x, y, indexing="ij")
 z = torch.cat([x.reshape(-1, 1), y.reshape(-1, 1)], dim=1).to(device)
 
 with torch.no_grad():
     gen_shapes = standardizex.inverse(model.decode(z))
-gen_shapes = gen_shapes.reshape(*x.shape, domain_size, domain_size)
+gen_shapes = gen_shapes.reshape(*x.shape, DOMAIN_SIZE, DOMAIN_SIZE).cpu()
 
-# ---------------------------- postprocessing ----------------------------
-colors = cm.tab10(np.linspace(0, 1, len(latents)))
+# ----------------------------------- postprocessing ----------------------------------
+if not args.book:
+    colors = cm.tab10(np.linspace(0, 1, len(latents)))
 
-fig, ax = plt.subplots()
-for i, latent in enumerate(latents):
-    ax.plot(latent[:, 0], latent[:, 1], "o", color=colors[i])
-ax.plot(x.flatten(), y.flatten(), "k.")
-ax.set_aspect("equal")
-plt.show()
+    fig, ax = plt.subplots()
+    for i, latent in enumerate(latents):
+        ax.plot(latent[:, 0], latent[:, 1], "o", color=colors[i])
+    ax.plot(x.flatten(), y.flatten(), "k.")
+    ax.set_aspect("equal")
 
-
-fig, ax = plt.subplots(samplesy, samplesx, figsize=(samplesx, samplesy))
-for i in range(samplesx):
-    for j in range(samplesy):
-        ax[j, i].imshow(
-            gen_shapes[i, j].T.cpu(), cmap="binary", origin="lower", vmin=0, vmax=1
+    fig, ax = plt.subplots(SAMPLESY, SAMPLESX, figsize=(SAMPLESX, SAMPLESY))
+    for i in range(SAMPLESX):
+        for j in range(SAMPLESY):
+            ax[j, i].imshow(
+                gen_shapes[i, j].T, cmap="binary", origin="lower", vmin=0, vmax=1
+            )
+            ax[j, i].set_aspect("equal")
+            ax[j, i].axis("off")
+            ax[j, i].set_rasterized(True)
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    plt.show()
+# -------------------------------- book postprocessing --------------------------------
+else:
+    for label, latent in zip(LABELS, latents):
+        save_csv(
+            CSV_DIR / f"shapes_vae_latent_{BETA}_{label}.csv",
+            x=latent[:, 0],
+            y=latent[:, 1],
         )
-        ax[j, i].set_aspect("equal")
-        ax[j, i].axis("off")
-        ax[j, i].set_rasterized(True)
-fig.tight_layout(pad=0)
-plt.show()
 
-# ------------------------- book postprocessing --------------------------
-for label, latent in zip(labels, latents):
-    save_csv(
-        BASE_DIR / f"../../results/data/shapes_vae_latent_{beta}_{label}.csv",
-        x=latent[:, 0],
-        y=latent[:, 1],
-    )
-
-for i in range(samplesx):
-    for j in range(samplesy):
-        fig, ax = plt.subplots(figsize=(1, 1), dpi=domain_size)
-        ax.imshow(
-            gen_shapes[i, j].cpu().T, cmap="binary", origin="lower", vmin=0, vmax=1
-        )
-        ax.set_aspect("equal")
-        ax.axis("off")
-        ax.set_rasterized(True)
-        fig.tight_layout(pad=0)
-        plt.savefig(
-            BASE_DIR / f"../../results/rgb_pdf/genshapes_vae_{beta}_{i}{j}.pdf",
-            bbox_inches="tight",
-            pad_inches=0,
-        )
-        plt.close()
+    for i in range(SAMPLESX):
+        for j in range(SAMPLESY):
+            fig, ax = plt.subplots(figsize=(1, 1), dpi=DOMAIN_SIZE)
+            ax.imshow(gen_shapes[i, j].T, cmap="binary", origin="lower", vmin=0, vmax=1)
+            ax.set_aspect("equal")
+            ax.axis("off")
+            ax.set_rasterized(True)
+            fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+            plt.savefig(RGB_PDF_DIR / f"genshapes_vae_{BETA}_{i}{j}.pdf")
+            plt.close(fig)

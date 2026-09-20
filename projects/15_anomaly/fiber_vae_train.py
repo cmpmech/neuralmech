@@ -151,7 +151,7 @@ for epoch in pbar:
         cost.backward()
         optimizer.step()
         train_cost[epoch] += recon.item()
-    train_cost[epoch] /= len(train_loader)  # avg per batch
+    train_cost[epoch] /= len(train_loader)
     scheduler.step()
 
     model.eval()
@@ -161,7 +161,7 @@ for epoch in pbar:
         cost, recon, kl = cost_fun(x_pred, mean_pred, logvar_pred, x)
     val_cost[epoch] = recon.item()
     val_rate[epoch] = kl.item()
-    if cost.item() < best_cost:  # best model export
+    if cost.item() < best_cost:
         best_cost = cost.item()
         best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
 
@@ -224,15 +224,14 @@ x_recon = standardizex.inverse(x_pred.cpu()) >= THRESHOLD
 x_normal = standardizex.inverse(x_normal.cpu()).clamp(0, 1)
 x_learned = standardizex.inverse(x_learned.cpu()).clamp(0, 1)
 
-# the intersection over union is read on the fibers alone
 intersection = (x_recon * X_val).sum(dim=(1, 2, 3))
 union = ((x_recon + X_val) >= 1).sum(dim=(1, 2, 3))
 iou = (intersection / union).mean()
 print(f"iou {iou:.3f}")
 
 # --------------------------------------- export --------------------------------------
-model.standardizer = standardizex  # just for saving
-model.prior = prior  # a sample is decode(standardizez.inverse(prior.decode(randn)))
+model.standardizer = standardizex
+model.prior = prior
 model.standardizez = standardizez
 torch.save(model, MODEL_DIR / f"fiber_vae_{LATENT}_{BETA}_{RESOLUTION}.pt2")
 

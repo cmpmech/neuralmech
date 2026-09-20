@@ -5,6 +5,7 @@ from torch import nn
 
 torch.manual_seed(1)
 torch.backends.cudnn.deterministic = True
+device = torch.device("cpu")  # faster on cpu, because the networks are small
 
 # -------------------------------------- settings -------------------------------------
 # problem
@@ -36,7 +37,7 @@ f = lambda x: (
 )
 
 
-# --------------------------------------- models --------------------------------------
+# --------------------------------------- model ---------------------------------------
 class MLP(nn.Module):
     def __init__(self, layers, activations, init, gain):
         super().__init__()
@@ -52,15 +53,14 @@ class MLP(nn.Module):
                 nn.init.constant_(module.bias, 0)
 
         self.correction = 0
-        self.input = torch.randn(layers[0]).unsqueeze(0)
+        self.register_buffer("input", torch.randn(layers[0]).unsqueeze(0))
         with torch.no_grad():
-            self.correction = init - self.forward()  # start at initial guess
+            self.correction = init - self.forward()
 
     def forward(self):
         return self.model(self.input).squeeze() + self.correction
 
     def amplification(self):
-        # gradient descent displaces x by lr * |dx/dtheta|^2
         self.zero_grad()
         self.forward().backward()
         norm = sum((p.grad**2).sum() for p in self.parameters())
@@ -93,16 +93,16 @@ def optimize(model, lr, epochs):
 
 
 # ------------------------------------ optimization -----------------------------------
-model = Linear(GUESS)
+model = Linear(GUESS).to(device)
 history_linear = optimize(model, LR, EPOCHS)
 
 step = 4.7e-2
-model = MLP(LAYERS, ACTIVATIONS, GUESS, GAIN)
+model = MLP(LAYERS, ACTIVATIONS, GUESS, GAIN).to(device)
 history_mlp = optimize(model, step / model.amplification(), EPOCHS)
 
 ys_mlp = np.zeros(SEEDS)
 for seed in range(SEEDS):
-    model = MLP(LAYERS, ACTIVATIONS, GUESS, GAIN)
+    model = MLP(LAYERS, ACTIVATIONS, GUESS, GAIN).to(device)
     ys_mlp[seed] = optimize(model, step / model.amplification(), EPOCHS)[-1, 0]
 
 

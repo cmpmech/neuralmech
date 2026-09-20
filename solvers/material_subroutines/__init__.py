@@ -1,10 +1,9 @@
 """mlhp user-material subroutines written in C and compiled at runtime with cffi.
 
-Each module holds one material law as a C source string plus a ``build()`` that
-compiles it through :func:`build_subroutine` and returns the loaded library
-exposing its callbacks as integer function pointers for
-``mlhp.constitutiveEquation`` (and ``mlhp.meshFunctionStrainUpdate`` where the
-law carries history).
+Each module holds one material law as a C source string plus a `build()` returning
+the loaded library, whose callbacks are handed to `mlhp.constitutiveEquation` (and
+`mlhp.meshFunctionStrainUpdate` where the law carries history) as integer function
+pointers.
 """
 
 import importlib
@@ -15,14 +14,14 @@ import cffi
 
 
 def build_subroutine(name, source, symbols, tmpdir=None):
-    """Compile a C subroutine with cffi and return the loaded library.
+    """compile a C subroutine with cffi and return the loaded library.
 
     Args:
-        name: extension module name, e.g. ``"_j2_subroutine"``.
-        source: the C source exposing each symbol as
-            ``const unsigned long long <symbol> = (unsigned long long)&fn;``.
-        symbols: the exported address symbols, e.g. ``["material_address"]``.
-        tmpdir: build directory (defaults to ``_build`` next to this package).
+        name: extension module name, e.g. "_j2_subroutine".
+        source: C source exposing each symbol as
+            `const unsigned long long <symbol> = (unsigned long long)&fn;`.
+        symbols: exported address symbols, e.g. ["material_address"].
+        tmpdir: build directory; defaults to `_build` next to this package.
     """
     tmpdir = Path(tmpdir) if tmpdir else Path(__file__).parent / "_build"
     tmpdir.mkdir(parents=True, exist_ok=True)

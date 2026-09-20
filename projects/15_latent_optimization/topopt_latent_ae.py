@@ -62,11 +62,11 @@ ITERS = 600
 LR = 3e-1
 ALPHA = -0.5
 BETA = 0.1
-CLIP = 0.1  # gradient-norm clipping
+CLIP = 0.1
 
 # postprocessing
 THRESHOLD = 0.5
-DUMP_TAG = "default"  # names the dump figure, bump it per experiment
+DUMP_TAG = "default"
 
 # --------------------------- instantiate model & optimizer ---------------------------
 model = torch.load(
@@ -86,7 +86,7 @@ def forward():
     return (1.0 - fibers).clamp(0.0, 1.0)
 
 
-rho_init = forward()[0, 0].detach().cpu().numpy()  # decoded starting design
+rho_init = forward()[0, 0].detach().cpu().numpy()
 
 optimizer = torch.optim.Adam([latent], lr=LR)
 scheduler = torch.optim.lr_scheduler.LambdaLR(
@@ -102,7 +102,6 @@ basis = mlhp.makeHpTensorSpace(mesh, degree=DEGREE, nfields=2)
 ndof = basis.ndof()
 efts = np.array(basis.locationMaps())
 
-# all elements are identical, so one reference element is preintegrated and reused
 mesh_local = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1, 1], lengths=elem_lengths))
 basis_local = mlhp.makeHpTensorSpace(mesh_local, degree=DEGREE, nfields=2)
 
@@ -127,7 +126,7 @@ def face_dofs(face, ifield):
     return np.array(mlhp.combineDirichletDofs([bc])[0])
 
 
-symmetry = face_dofs(0, 0)  # left edge
+symmetry = face_dofs(0, 0)
 roller = np.intersect1d(face_dofs(2, 1), face_dofs(1, 1))  # bottom-right corner
 load_dof = np.intersect1d(face_dofs(3, 1), face_dofs(0, 1))  # top-left corner
 
@@ -142,11 +141,10 @@ fem = StructuredFEM(efts, free, ndof, K_locals, (RESOLUTION, RESOLUTION), SUB_VO
 density_filter = DensityFilter(RMIN, (RESOLUTION, RESOLUTION))
 
 
-def simp(rho):  # simp stiffness interpolation between void and solid
+def simp(rho):
     return EMIN + rho**PENAL * (E0 - EMIN)
 
 
-# compliance of the decoded starting design, the yardstick for the optimization
 u_init = np.zeros(ndof)
 u_init[free] = fem.solve(simp(rho_init), force_free)
 compliance_init = force @ u_init
@@ -167,23 +165,17 @@ for it in pbar:
     u[free] = fem.solve(simp(rho), force_free)
     compliance = force @ u
     if compliance0 is None:
-        compliance0 = compliance  # normalise the compliance sensitivity once
+        compliance0 = compliance
 
-    # compliance sensitivity on the design grid, then the classic sensitivity filter
     dc = -PENAL * rho ** (PENAL - 1) * (E0 - EMIN) * fem.element_energy(u)
     dc = density_filter.sensitivity(rho, dc)
 
-    # volume constraint g = mean_rho / VOLFRAC - 1 <= 0, enforced by an augmented
-    # lagrangian: the penalty pulls the design in, the multiplier holds it there. the
-    # weight is clipped at zero, so an inactive constraint does not push material back
     mean_rho = rho.mean()
     g = mean_rho / VOLFRAC - 1
     dg = 1 / (VOLFRAC * RESOLUTION**2)
     weight = max(0.0, multiplier + PENALTY * g)
     sensitivity = dc / compliance0 + weight * dg
 
-    # the sensitivity is the incoming gradient of rho, so backpropagation through the
-    # decoder turns it into a gradient on the latent code
     optimizer.zero_grad()
     sensitivity = torch.from_numpy(sensitivity).reshape(1, 1, RESOLUTION, RESOLUTION)
     rho_pred.backward(sensitivity.to(device))
@@ -220,7 +212,6 @@ print(
 )
 
 # ---------------------------------------- dump ---------------------------------------
-# annotated side by side of the final and thresholded design, one file per experiment
 DUMP_DIR.mkdir(parents=True, exist_ok=True)
 fig, axes = plt.subplots(1, 2, figsize=(8, 4.4), dpi=150)
 for ax, field in zip(axes, (rho, rho_thresh)):

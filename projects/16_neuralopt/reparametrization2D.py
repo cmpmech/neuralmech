@@ -6,6 +6,7 @@ from torch import nn
 
 torch.manual_seed(1)
 torch.backends.cudnn.deterministic = True
+device = torch.device("cpu")  # faster on cpu, because the networks are small
 
 # -------------------------------------- settings -------------------------------------
 # problem
@@ -72,7 +73,7 @@ RANGE_X = [-2.0, 4.0] if BENCHMARK == "rosenbrock" else [-3.5, 3.5]
 RANGE_Y = [-1.0, 5.0] if BENCHMARK == "rosenbrock" else [-3.5, 3.5]
 
 
-# --------------------------------------- models --------------------------------------
+# --------------------------------------- model ---------------------------------------
 class MLP(nn.Module):
     def __init__(self, layers, activations, init):
         super().__init__()
@@ -88,10 +89,10 @@ class MLP(nn.Module):
                 nn.init.constant_(module.bias, 0)
 
         self.correction = 0
-        self.input = torch.rand(layers[0]).unsqueeze(0) * 2 - 1
+        self.register_buffer("input", torch.rand(layers[0]).unsqueeze(0) * 2 - 1)
         guess = torch.tensor(init)
         with torch.no_grad():
-            self.correction = guess - self.forward()  # start at initial guess
+            self.correction = guess - self.forward()
 
     def forward(self):
         return self.model(self.input).squeeze(0) + self.correction
@@ -109,7 +110,7 @@ class Linear(nn.Module):
 # --------------------------------------- helper --------------------------------------
 def optimize(model, lr, epochs):
     optimizer = OPTIMIZER(model.parameters(), lr=lr)
-    history = np.zeros((epochs, 3))  # x, y, f(x, y)
+    history = np.zeros((epochs, 3))
     for epoch in range(epochs):
         optimizer.zero_grad()
         x = model()
@@ -122,20 +123,17 @@ def optimize(model, lr, epochs):
 
 
 # ------------------------------------ optimization -----------------------------------
-# linear (normal)
-model = Linear(GUESS)
+model = Linear(GUESS).to(device)
 history_linear = optimize(model, LR_LINEAR, EPOCHS)
 
-# mlp, rerun over SEEDS initializations; the first carries the plotted path
 costs_mlp = np.zeros(SEEDS)
 for seed in range(SEEDS):
-    model = MLP(LAYERS, ACTIVATIONS, GUESS)
+    model = MLP(LAYERS, ACTIVATIONS, GUESS).to(device)
     history = optimize(model, LR_MLP, EPOCHS)
     costs_mlp[seed] = history[-1, 2]
     if seed == 0:
         history_mlp = history
 
-# a fixed rate can still diverge on some initializations
 finite = np.isfinite(costs_mlp)
 cost_linear = history_linear[-1, 2]
 
@@ -165,7 +163,6 @@ ax[0].set_xlim(RANGE_X[0], RANGE_X[1])
 ax[0].set_ylim(RANGE_Y[0], RANGE_Y[1])
 ax[0].set_aspect("equal", adjustable="box")
 
-# the costs span decades, so bin them logarithmically
 floor = 1e-12
 edges = np.concatenate([costs_mlp[finite], [cost_linear]]).clip(floor)
 bins = np.logspace(np.log10(edges.min()), np.log10(edges.max()), 41)

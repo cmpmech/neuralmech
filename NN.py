@@ -24,7 +24,7 @@ def get_layer_param(param, i):  # in case param is a list
 
 
 class Passthrough(nn.Module):
-    """Identity that ignores extra forward arguments (a conditioned ``nn.Identity``)."""
+    """identity that ignores extra forward arguments (a conditioned `nn.Identity`)."""
 
     def forward(self, x: torch.Tensor, *args) -> torch.Tensor:
         return x
@@ -34,31 +34,20 @@ class Passthrough(nn.Module):
 
 
 class MLP(nn.Module):
-    """Multi-layer perceptron (fully connected feedforward network).
+    """multilayer perceptron.
 
-    Each linear map is wrapped with optional ``pre_modules`` (applied before it) and
-    ``post_modules`` (applied after it). Normalization, activation, dropout, and any
-    other layer are passed in as plain modules through these two slots, so the network
-    never needs to know what kind of module it is handling and any ordering can be
-    expressed (e.g. moving normalization + activation into ``pre_modules`` gives a
-    pre-activation block).
-
-    Suggested ordering:
-        pre_modules[i]   normalization -> activation   (pre-activation / pre-norm
-                         blocks only; usually omitted)
-        Linear(layers[i], layers[i + 1])
-        post_modules[i]  normalization -> activation -> dropout   (the common
-                         post-activation block; activations live here by default)
+    Each linear map is wrapped by optional `pre_modules` (applied before it) and
+    `post_modules` (applied after it). Normalization, activation, and dropout are
+    passed in as plain modules through these two slots, so any ordering can be
+    expressed; the usual post-activation block is `[norm, activation, dropout]` in
+    `post_modules`.
 
     Args:
-        layers: Sizes of each layer. Example: [784, 256, 10] builds Linear(784, 256)
-            then Linear(256, 10).
-        post_modules: Per-layer modules inserted after each linear map. Entry i is None
-            (skip), a single nn.Module, or a list of modules applied in order. Lists
-            shorter than the number of layers are padded with None. Activations belong
-            here unless a pre-activation block is wanted.
-        pre_modules: Per-layer modules inserted before each linear map, same element
-            format as post_modules. Typically left empty.
+        layers: layer sizes, e.g. [784, 256, 10] builds Linear(784, 256) and
+            Linear(256, 10).
+        post_modules: per-layer entry of None, a module, or a list of modules applied
+            in order after the linear map. Shorter lists are padded with None.
+        pre_modules: same format, applied before the linear map. Usually omitted.
     """
 
     def __init__(
@@ -85,34 +74,20 @@ class MLP(nn.Module):
 
 
 class DCN(nn.Module):
-    """Deep convolutional network supporting 1D, 2D, or 3D convolutions.
+    """deep convolutional network with 1D, 2D, or 3D convolutions.
 
-    Each convolution is wrapped with optional ``pre_modules`` (applied before it) and
-    ``post_modules`` (applied after it); see ``MLP`` for the slot mechanism.
-    Resampling, normalization, and activation are passed in as plain modules, so any
-    ordering can be expressed (e.g. normalize before the conv by putting the norm in
-    ``pre_modules``).
-
-    Suggested ordering:
-        pre_modules[i]   resampling (Upsample / pooling); or normalization ->
-                         activation for a pre-activation block
-        Conv(channels[i], channels[i + 1])
-        post_modules[i]  normalization -> activation -> dropout   (the common
-                         post-activation block; activations live here by default)
+    Each convolution is wrapped by optional `pre_modules` / `post_modules`; see `MLP`
+    for the slot mechanism. Resampling (pooling, `nn.Upsample`) goes into
+    `pre_modules`, normalization / activation / dropout into `post_modules`.
 
     Args:
-        channels: Channel sizes per layer. Example: [3, 64, 128] builds two convs
-            (3->64, 64->128).
-        post_modules: Per-layer modules inserted after each conv. Entry i is None
-            (skip), a single nn.Module, or a list applied in order. Lists shorter than
-            the number of layers are padded with None. Activations belong here by
-            default.
-        kernel_size, stride, padding, dilation: Conv geometry; a scalar applies to
-            every layer, or pass a per-layer list.
-        pre_modules: Per-layer modules inserted before each conv, same element format
-            as post_modules. Resampling goes here.
-        dim: Spatial dimensionality (1, 2, or 3).
-        bias: Whether convs carry a bias (scalar or per-layer list).
+        channels: channel sizes, e.g. [3, 64, 128] builds two convolutions.
+        post_modules: per-layer modules applied after each convolution; see `MLP`.
+        kernel_size, stride, padding, dilation: convolution geometry, a scalar for
+            every layer or a per-layer list.
+        pre_modules: per-layer modules applied before each convolution.
+        dim: spatial dimensionality (1, 2, or 3).
+        bias: whether the convolutions carry a bias (scalar or per-layer list).
     """
 
     def __init__(
@@ -155,39 +130,25 @@ class DCN(nn.Module):
 
 
 class EquivariantCNN(nn.Module):
-    """E(2)-steerable convolutional network (escnn), the equivariant ``DCN``.
+    """E(2)-steerable convolutional network (escnn), the equivariant `DCN`.
 
-    Builds a stack of steerable convolutions over the symmetry group carried by
-    ``gspace`` (e.g. ``gspaces.rot2dOnR2(N=8)`` for discrete C8 rotations). Output
-    feature maps transform consistently when the input is rotated, so a single training
-    sample teaches the whole orbit of rotated inputs.
+    The output transforms consistently when the input is rotated by the symmetry group
+    of `gspace`, so one training sample teaches its whole orbit of rotated inputs.
+    Interior layers carry regular-representation fields; input and output are scalar
+    fields by default, and `gspace.irrep(1)` makes one a 2D vector field (e.g.
+    scalar-in / vector-out learns an equivariant gradient). The forward pass takes and
+    returns plain (B, C, H, W) tensors.
 
-    Channels are given as field copies per layer, like ``DCN`` channels: the interior
-    layers carry regular-representation fields, while the input and output
-    representations are ``in_repr`` / ``out_repr`` (both scalar by default, the
-    standard scalar-in / scalar-out arrangement). Pass ``gspace.irrep(1)`` for a 2D
-    vector field, so e.g. a scalar-in / vector-out network learns an equivariant
-    operator like the gradient.
-
-    Unlike ``DCN``, the activation is passed as a factory rather than a plain module,
-    because a steerable nonlinearity must know the field type it acts on;
-    ``activation`` is called once per hidden layer as ``activation(field_type)``.
-
-    The forward pass takes and returns plain tensors (shape (B, C, H, W)); the escnn
-    ``GeometricTensor`` wrapping is handled internally, so the model is used like any
-    other ``nn.Module``.
+    Reference: https://arxiv.org/abs/1911.08251
 
     Args:
-        gspace: escnn GSpace defining the symmetry group acting on R^2.
-        channels: field copies per layer. Endpoints carry in_repr / out_repr, interior
-            layers are regular-representation fields. Example: [1, 8, 8, 1].
-        activation: factory mapping a FieldType to an equivariant activation module,
-            applied after every hidden conv. Defaults to ``enn.LeakyReLU``.
-        kernel_size, padding: conv geometry; a scalar applies to every layer, or pass a
-            per-layer list.
-        bias: whether convs carry a bias (scalar or per-layer list).
-        in_repr, out_repr: input/output representations; default to the scalar
-            (trivial) representation. Pass ``gspace.irrep(1)`` for a vector field.
+        gspace: escnn GSpace of the symmetry group acting on R^2.
+        channels: field copies per layer, e.g. [1, 8, 8, 1].
+        activation: factory `activation(field_type)` called once per hidden layer,
+            since a steerable nonlinearity must know the field type it acts on.
+            Defaults to `enn.LeakyReLU`.
+        kernel_size, padding, bias: convolution geometry, scalar or per-layer list.
+        in_repr, out_repr: input / output representations; default to the trivial one.
     """
 
     def __init__(
@@ -228,14 +189,13 @@ class EquivariantCNN(nn.Module):
 
 
 class DGCN(nn.Module):
-    """Deep graph convolutional network using GCNConv layers.
+    """deep graph convolutional network of GCNConv layers.
 
     Reference: https://arxiv.org/abs/1609.02907
 
     Args:
-        channels: List of channel sizes for each layer. Example: [16, 32, 64] creates
-            two GCN layers (16->32, 32->64).
-        activations: List of activation modules after each conv layer.
+        channels: channel sizes, e.g. [16, 32, 64] builds two layers.
+        activations: activation module (or None) after each layer.
     """
 
     def __init__(
@@ -260,14 +220,13 @@ class DGCN(nn.Module):
 
 
 class DGCheb(nn.Module):
-    """Deep graph network using Chebyshev spectral convolution layers.
+    """deep graph network of Chebyshev spectral convolution layers.
 
     Reference: https://arxiv.org/abs/1606.09375
 
     Args:
-        channels: List of channel sizes for each layer. Example: [16, 32, 64] creates
-            two ChebConv layers (16->32, 32->64).
-        activations: List of activation modules after each conv layer.
+        channels: channel sizes, e.g. [16, 32, 64] builds two layers.
+        activations: activation module (or None) after each layer.
         K: Chebyshev filter order (number of hops).
     """
 
@@ -294,14 +253,13 @@ class DGCheb(nn.Module):
 
 
 class DGSAGE(nn.Module):
-    """Deep GraphSAGE network using SAGEConv layers.
+    """deep GraphSAGE network of SAGEConv layers.
 
     Reference: https://arxiv.org/abs/1706.02216
 
     Args:
-        channels: List of channel sizes for each layer. Example: [16, 32, 64] creates
-            two SAGE layers (16->32, 32->64).
-        activations: List of activation modules after each conv layer.
+        channels: channel sizes, e.g. [16, 32, 64] builds two layers.
+        activations: activation module (or None) after each layer.
     """
 
     def __init__(
@@ -326,17 +284,16 @@ class DGSAGE(nn.Module):
 
 
 class DGAT(nn.Module):
-    """Deep graph attention network using GATConv layers.
+    """deep graph attention network of GATConv layers.
 
     References:
-        - https://arxiv.org/abs/1710.10903
-        - https://arxiv.org/abs/2105.14491
+        https://arxiv.org/abs/1710.10903
+        https://arxiv.org/abs/2105.14491
 
     Args:
-        channels: List of channel sizes for each layer. Example: [16, 32, 64] creates
-            two GAT layers (16->32, 32->64).
-        activations: List of activation modules after each conv layer.
-        heads: Number of attention heads per layer.
+        channels: channel sizes, e.g. [16, 32, 64] builds two layers.
+        activations: activation module (or None) after each layer.
+        heads: attention heads per layer.
     """
 
     def __init__(
@@ -362,16 +319,15 @@ class DGAT(nn.Module):
 
 
 class DGIN(nn.Module):
-    """Deep graph isomorphism network using GINConv layers.
+    """deep graph isomorphism network of GINConv layers, each wrapping an `MLP`.
 
     Reference: https://arxiv.org/abs/1810.00826
 
     Args:
-        mlp_layers: List of layer configurations for each GIN layer's MLP. Example:
-            [[16, 32], [32, 64]] creates two GIN layers with MLPs.
-        mlp_activations: List of activation lists for each GIN layer's MLP.
-        eps: Initial epsilon value for weighting self-loops.
-        train_eps: Whether to make epsilon a learnable parameter.
+        mlp_layers: `MLP` layer sizes per GIN layer, e.g. [[16, 32], [32, 64]].
+        mlp_activations: `MLP` activations per GIN layer.
+        eps: initial self-loop weight epsilon.
+        train_eps: whether epsilon is learnable.
     """
 
     def __init__(
@@ -398,22 +354,18 @@ class DGIN(nn.Module):
 
 
 class DRNN(nn.Module):
-    """Deep recurrent neural network with configurable cell type.
-
-    Supports RNN, LSTM, and GRU cells with optional normalization layers and a final
-    linear projection.
+    """deep recurrent network of RNN, LSTM, or GRU cells with a linear projection.
 
     References:
-        - https://ieeexplore.ieee.org/abstract/document/6795963
-        - https://arxiv.org/abs/1412.3555
+        https://ieeexplore.ieee.org/abstract/document/6795963
+        https://arxiv.org/abs/1412.3555
 
     Args:
-        layers: List of layer sizes. The last two values define the projection
-            (layers[-2] -> layers[-1]). Example: [64, 128, 256, 10] creates two
-            recurrent layers (64->128, 128->256) and a projection (256->10).
-        final_activation: Optional activation after the final projection.
-        cell: Recurrent cell type (nn.RNN, nn.LSTM, or nn.GRU).
-        normalizations: List of normalization modules after each recurrent layer.
+        layers: layer sizes; the last two define the projection, e.g. [64, 128, 256, 10]
+            builds two recurrent layers (64->128, 128->256) and Linear(256, 10).
+        final_activation: optional activation after the projection.
+        cell: nn.RNN, nn.LSTM, or nn.GRU.
+        normalizations: normalization module (or None) after each recurrent layer.
     """
 
     def __init__(
@@ -447,17 +399,13 @@ class DRNN(nn.Module):
 
 
 class NODE(nn.Module):
-    """Neural ordinary differential equation.
-
-    Learns continuous-depth dynamics by parameterizing the derivative dh/dt with a
-    neural network and integrating using an ODE solver.
+    """neural ordinary differential equation: dh/dt is a network integrated by odeint.
 
     Reference: https://arxiv.org/abs/1806.07366
 
     Args:
-        rhs_model: Neural network that computes dh/dt. Should accept input of shape
-            (batch, hidden_dim + 1) where the +1 is for concatenated time, and output
-            shape (batch, hidden_dim).
+        rhs_model: maps (batch, hidden + 1), the state with time appended, to dh/dt of
+            shape (batch, hidden).
     """
 
     def __init__(self, rhs_model: nn.Module) -> None:
@@ -465,21 +413,13 @@ class NODE(nn.Module):
         self.rhs_model = rhs_model
 
     def eval_rhs(self, t: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
-        """Compute dh/dt by concatenating time to the state and calling the model."""
+        """evaluate dh/dt with time appended to the state."""
         t_vec = torch.ones(h.shape[0], 1, device=h.device) * t
         x = torch.cat([h, t_vec], dim=1)
         return self.rhs_model(x)
 
     def forward(self, T: torch.Tensor, h0: torch.Tensor) -> torch.Tensor:
-        """Integrate the ODE from initial state h0 over time points T.
-
-        Args:
-            T: Time points at which to evaluate the solution.
-            h0: Initial hidden state of shape (batch, hidden_dim).
-
-        Returns:
-            Solution at each time point, shape (len(T), batch, hidden_dim).
-        """
+        """integrate from h0 over the time points T; returns (len(T), batch, hidden)."""
         return odeint(self.eval_rhs, h0, T)
 
 
@@ -487,17 +427,11 @@ class NODE(nn.Module):
 
 
 class BayesianLinear(nn.Module):
-    """Bayesian linear layer with learned weight distributions.
+    """linear layer with Gaussian weight distributions (Bayes by Backprop).
 
-    Implements weight uncertainty using variational inference (Bayes by Backprop).
-    Weights are sampled from Gaussian distributions parameterized by mu and rho, where
-    sigma = softplus(rho).
+    Weights are sampled as mu + softplus(rho) * eps at every forward pass.
 
     Reference: https://arxiv.org/abs/1505.05424
-
-    Args:
-        inputs: Number of input features.
-        outputs: Number of output features.
     """
 
     def __init__(self, inputs: int, outputs: int) -> None:
@@ -510,14 +444,14 @@ class BayesianLinear(nn.Module):
         self.init_params()
 
     def init_params(self) -> None:
-        """Initialize parameters with Kaiming uniform for mu and constant for rho."""
+        """Kaiming-uniform mu and constant rho = -3 (sigma about 0.05)."""
         nn.init.kaiming_uniform_(self.weight_mu, a=math.sqrt(5.0))
         nn.init.constant_(self.weight_rho, -3.0)
         nn.init.constant_(self.bias_mu, 0.0)
         nn.init.constant_(self.bias_rho, -3.0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Sample the weights from their distributions and apply the linear map."""
+        """sample the weights and apply the linear map."""
         weight_sigma = F.softplus(self.weight_rho)
         bias_sigma = F.softplus(self.bias_rho)
 
@@ -530,7 +464,7 @@ class BayesianLinear(nn.Module):
         return F.linear(x, weight, bias)
 
     def kl_divergence(self, prior_std: float) -> torch.Tensor:
-        """Compute KL divergence between weight distributions and Gaussian prior."""
+        """KL divergence of the weight posteriors to a zero-mean Gaussian prior."""
         weight_sigma = F.softplus(self.weight_rho)
         bias_sigma = F.softplus(self.bias_rho)
 
@@ -548,19 +482,11 @@ class BayesianLinear(nn.Module):
 
 
 class BayesianMLP(nn.Module):
-    """Bayesian multi-layer perceptron using BayesianLinear layers.
+    """Bayesian multilayer perceptron of `BayesianLinear` layers.
 
-    Each BayesianLinear map is wrapped with optional ``pre_modules`` /
-    ``post_modules``; see ``MLP`` for the slot mechanism.
+    Takes the `layers` and `pre_modules` / `post_modules` slots of `MLP`.
 
     Reference: https://arxiv.org/abs/1505.05424
-
-    Args:
-        layers: Sizes of each layer. Example: [784, 256, 10] builds two Bayesian linear
-            layers.
-        post_modules: Per-layer modules inserted after each layer (None | Module |
-            list). Activations belong here by default.
-        pre_modules: Per-layer modules inserted before each layer.
     """
 
     def __init__(
@@ -586,7 +512,7 @@ class BayesianMLP(nn.Module):
         return self.model(x)
 
     def kl_divergence(self, prior_std: float) -> torch.Tensor:
-        """Compute total KL divergence across all BayesianLinear layers."""
+        """sum of the KL divergences of all `BayesianLinear` layers."""
         kl = 0
         for module in self.model.modules():
             if isinstance(module, BayesianLinear):
@@ -598,12 +524,9 @@ class BayesianMLP(nn.Module):
 
 
 class ResidualBlock(nn.Module):
-    """Residual block that adds input to module output (skip connection).
+    """skip connection `projection(x) + module(x)`; the projection defaults to identity.
 
-    Args:
-        module: The transformation to apply before adding the residual.
-        projection: Optional projection to match dimensions when input and output
-            shapes differ (e.g., a 1x1 conv or linear layer).
+    Reference: https://arxiv.org/abs/1512.03385
     """
 
     def __init__(
@@ -623,18 +546,18 @@ class ResidualBlock(nn.Module):
 
 
 class ConditionedResidualBlock(nn.Module):
-    """Residual block whose hidden state is shifted by a projected conditioning vector.
+    """residual block whose hidden state is shifted by a projected conditioning vector.
 
-    The pattern of diffusion U-Nets: ``module_in(x)``, plus a per-channel bias computed
-    from the condition (e.g. a timestep embedding), then ``module_out``, added to the
-    (optionally projected) input.
+    The block of diffusion U-Nets: `module_out(module_in(x) + embedding(c))` added to
+    the (optionally projected) input, with the embedding broadcast as one bias per
+    channel.
 
     Args:
-        module_in: First transformation, e.g. norm -> activation -> conv.
-        module_out: Second transformation applied after the conditioning shift.
-        embedding: Maps the condition vector to one bias per output channel of
-            ``module_in``.
-        projection: Optional projection of the input to the output shape.
+        module_in: first transformation, e.g. norm -> activation -> conv.
+        module_out: second transformation, applied after the shift.
+        embedding: maps the condition (e.g. a timestep embedding) to one bias per
+            output channel of `module_in`.
+        projection: optional projection of the input to the output shape.
     """
 
     def __init__(
@@ -661,18 +584,12 @@ class ConditionedResidualBlock(nn.Module):
 
 
 class ResNet(nn.Module):
-    """Converts a base model into a residual network by adding skip connections.
-
-    Takes an existing sequential model and wraps specified layer ranges into
-    ResidualBlocks with skip connections.
+    """wrap layer ranges of a sequential model into `ResidualBlock`s.
 
     Args:
-        base_model: Model with a `.model` attribute containing nn.Sequential layers.
-        skip_connections: List of (start_idx, end_idx) tuples specifying which layer
-            ranges to wrap with skip connections. Example: [(0, 2), (3, 5)] creates
-            residual blocks from layers 0-2 and 3-5.
-        projections: Optional dict mapping (start_idx, end_idx) to projection modules
-            for dimension matching in skip connections.
+        base_model: model with a `.model` attribute holding an nn.Sequential.
+        skip_connections: (start, end) index pairs of the layers to wrap, inclusive.
+        projections: optional (start, end) -> projection module for shape mismatches.
     """
 
     def __init__(
@@ -713,19 +630,10 @@ class ResNet(nn.Module):
 
 
 class ICNNLayer(nn.Module):
-    """Single fully input-convex layer (Amos et al. 2017):
+    """single layer `z_out = W_z z + W_y x + b` of an input convex network.
 
-        z_out = W^z z + W^y x + b
-
-    Stack several of these with convex non-decreasing activations (ReLU, ELU, Softplus,
-    LeakyReLU with slope in [0, 1]) and call `clamp_z_()` after each optimizer step to
-    keep W^z non-negative; the resulting network is then convex in x.
-
-    Args:
-        z_in: size of the z-path input. Set to 0 for the first layer (which has no z
-            and reduces to W^y x + b).
-        x_in: size of the original network input x.
-        out:  layer output size.
+    Set `z_in=0` for the first layer, which has no z path. Call `clamp_z_()` after each
+    optimizer step to keep `W_z` non-negative.
     """
 
     def __init__(self, z_in: int, x_in: int, out: int) -> None:
@@ -746,19 +654,18 @@ class ICNNLayer(nn.Module):
 
 
 class ICNN(nn.Module):
-    """Input convex neural network (Amos et al. 2017).
+    """input convex neural network.
 
-    Stack of `ICNNLayer`s threading the original input x through every layer. With
-    convex non-decreasing activations (ReLU, ELU, Softplus, LeakyReLU with slope in
-    [0, 1]) and W^z weights kept non-negative via `clamp_z_()` after each optimizer
-    step, the forward map is convex in x.
+    Stack of `ICNNLayer`s threading the input x into every layer. With convex
+    non-decreasing activations (ReLU, ELU, Softplus) and `clamp_z_()` after each
+    optimizer step, the output is convex in x.
+
+    Reference: https://arxiv.org/abs/1609.07152
 
     Args:
-        layers: List of layer sizes; layers[0] is the input dim, layers[-1] the output
-            dim.
-        activations: List of activation modules to apply after each layer. Length
-            should be len(layers) - 1 or fewer; use None for no activation at a given
-            position. The final layer typically has no activation.
+        layers: layer sizes from input to output.
+        activations: activation module (or None) after each layer; the last is usually
+            None.
     """
 
     def __init__(
@@ -793,21 +700,15 @@ class ICNN(nn.Module):
 
 # ----------------------------- extreme learning machines -----------------------------
 class ELM(nn.Module):
-    """Extreme learning machine with random fixed feature extractor.
+    """extreme learning machine: frozen random features plus a least-squares readout.
 
-    Combines a frozen random feature extractor with a linear output layer trained via
-    closed-form least squares solution. The feature extractor weights are never
-    updated; only the output layer is fitted analytically. A subsequent training of all
-    weights is optional.
+    `fit` solves the ridge-regularized normal equations for the output layer only; a
+    subsequent training of all weights is optional.
 
     Reference: https://ieeexplore.ieee.org/document/1380068
 
     Args:
-        feature_extractor: Neural network that maps input to hidden features. Weights
-            are considered frozen during fitting.
-        hidden_dim: Dimensionality of the hidden feature space (output of
-            feature_extractor).
-        output_dim: Number of output classes or regression targets.
+        feature_extractor: network mapping the input to `hidden_dim` features.
     """
 
     def __init__(self, feature_extractor: nn.Module, hidden_dim: int, output_dim: int):
@@ -819,6 +720,7 @@ class ELM(nn.Module):
         self.output_dim = output_dim
 
     def fit(self, x: torch.Tensor, y: torch.Tensor, regularization: float):
+        """closed-form ridge fit of the output layer; the bias is not penalized."""
         with torch.no_grad():
             H = self.feature_extractor(x)
         num_samples = H.shape[0]
@@ -841,6 +743,7 @@ class ELM(nn.Module):
 
 # ------------------------------- deep material networks ------------------------------
 def laminate_rotation(alpha):
+    """Voigt rotation matrix by angle alpha, differentiable in alpha."""
     c, s = torch.cos(alpha), torch.sin(alpha)
     return torch.stack(  # to not break autograd
         [
@@ -852,7 +755,7 @@ def laminate_rotation(alpha):
 
 
 class LaminateBlock(nn.Module):
-    """Two-layer laminate building block of a deep material network."""
+    """two-phase laminate building block of a deep material network."""
 
     def __init__(self):
         super().__init__()
@@ -921,7 +824,14 @@ class LaminateBlock(nn.Module):
 
 
 class DMN(nn.Module):
-    """Binary-tree deep (composite) material network with `depth` laminate layers."""
+    """deep material network: a binary tree of `depth` laminate layers.
+
+    `homogenize` runs the stiffness bottom-up and the strains top-down for arbitrary
+    per-leaf stiffnesses (e.g. nonlinear tangents); `forward` is the linear two-phase
+    case with alternating leaves.
+
+    Reference: https://doi.org/10.1016/j.cma.2018.09.020
+    """
 
     def __init__(self, depth):
         super().__init__()
@@ -985,12 +895,7 @@ class DMN(nn.Module):
 
 
 class AE(nn.Module):
-    """Autoencoder composed of an encoder and decoder network.
-
-    Args:
-        Encoder: Network that maps input to latent representation.
-        Decoder: Network that reconstructs input from latent representation.
-    """
+    """autoencoder `decode(encode(x))`."""
 
     def __init__(self, encoder: nn.Module, decoder: nn.Module) -> None:
         super().__init__()
@@ -1004,14 +909,12 @@ class AE(nn.Module):
 
 
 class VAE(AE):
-    """Variational autoencoder with reparameterization trick.
+    """variational autoencoder with the reparameterization trick.
 
-    The encoder must output 2 * latent_dim features (mean and log-variance). The
-    decoder takes latent_dim features as input.
+    The encoder outputs the concatenated (mean, logvar) of the latent, i.e. twice the
+    latent size; the latent is only sampled in training mode.
 
-    Args:
-        Encoder: Network mapping input to (mean, logvar) concatenated.
-        Decoder: Network reconstructing input from sampled latent vector.
+    Reference: https://arxiv.org/abs/1312.6114
     """
 
     def reparameterize(
@@ -1019,7 +922,7 @@ class VAE(AE):
         mean: torch.Tensor,
         logvar: torch.Tensor,
     ) -> torch.Tensor:
-        """Sample from latent distribution using reparameterization trick."""
+        """sample `mean + std * eps` in training mode, return the mean otherwise."""
         if self.training:
             std = torch.exp(0.5 * logvar)
             eps = torch.randn_like(std)
@@ -1030,7 +933,7 @@ class VAE(AE):
         self,
         x: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Encode, sample, and decode. Returns (reconstruction, mean, logvar)."""
+        """encode, sample, decode; returns (reconstruction, mean, logvar)."""
         distributions = self.encode(x)
         mean, logvar = torch.chunk(distributions, chunks=2, dim=1)
         z = self.reparameterize(mean, logvar)
@@ -1039,28 +942,23 @@ class VAE(AE):
 
 
 class UNet(nn.Module):
-    """U-Net: symmetric encoder-decoder with skip connections at each level.
+    """U-Net: encoder-decoder with a skip connection at each level.
 
-    Each module in `downs` produces a feature map that is stored as a skip connection.
-    The `bottleneck` operates at the deepest resolution. Each module in `ups` receives
-    the previous output concatenated with the matching skip along the channel axis (in
-    reverse order), so each up module must accept (input + skip) channels.
+    Each `downs` output is stored as a skip; each `ups` module receives the previous
+    output concatenated with the matching skip along the channel axis, so it must
+    accept (input + skip) channels. Extra `forward` arguments (e.g. a timestep
+    embedding) are passed on to every down, bottleneck, and up module, so a
+    `ConditionedResidualBlock` slots in without subclassing.
 
-    Any extra arguments of `forward` (e.g. a timestep embedding for diffusion models)
-    are passed on to every down, bottleneck and up module, so a conditioned block such
-    as ``ConditionedResidualBlock`` slots in without subclassing.
+    Reference: https://arxiv.org/abs/1505.04597
 
     Args:
-        downs: Encoder modules, ordered shallow-to-deep. Without `downsamplers` each is
-            expected to downsample its input.
-        ups: Decoder modules, ordered deep-to-shallow. Same length as `downs`. Without
-            `upsamplers` each is expected to upsample its input.
-        bottleneck: Module applied at the deepest resolution between encoder and
-            decoder. Defaults to identity.
-        downsamplers: Optional per-level modules applied after each down module. The
-            skip is taken before, so it keeps the full resolution of its level.
-        upsamplers: Optional per-level modules applied before each up module, ordered
-            deep-to-shallow, so the up module receives (upsampled + skip) channels.
+        downs: encoder modules, shallow to deep.
+        ups: decoder modules, deep to shallow, same length as `downs`.
+        bottleneck: module at the deepest level; defaults to identity.
+        downsamplers: optional per-level modules after each down module (the skip is
+            taken before, at full resolution).
+        upsamplers: optional per-level modules before each up module, deep to shallow.
     """
 
     def __init__(
@@ -1093,8 +991,15 @@ class UNet(nn.Module):
 
 
 # ---------------------------------- neural operators ---------------------------------
-# https://arxiv.org/abs/1910.03193
 class DeepONet(nn.Module):
+    """deep operator network: contraction of a branch net and a trunk net.
+
+    The branch net maps the sampled input function to (batch, p * q), the trunk net the
+    query coordinate to (batch, p); the output is their dot product over p plus a bias.
+
+    Reference: https://arxiv.org/abs/1910.03193
+    """
+
     def __init__(
         self, branchNet: nn.Module, trunkNet: nn.Module, output_dim: int = 1
     ) -> None:
@@ -1110,13 +1015,17 @@ class DeepONet(nn.Module):
         return (b * t).sum(dim=-1) + self.bias  # (batch, q)
 
 
-# FNO defined via efficient_kan
-# https://arxiv.org/abs/2010.08895
+# FNO is imported from neuralop, https://arxiv.org/abs/2010.08895
 
 # ----------------------------------- siren network -----------------------------------
 
 
 class SIRENsine(nn.Module):
+    """sine activation `sin(omega_0 x)` of a SIREN.
+
+    Reference: https://arxiv.org/abs/2006.09661
+    """
+
     def __init__(self, omega_0: float = 30.0) -> None:
         super().__init__()
         self.omega_0 = omega_0
@@ -1126,6 +1035,5 @@ class SIRENsine(nn.Module):
 
 
 # ----------------------------- kolmogorov-arnold network -----------------------------
-# defined via efficient_kan
-# https://arxiv.org/abs/2404.19756
+# KAN is imported from efficient_kan, https://arxiv.org/abs/2404.19756
 

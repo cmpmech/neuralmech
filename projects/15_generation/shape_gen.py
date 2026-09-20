@@ -1,12 +1,30 @@
+import argparse
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 
+BASE_DIR = Path(__file__).parent
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+RGB_PDF_DIR = (RESULTS_DIR / "rgb_pdf").resolve()
+DATA_DIR = (BASE_DIR / "../../data").resolve()
 
-# -------------------------------- helper --------------------------------
-def generate_circle(N, domain_length=1, radius=0.4):
-    domain = np.zeros((N, N))
-    x = np.linspace(0, domain_length, N)
-    y = np.linspace(0, domain_length, N)
+np.random.seed(1)
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--book", action="store_true")
+args = parser.parse_args()
+
+# -------------------------------------- settings -------------------------------------
+RESOLUTION = 128
+SAMPLES = 256  # per shape
+
+
+# --------------------------------------- helper --------------------------------------
+def generate_circle(resolution, domain_length=1, radius=0.4):
+    domain = np.zeros((resolution, resolution))
+    x = np.linspace(0, domain_length, resolution)
+    y = np.linspace(0, domain_length, resolution)
     x, y = np.meshgrid(x, y)
 
     xc = np.random.uniform(radius, domain_length - radius)
@@ -18,10 +36,10 @@ def generate_circle(N, domain_length=1, radius=0.4):
     return domain
 
 
-def generate_square(N, domain_length=1, w=0.8):
-    domain = np.zeros((N, N))
-    x = np.linspace(0, domain_length, N)
-    y = np.linspace(0, domain_length, N)
+def generate_square(resolution, domain_length=1, w=0.8):
+    domain = np.zeros((resolution, resolution))
+    x = np.linspace(0, domain_length, resolution)
+    y = np.linspace(0, domain_length, resolution)
     x, y = np.meshgrid(x, y)
     xc = np.random.uniform(w / 2, domain_length - w / 2)
     yc = np.random.uniform(w / 2, domain_length - w / 2)
@@ -32,10 +50,10 @@ def generate_square(N, domain_length=1, w=0.8):
     return domain
 
 
-def generate_triangle(N, domain_length=1, size=0.45):
-    domain = np.zeros((N, N))
-    x = np.linspace(0, domain_length, N)
-    y = np.linspace(0, domain_length, N)
+def generate_triangle(resolution, domain_length=1, size=0.45):
+    domain = np.zeros((resolution, resolution))
+    x = np.linspace(0, domain_length, resolution)
+    y = np.linspace(0, domain_length, resolution)
     x, y = np.meshgrid(x, y)
     xc = np.random.uniform(size, domain_length - size)
     yc = np.random.uniform(size, domain_length - size)
@@ -52,10 +70,10 @@ def generate_triangle(N, domain_length=1, size=0.45):
     return domain
 
 
-def generate_ellipse(N, domain_length=1, a=0.4, b=0.1):
-    domain = np.zeros((N, N))
-    x = np.linspace(0, domain_length, N)
-    y = np.linspace(0, domain_length, N)
+def generate_ellipse(resolution, domain_length=1, a=0.4, b=0.1):
+    domain = np.zeros((resolution, resolution))
+    x = np.linspace(0, domain_length, resolution)
+    y = np.linspace(0, domain_length, resolution)
     x, y = np.meshgrid(x, y)
     xc = np.random.uniform(a, domain_length - a)
     yc = np.random.uniform(b, domain_length - b)
@@ -66,10 +84,10 @@ def generate_ellipse(N, domain_length=1, a=0.4, b=0.1):
     return domain
 
 
-def generate_star(N, domain_length=1, r_outer=0.4, r_inner=0.2, n_points=5):
-    domain = np.zeros((N, N))
-    x = np.linspace(0, domain_length, N)
-    y = np.linspace(0, domain_length, N)
+def generate_star(resolution, domain_length=1, r_outer=0.4, r_inner=0.2, n_points=5):
+    domain = np.zeros((resolution, resolution))
+    x = np.linspace(0, domain_length, resolution)
+    y = np.linspace(0, domain_length, resolution)
     x, y = np.meshgrid(x, y)
     xc = np.random.uniform(r_outer, domain_length - r_outer)
     yc = np.random.uniform(r_outer, domain_length - r_outer)
@@ -97,10 +115,10 @@ def generate_star(N, domain_length=1, r_outer=0.4, r_inner=0.2, n_points=5):
     return domain
 
 
-def generate_cross(N, domain_length=1, w=0.2, h=0.8):
-    domain = np.zeros((N, N))
-    x = np.linspace(0, domain_length, N)
-    y = np.linspace(0, domain_length, N)
+def generate_cross(resolution, domain_length=1, w=0.2, h=0.8):
+    domain = np.zeros((resolution, resolution))
+    x = np.linspace(0, domain_length, resolution)
+    y = np.linspace(0, domain_length, resolution)
     x, y = np.meshgrid(x, y)
     xc = np.random.uniform(h / 2, domain_length - h / 2)
     yc = np.random.uniform(h / 2, domain_length - h / 2)
@@ -112,37 +130,34 @@ def generate_cross(N, domain_length=1, w=0.2, h=0.8):
     domain[mask] = 1
     return domain
 
+# ------------------------------------ create data ------------------------------------
+generators = {
+    "circle": generate_circle,
+    "square": generate_square,
+    "triangle": generate_triangle,
+    "ellipse": generate_ellipse,
+    "star": generate_star,
+    "cross": generate_cross,
+}
 
-if __name__ == "__main__":
-    N = 128
-    samples = 256  # per shape
+for label, generator in generators.items():
+    domains = np.zeros((SAMPLES, RESOLUTION, RESOLUTION))
+    for sample in range(SAMPLES):
+        domains[sample] = generator(RESOLUTION)
 
-    generators = [
-        generate_circle,
-        generate_square,
-        generate_triangle,
-        generate_ellipse,
-        generate_star,
-        generate_cross,
-    ]
-    labels = ["circle", "square", "triangle", "ellipse", "star", "cross"]
+    np.save(DATA_DIR / f"shapes_{label}_{RESOLUTION}.npy", domains.astype(np.float32))
 
-# --------------------------- data generation ----------------------------
-    for label, generator in zip(labels, generators):
-        domains = np.zeros((samples, N, N))
-        for sample in range(samples):
-            domains[sample] = generator(N)
+# ----------------------------------- postprocessing ----------------------------------
+    fig, ax = plt.subplots(figsize=(2, 2), dpi=RESOLUTION)
+    ax.imshow(domains[0].T, cmap="binary", origin="lower")
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_rasterized(True)
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-        np.save(f"../../data/shapes_{label}_{N}.npy", domains.astype(np.float32))
-
-# ------------------------- book postprocessing --------------------------
-        fig, ax = plt.subplots(figsize=(2, 2), dpi=N)
-        ax.imshow(domains[0].T, cmap="binary", origin='lower')
-        ax.set_aspect("equal")
-        ax.axis("off")
-        ax.set_rasterized(True)
-        fig.tight_layout(pad=0)
-        plt.savefig(
-            f"../../results/rgb_pdf/shapes_{label}.pdf", bbox_inches="tight", pad_inches=0
-        )
-        plt.close()
+    if not args.book:
+        plt.show()
+# -------------------------------- book postprocessing --------------------------------
+    else:
+        plt.savefig(RGB_PDF_DIR / f"shapes_{label}.pdf")
+        plt.close(fig)

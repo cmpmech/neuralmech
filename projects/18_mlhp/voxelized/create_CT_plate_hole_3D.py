@@ -3,9 +3,9 @@ from pathlib import Path
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "../../../data"
+DATA_DIR = (BASE_DIR / "../../../data").resolve()
 
-# ------------------------------------ ct settings ------------------------------------
+# -------------------------------------- settings -------------------------------------
 # Nx = 96
 # Ny = 48
 # Nz = 24

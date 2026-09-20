@@ -1,105 +1,102 @@
+import math
+import time
 from pathlib import Path
 
-import numpy as np
 import cupy as cp
 import matplotlib.pyplot as plt
-import time
+import numpy as np
 from tqdm import tqdm
-import math
-import pandas as pd
+
+from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
+CSV_DIR = (RESULTS_DIR / "data").resolve()
 
-for version in range(0, 2): # 0 is standard, 1 is mixed
+# -------------------------------------- settings -------------------------------------
+# implementation
+DTYPE = cp.float32
+THREADS_J, THREADS_I = 128, 4
+# the single and the mixed precision kernel, run over the same grid sizes
+KERNELS = {0: ("fd_kernelV3", cp.float32), 1: ("fd_kernelV5", cp.float16)}
 
-    # -------------------------- problem definition --------------------------
-    # implementation
-    threads_j, threads_i = 128, 4
-    dtype = cp.float32
+# physics
+LENGTHS = [1.0, 1.0]
+WAVESPEED = 1.0
 
-    # physics
-    Lx, Ly = 1., 1.
-    wavespeed = 1.
-    T = 1.
+# discretization
+RESOLUTIONS = np.logspace(0.5, 4.5, 50).astype(np.int32)
+STEPS = 2000
+SAFETY = 0.95  # fraction of the stable time step
 
-    # --------------------------- parametric study ---------------------------
+# initial condition
+CENTER = [0.5, 0.5]
+SIGMA = 0.02
+
+# --------------------------------------- setup ---------------------------------------
+module = cp.RawModule(path=str(BASE_DIR / "step2D_wave.ptx"))
+
+# ---------------------------------- parametric study ---------------------------------
+for version, (kernel_name, storage) in KERNELS.items():
+    fd_kernel = module.get_function(kernel_name)
     dofs = []
     timings = []
-    nlist = np.logspace(0.5,4.5, 50).astype(np.int32)
-    for n in nlist:
 
-        # discretization
-        Nx, Ny = n, n
-        dx, dy = Lx / (Nx - 1), Ly / (Ny - 1)
-        cfl_safety_factor = 0.95
-        dt = cfl_safety_factor * min(dx, dy) / wavespeed / math.sqrt(2)
-        N = 2000
+    for resolution in RESOLUTIONS:
+        NX = NY = int(resolution)
+        dx, dy = LENGTHS[0] / (NX - 1), LENGTHS[1] / (NY - 1)
+        dt = SAFETY * min(dx, dy) / WAVESPEED / math.sqrt(2)
 
-        # ------------------------------- padding --------------------------------
-        Nx_padded = Nx
-        Ny_padded = ((Ny + 32 - 1) // 32) * 32
+        NX_PADDED = NX
+        NY_PADDED = ((NY + 32 - 1) // 32) * 32
 
-        # initial condition (square)
-        if version == 0:
-            U = cp.zeros((2, Nx_padded, Ny_padded), dtype=dtype)
-        elif version == 1:
-            U = cp.zeros((2, Nx_padded, Ny_padded), dtype=cp.float16)
+        U = cp.zeros((2, NX_PADDED, NY_PADDED), dtype=storage)
         u0 = U[0]
         u1 = U[1]
-        x = np.linspace(0, Lx, Nx)
-        y = np.linspace(0, Ly, Ny)
-        x, y = np.meshgrid(x, y, indexing='ij')
 
-        # gaussian
-        x0, y0 = 0.5, 0.5  # center
-        sigma = 0.02       # width
-        u0[:Nx,:Ny] = cp.asarray(np.exp(-((x - x0)**2 + (y - y0)**2) / (2 * sigma**2)))
+        x = np.linspace(0, LENGTHS[0], NX)
+        y = np.linspace(0, LENGTHS[1], NY)
+        x, y = np.meshgrid(x, y, indexing="ij")
+        gaussian = np.exp(
+            -((x - CENTER[0]) ** 2 + (y - CENTER[1]) ** 2) / (2 * SIGMA**2)
+        )
+        u0[:NX, :NY] = cp.asarray(gaussian)
         u1[:] = u0[:]
 
-        # homogeneous Dirichlet boundary conditions
+        blocks_j = (NY_PADDED + THREADS_J - 1) // THREADS_J
+        blocks_i = (NX_PADDED + THREADS_I - 1) // THREADS_I
 
-        # --------------------------- simulation setup ---------------------------
-        blocks_j = (Ny_padded + threads_j - 1) // threads_j  # cols (Ny is num cols)
-        blocks_i = (Nx_padded + threads_i - 1) // threads_i  # rows (Nx is num rows)
-        if version == 0:
-            compiled_kernels = cp.RawModule(path=str(BASE_DIR / 'step2D_wave.ptx'))
-            fd_kernel = compiled_kernels.get_function('fd_kernelV3')
-        elif version == 1:
-            compiled_kernels = cp.RawModule(path=str(BASE_DIR / 'step2D_wave.ptx'))
-            fd_kernel = compiled_kernels.get_function('fd_kernelV5')
-
-        def fd_step(u0, u1, u2):
-            fd_kernel((blocks_j, blocks_i), (threads_j, threads_i),
-                      (u0, u1, u2, dtype(wavespeed), dtype(dt),
-                       dtype(dx), dtype(dy), Nx, Ny, Ny_padded))
-            return u2
-
-        # -------------------------------- solve ---------------------------------
         cp.cuda.Stream.null.synchronize()
         tic = time.time()
-        for t in tqdm(range(N)):
-            u0 = fd_step(u0, u1, u0)
+        for t in tqdm(range(STEPS), desc=f"{kernel_name} {NX}", ncols=90):
+            fd_kernel(
+                (blocks_j, blocks_i),
+                (THREADS_J, THREADS_I),
+                (
+                    u0, u1, u0,
+                    DTYPE(WAVESPEED), DTYPE(dt), DTYPE(dx), DTYPE(dy),
+                    NX, NY, NY_PADDED,
+                ),
+            )
             u1, u0 = u0, u1
         cp.cuda.Stream.null.synchronize()
         toc = time.time()
-        elapsed_time = toc - tic
-        timings.append(elapsed_time / N)
-        dofs.append((Nx - 2) * (Ny - 2))
 
-    # -------------------------------- export --------------------------------
-    df = pd.DataFrame({'x': dofs,
-                       'y': timings})
-    df.to_csv(f'../../results/data/wave_scaling_{version}.csv', sep=' ', index=False)
+        timings.append((toc - tic) / STEPS)
+        dofs.append((NX - 2) * (NY - 2))
 
-    # --------------------------- post-processing ----------------------------
-    print(np.max(np.array(dofs) / np.array(timings))/1e9)
-    print(max(dofs)/1e6)
+# --------------------------------------- export --------------------------------------
+    save_csv(CSV_DIR / f"wave_scaling_{version}.csv", x=dofs, y=timings)
+
+# ----------------------------------- postprocessing ----------------------------------
+    throughput = np.array(dofs) / np.array(timings)
+    print(f"{kernel_name} peak {throughput.max() / 1e9:.2f} billion dofs/s")
+    print(f"{kernel_name} largest grid {max(dofs) / 1e6:.1f} million dofs")
 
     fig, ax = plt.subplots()
-    ax.plot(dofs, np.array(dofs) / np.array(timings), 'k')
-    ax.set_yscale('log')
-    ax.set_xscale('log')
-    ax.grid()
+    ax.plot(dofs, throughput, "k")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("dofs")
+    ax.set_ylabel("dofs/s")
     plt.show()
-
-

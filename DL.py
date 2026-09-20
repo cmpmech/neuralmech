@@ -9,11 +9,13 @@ from NN import SIRENsine
 
 # ------------------------------------- embeddings ------------------------------------
 def sinusoidal_embedding(t: torch.Tensor, dim: int) -> torch.Tensor:
-    """Transformer-style sine/cosine embedding of integer positions (e.g. timesteps).
+    """transformer-style sine / cosine embedding of integer positions, e.g. timesteps.
+
+    Reference: https://arxiv.org/abs/1706.03762
 
     Args:
-        t: Integer positions, shape (batch,).
-        dim: Embedding size, even; half sines and half cosines over log-spaced
+        t: integer positions, shape (batch,).
+        dim: even embedding size; half sines and half cosines over log-spaced
             frequencies from 1 to 1/10000.
     """
     half = dim // 2
@@ -25,7 +27,7 @@ def sinusoidal_embedding(t: torch.Tensor, dim: int) -> torch.Tensor:
 
 # ------------------------------- weight initialization -------------------------------
 def init_weights(model, activation=None):
-    """Initialize all linear and convolutional weights to suit the activation."""
+    """initialize all linear and convolutional weights to suit the activation."""
     for m in model.modules():
         if isinstance(m, (nn.Linear, nn.Conv1d, nn.Conv2d, nn.Conv3d)):
             if isinstance(
@@ -80,7 +82,7 @@ def init_weights(model, activation=None):
 
 # ------------------------ data normalization & standardization -----------------------
 class Normalizer(nn.Module):
-    """Map data to [0, 1] along dim, with inverse() to undo it."""
+    """map data to [0, 1] along `dim`; `inverse` undoes it."""
 
     def __init__(self, X, dim=0):  # default is to have sample dim at 0
         super().__init__()
@@ -97,7 +99,7 @@ class Normalizer(nn.Module):
 
 
 class Standardizer(nn.Module):
-    """Map data to zero mean and unit variance along dim, with inverse() to undo it."""
+    """map data to zero mean and unit variance along `dim`; `inverse` undoes it."""
 
     def __init__(self, X, dim=0):  # default is to have sample dim at 0
         super().__init__()
@@ -113,8 +115,11 @@ class Standardizer(nn.Module):
 
 # ------------------------------- network configurations ------------------------------
 def build_ae_cnn_config(depth, conv_layers, channel_dim, base):
-    """Channels and strides of a convolutional encoder halving the resolution per
-    depth."""
+    """channels and strides of a convolutional encoder.
+
+    Each depth level holds `conv_layers` convolutions at `channel_dim * base**level`
+    channels and ends in a stride-2 downsampling.
+    """
     channels, strides = [], []
 
     for i in range(depth + 1):
@@ -134,7 +139,7 @@ def build_ae_cnn_config(depth, conv_layers, channel_dim, base):
 
 # ------------------------ optimization landscape visualization -----------------------
 def get_params(model: nn.Module, kind: str = "all") -> list[torch.Tensor]:
-    """Copy the model parameters, either all of them or only the weights or biases."""
+    """copy the model parameters: `kind` is "all", "weights", or "biases"."""
     if kind == "all":
         return [p.detach().clone() for p in model.parameters()]
     if kind == "weights":
@@ -153,19 +158,19 @@ def get_params(model: nn.Module, kind: str = "all") -> list[torch.Tensor]:
 
 
 def set_params(model: nn.Module, params: list[torch.Tensor]) -> None:
-    """Overwrite the model parameters in place."""
+    """overwrite the model parameters in place."""
     with torch.no_grad():
         for p, v in zip(model.parameters(), params):
             p.copy_(v)
 
 
 def flatten_params(params: list[torch.Tensor]) -> torch.Tensor:
-    """Concatenate a parameter list into a single vector."""
+    """concatenate a parameter list into a single vector."""
     return torch.cat([p.view(-1) for p in params])
 
 
 def unflatten_params(vec: torch.Tensor, ref: list[torch.Tensor]) -> list[torch.Tensor]:
-    """Split a parameter vector back into the shapes of the reference list."""
+    """split a parameter vector back into the shapes of the reference list."""
     out, i = [], 0
     for p in ref:
         n = p.numel()
@@ -177,9 +182,13 @@ def unflatten_params(vec: torch.Tensor, ref: list[torch.Tensor]) -> list[torch.T
 def filter_normalize_direction(
     direction: list[torch.Tensor], reference: list[torch.Tensor]
 ) -> list[torch.Tensor]:
-    """Scale each filter (inputs to each output neuron) in direction to match the norm
-    of the corresponding filter in reference. Makes alpha meaningful across
-    architectures."""
+    """rescale each filter of `direction` to the norm of its counterpart in `reference`.
+
+    Filter normalization makes a step along a random direction comparable across
+    architectures.
+
+    Reference: https://arxiv.org/abs/1712.09913
+    """
     normed = []
     for d, w in zip(direction, reference):
         if d.dim() >= 2:
@@ -193,7 +202,7 @@ def filter_normalize_direction(
 
 # ------------------------------------ KAN helpers ------------------------------------
 def count_kan_params(model):
-    """Count the base and spline parameters of a Kolmogorov-Arnold network."""
+    """count the base and spline parameters of a Kolmogorov-Arnold network."""
     base_params = 0
     spline_params = 0
 
@@ -207,7 +216,7 @@ def count_kan_params(model):
 
 
 def get_kan_edge_activations(model, layer_id, resolution=200):
-    """Sample the univariate activation on each edge of a Kolmogorov-Arnold layer."""
+    """sample the univariate activation on each edge of a Kolmogorov-Arnold layer."""
     layer = model.layers[layer_id]
     dev = layer.grid.device
 
@@ -247,8 +256,7 @@ def get_kan_edge_activations(model, layer_id, resolution=200):
 
 # ------------------------------ differentiation helpers ------------------------------
 def differentiate(y, x, n=1, graph=True):
-    """Compute the nth order derivative of y = f(x) with respect to x."""
-
+    """compute the nth derivative of y = f(x) with respect to x."""
     if n == 0:
         return y
     else:

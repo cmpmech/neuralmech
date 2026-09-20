@@ -7,34 +7,30 @@ candidate is constrained to lie on the learned manifold of fiber microstructures
 
 ## Drivers
 
-`topopt_latent_ae.py`
-    Compliance minimization of a half MBB beam where the density field is the
-    output of the fiber autoencoder (`../15_anomaly/fiber_ae_train.py`,
-    `models/fiber_ae_1_256.pt2`). Adam optimizes the latent code, the volume
-    constraint is a quadratic penalty, and the decoded fibers are read as holes so
-    the surrounding matrix stays connected and load-bearing.
+- `topopt_latent_ae.py` _needs `models/fiber_ae_1_256.pt2`_
+  compliance minimization of a half MBB beam whose density field is the output of the
+  fiber autoencoder. Adam optimizes the latent code, the volume constraint is an
+  augmented Lagrangian, and the decoded fibers are read as holes so the surrounding
+  matrix stays connected and load-bearing
+- `topopt_latent_vae.py` _needs `models/fiber_vae_256_4.0_256.pt2`_
+  the same optimization in the latent space of the fiber variational autoencoder. The
+  design variable is the code of the second stage, whose prior is a standard normal,
+  and a penalty on its negative log density keeps the design typical of the training
+  set
+- `topopt_latent_diffusion.py` _needs `models/fiber_diffusion_200_256.pt2`_
+  the same optimization inside the fiber diffusion model. The design variable is the
+  noise the sampler starts from, the deterministic reverse chain is differentiated end
+  to end, and the noise is constrained to the shell of the standard normal instead of
+  being penalized towards its mode
+- `topopt_latent_reference.py`
+  the classical density-based optimization the latent drivers are compared against:
+  the same beam, discretization and volume fraction, but every voxel is a design
+  variable of its own, updated by the optimality criterion. It reaches a compliance of
+  30.5 against 30.8 for the autoencoder, 32.4 for the variational autoencoder and 31.6
+  for the diffusion model, all at a volume fraction of 0.6
 
-`topopt_latent_vae.py`
-    The same optimization carried out in the latent space of the fiber variational
-    autoencoder (`../15_anomaly/fiber_vae_train.py`,
-    `models/fiber_vae_256_4.0_256.pt2`). The design variable is the code of the second
-    stage, whose prior is a standard normal, and a penalty on its negative log density
-    keeps the code probable, so the design stays typical of the training set.
-
-`topopt_latent_diffusion.py`
-    The same optimization inside the fiber diffusion model
-    (`../15_anomaly/fiber_diffusion_train.py`, `models/fiber_diffusion_200_256.pt2`).
-    The design variable is the noise the sampler starts from, and the deterministic
-    reverse chain is differentiated end to end. The noise is constrained to the shell
-    of the standard normal instead of being penalized towards its mode.
-
-`topopt_latent_reference.py`
-    The classical density-based optimization the latent drivers are compared against:
-    the same beam, discretization and volume fraction, but every voxel of the design
-    grid is a design variable of its own, updated by the optimality criterion. Free of
-    any learned manifold, it reaches a compliance of 30.5 against 30.8 for the
-    autoencoder, 32.4 for the variational autoencoder and 31.6 for the diffusion
-    model, all at a volume fraction of 0.6.
+The three generative models are trained in `../15_anomaly/` (`fiber_ae_train.py`,
+`fiber_vae_train.py`, `fiber_diffusion_train.py`).
 
 ## Non-obvious technicalities (authored by Claude)
 

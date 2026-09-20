@@ -50,7 +50,7 @@ F_shifted = np.fft.fftshift(F)
 magnitude = np.log1p(np.abs(F_shifted))
 phase = np.angle(F_shifted)
 
-# -------------------------------------- filtering ------------------------------------
+# ------------------------------------- filtering -------------------------------------
 H, W = img_arr.shape
 cy, cx = H // 2, W // 2  # center of the shifted spectrum
 Y_grid, X_grid = np.ogrid[:H, :W]

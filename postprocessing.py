@@ -16,17 +16,15 @@ from matplotlib.colors import (
 
 # ---------------------------------- exporting to csv ---------------------------------
 def save_csv(path: str, **cols) -> None:
-    """Save keyword-argument columns as a space-separated CSV file."""
+    """save keyword-argument columns as a space-separated CSV file."""
     pd.DataFrame(cols).to_csv(path, sep=" ", index=False)
 
 
 # ------------------------------ temporary figure saving ------------------------------
 def save_temp_fig(name: str) -> None:
-    """Save the current figure to '<name>_<timestamp>.jpg' for quick inspection.
+    """save the current figure to `<name>_<timestamp>.jpg` for quick inspection.
 
-    A throwaway replacement for plt.savefig during development: pass a path prefix that
-    already includes the results folder (e.g. 'results/analog_rnn'); a timestamp is
-    appended so repeated calls never overwrite each other.
+    The timestamp keeps repeated calls during development from overwriting each other.
     """
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     plt.savefig(f"{name}_{stamp}.jpg")
@@ -34,10 +32,10 @@ def save_temp_fig(name: str) -> None:
 
 # ------------------------------------- colormaps -------------------------------------
 def load_cmap(path: str) -> LinearSegmentedColormap:
-    """Build a matplotlib colormap from a ParaView .cmap (JSON) file.
+    """build a matplotlib colormap from a ParaView .cmap (JSON) file.
 
-    The .cmap RGBPoints are stored as [x0, r0, g0, b0, x1, r1, g1, b1, ...]; positions
-    are rescaled to [0, 1] for matplotlib.
+    The RGBPoints are stored flat as [x0, r0, g0, b0, x1, ...]; the positions are
+    rescaled to [0, 1].
     """
     data = json.loads(Path(path).read_text())
     pts = data["RGBPoints"]
@@ -54,13 +52,13 @@ def show_image(
     path: str | None = None,
     close: bool = False,
 ) -> None:
-    """Display a single image without axes.
+    """display a single image without axes, one pixel per array entry.
 
     Args:
-        img:       Numpy array of shape (H, W) for grayscale or (H, W, 3) for RGB.
-                   Values are shown as-is: normalise before calling if needed.
-        grayscale: If True, render with a gray colormap.
-        path:      Optional file path to save the figure (e.g. 'results/out.pdf').
+        img: array of shape (H, W) for grayscale or (H, W, 3) for RGB, shown as-is.
+        grayscale: render with a gray colormap.
+        path: optional file path to save the figure.
+        close: close the figure instead of showing it.
     """
     h, w = img.shape[:2]
 
@@ -82,15 +80,14 @@ def show_colorbar(
     orientation: str = "vertical",
     aspect_ratio: float = 16,
 ) -> None:
-    """Display a standalone, tick-free colorbar for a mappable.
+    """display a standalone, tick-free colorbar and print its range for the caption.
 
     Args:
-        cb:           A matplotlib mappable (e.g. the return of ax.contourf or
-                      ax.pcolormesh) whose colormap and normalisation are drawn.
-        path:         Optional file path to save the figure (e.g. 'results/bar.pdf').
-        close:        If True, close the figure instead of showing it interactively.
-        orientation:  'vertical' (default) or 'horizontal' colorbar layout.
-        aspect_ratio: Length of the bar relative to its 0.5-inch thickness.
+        cb: mappable (e.g. from ax.contourf) whose colormap and norm are drawn.
+        path: optional file path to save the figure.
+        close: close the figure instead of showing it.
+        orientation: "vertical" or "horizontal".
+        aspect_ratio: bar length relative to its 0.5 inch thickness.
     """
     norm = cb.norm
     if isinstance(norm, LogNorm):
@@ -121,6 +118,7 @@ def show_colorbar(
 
 
 def cmyk_to_rgb(c, m, y, k):
+    """convert CMYK fractions in [0, 1] to an RGB tuple."""
     r = (1 - c) * (1 - k)
     g = (1 - m) * (1 - k)
     b = (1 - y) * (1 - k)

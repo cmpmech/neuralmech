@@ -1,4 +1,4 @@
-"""Linear-elastic RVE homogenization by the finite cell method in mlhp."""
+"""linear-elastic RVE homogenization by the finite cell method in mlhp."""
 
 import mlhp
 import numpy as np
@@ -12,18 +12,20 @@ _VOIGT = {
 
 
 def effective_stiffness(basis, quadrature, kinematics, material, lengths) -> np.ndarray:
-    """Return the apparent Voigt stiffness of the RVE discretized by ``basis``.
+    """apparent KUBC stiffness of the cell discretized by `basis`, in Voigt notation.
+
+    Each entry is read off the internal energy of a unit strain state imposed as a
+    linear Dirichlet displacement on all faces.
 
     Args:
         basis: mlhp basis on the background grid covering the cell.
         quadrature: cut-cell quadrature resolving the material interface.
-        kinematics: ``mlhp.smallStrainKinematics`` of the cell dimension.
+        kinematics: `mlhp.smallStrainKinematics` of the cell dimension.
         material: mlhp material with the cell's spatially varying coefficients.
-        lengths: side lengths of the cell; sets the dimension and the volume ``V``.
+        lengths: side lengths of the cell; set the dimension and the volume.
 
     Returns:
-        The symmetric ``(ncomp, ncomp)`` KUBC stiffness matrix (``ncomp`` = 3 in 2D,
-        6 in 3D) in Voigt notation with engineering shear.
+        symmetric (3, 3) in 2D or (6, 6) in 3D matrix with engineering shear.
     """
     dimensions = len(lengths)
     volume = float(np.prod(lengths))

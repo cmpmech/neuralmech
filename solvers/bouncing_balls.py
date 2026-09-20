@@ -2,6 +2,15 @@ import numpy as np
 
 
 class BouncingBalls:
+    """balls of radii R under gravity in a box, with impulse-based inelastic contact.
+
+    Args:
+        p0, v0: initial positions and velocities, shape (balls, 2).
+        bounds: ((x_min, x_max), (y_min, y_max)) of the box.
+        e: coefficient of restitution.
+        g: gravity vector; defaults to (0, -9.81).
+    """
+
     def __init__(self, p0, v0, R, bounds, e=0.9, g=None):
         self.p0 = np.array(p0)
         self.v0 = np.array(v0)
@@ -12,6 +21,7 @@ class BouncingBalls:
         self.g = np.array(g) if g is not None else np.array([0, -9.81])
 
     def solve(self, dt, N):
+        """symplectic Euler for N steps of dt; returns positions (N + 1, balls, 2)."""
         balls = len(self.R)
         R, m, e, g = self.R, self.m, self.e, self.g
         bounds = self.bounds
@@ -26,11 +36,11 @@ class BouncingBalls:
             p[n + 1] = p[n] + v * dt
 
             # boundary contact
-            left  = p[n + 1, :, 0] < bounds[0][0] + R
+            left = p[n + 1, :, 0] < bounds[0][0] + R
             right = p[n + 1, :, 0] > bounds[0][1] - R
-            p[n + 1, left,  0] = bounds[0][0] + R[left]
+            p[n + 1, left, 0] = bounds[0][0] + R[left]
             p[n + 1, right, 0] = bounds[0][1] - R[right]
-            v[left,  0] *= -e
+            v[left, 0] *= -e
             v[right, 0] *= -e
 
             bot = p[n + 1, :, 1] < bounds[1][0] + R

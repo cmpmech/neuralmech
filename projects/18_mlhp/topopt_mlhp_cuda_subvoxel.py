@@ -10,13 +10,13 @@ import mlhp
 import numpy as np
 
 BASE_DIR = Path(__file__).parent
-RESULTS_DIR = BASE_DIR / "../../results"
+RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dim", type=int, default=2, choices=[2, 3])
 args = parser.parse_args()
 
-# -------------------------------- optimization settings ------------------------------
+# -------------------------------------- settings -------------------------------------
 D = args.dim
 
 DEGREE = 3
@@ -42,31 +42,28 @@ CG_TOL = 1e-6 if DTYPE == cp.float32 else 1e-10
 
 BLOCK = 1024
 
-# half-MBB beam (left symmetry), 3:1 aspect; voxels divisible by SUB_VOXELS
 if D == 2:
-    nvoxels = [210, 70]
-    # nvoxels = [90, 30]
-    domain_lengths = [3.0, 1.0]
+    NVOXELS = [210, 70]
+    # NVOXELS = [90, 30]
+    DOMAIN_LENGTHS = [3.0, 1.0]
 else:
-    nvoxels = [96, 32, 32]
-    domain_lengths = [3.0, 1.0, 1.0]
+    NVOXELS = [96, 32, 32]
+    DOMAIN_LENGTHS = [3.0, 1.0, 1.0]
 
-assert all(n % SUB_VOXELS == 0 for n in nvoxels)
-nelems = [n // SUB_VOXELS for n in nvoxels]
-elem_lengths = [l / n for l, n in zip(domain_lengths, nelems)]
-n_voxels = int(np.prod(nvoxels))
+assert all(n % SUB_VOXELS == 0 for n in NVOXELS)
+nelems = [n // SUB_VOXELS for n in NVOXELS]
+elem_lengths = [l / n for l, n in zip(DOMAIN_LENGTHS, nelems)]
+n_voxels = int(np.prod(NVOXELS))
 
 nu_field = mlhp.scalarField(D, NU)
 
 # ---------------------------------------- mesh ---------------------------------------
-mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=nelems, lengths=domain_lengths))
+mesh = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=nelems, lengths=DOMAIN_LENGTHS))
 basis = mlhp.makeHpTrunkSpace(mesh, degree=DEGREE, nfields=D)
 ndof = basis.ndof()
 print(basis)
 
 # -------------------------------- boundary conditions --------------------------------
-# left face: x-symmetry (u_x = 0); bottom-right corner/edge: roller (u_y = 0);
-# 3D additionally fixes u_z on the z-min face to remove out-of-plane rigid motion.
 zero = mlhp.scalarField(D, 0.0)
 bc_symmetry = mlhp.integrateDirichletDofs(zero, basis, [0], ifield=0)
 
@@ -81,8 +78,7 @@ if D == 3:
 dirichlet = mlhp.combineDirichletDofs(bc_list)
 constrained_dofs = np.array(dirichlet[0])
 
-# ------------------------ local preintegrated stiffness matrices ---------------------
-# one reference matrix per subvoxel position inside a coarse element
+# ----------------------- local preintegrated stiffness matrices ----------------------
 kinematics = mlhp.smallStrainKinematics(D)
 mesh_local = mlhp.makeRefinedGrid(mlhp.makeGrid(ncells=[1] * D, lengths=elem_lengths))
 basis_local = mlhp.makeHpTrunkSpace(mesh_local, degree=DEGREE, nfields=D)
@@ -102,11 +98,10 @@ quadrature = mlhp.gridQuadrature(nsubcells=[SUB_VOXELS] * D)
 tic = time.time()
 K_refs = mlhp.integratePartitionMatrices(
     basis_local, integrand, quadrature, mlhp.absoluteQuadratureOrder([QUAD_ORDER] * D)
-)  # (n_sub, ndof_e, ndof_e)
+)
 print(f"preintegration ({n_sub} subvoxels): {time.time() - tic:.2f}s")
 
-# ----------------------------------- load vector -------------------------------------
-# downward line/point load over a one-element-wide patch at the top-left corner
+# ------------------------------------ load vector ------------------------------------
 load_width = elem_lengths[0]
 if D == 2:
     load_expr = f"[0.0, -{TRACTION} if x < {load_width} else 0.0]"
@@ -128,7 +123,7 @@ del vector
 
 efts = np.array(basis.locationMaps())
 
-# --------------------------------------- cuda ----------------------------------------
+# ---------------------------------------- cuda ---------------------------------------
 cuda_source = (BASE_DIR / "../../solvers/kernels/mlhp_kernels.cu").read_text()
 cuda_options = ("-DUSE_FLOAT",) if DTYPE == cp.float32 else ()
 module = cp.RawModule(code=cuda_source, options=cuda_options)
@@ -137,10 +132,9 @@ sensitivity_kernel = module.get_function("compliance_sensitivity_kernel")
 Ku_kernel = module.get_function("Ku_subvoxel_kernel")
 K_diag_kernel = module.get_function("K_diag_subvoxel_kernel")
 
-# indexing parameters for the per-element kernels (1 as dummy for 2D)
 N_elems = int(np.prod(nelems))
 Ny_elem, Nz_elem = nelems[1], nelems[2] if D == 3 else 1
-Ny_vox, Nz_vox = nvoxels[1], nvoxels[2] if D == 3 else 1
+Ny_vox, Nz_vox = NVOXELS[1], NVOXELS[2] if D == 3 else 1
 Sz = SUB_VOXELS if D == 3 else 1
 grid = (N_elems + BLOCK - 1) // BLOCK
 
@@ -151,13 +145,12 @@ constrained_gpu = cp.array(constrained_dofs, dtype=cp.int32)
 
 K_e_gpu = cp.empty(N_elems * ndof_e * ndof_e, dtype=DTYPE)
 
-# -------------------------------------- filter ---------------------------------------
-# conic density filter of radius RMIN (voxel units) with edge normalization Hs
+# --------------------------------------- filter --------------------------------------
 ceil_r = int(np.ceil(RMIN))
 axes = np.meshgrid(*([np.arange(-ceil_r, ceil_r + 1)] * D), indexing="ij")
 h = np.maximum(0.0, RMIN - np.sqrt(sum(a**2 for a in axes)))
 h_gpu = cp.array(h, dtype=DTYPE)
-Hs_gpu = cnd.convolve(cp.ones(nvoxels, dtype=DTYPE), h_gpu, mode="constant")
+Hs_gpu = cnd.convolve(cp.ones(NVOXELS, dtype=DTYPE), h_gpu, mode="constant")
 
 density_filter = lambda x: cnd.convolve(x, h_gpu, mode="constant") / Hs_gpu
 sens_filter = lambda g: cnd.convolve(g / Hs_gpu, h_gpu, mode="constant")
@@ -228,13 +221,13 @@ def sensitivity(u):
             Nz_vox,
         ),
     )
-    return ce.reshape(nvoxels)
+    return ce.reshape(NVOXELS)
 
 
-# ----------------------------------- optimization ------------------------------------
-rho = cp.full(nvoxels, VOLFRAC, dtype=DTYPE)
+# ------------------------------------ optimization -----------------------------------
+rho = cp.full(NVOXELS, VOLFRAC, dtype=DTYPE)
 u_gpu = cp.zeros(ndof, dtype=DTYPE)
-dv = cp.ones(nvoxels, dtype=DTYPE)
+dv = cp.ones(NVOXELS, dtype=DTYPE)
 
 tic = time.time()
 for loop in range(1, MAX_ITER + 1):
@@ -276,8 +269,8 @@ sol = u_gpu.get()
 all_dofs = mlhp.DoubleVector(sol.tolist())
 density_field = mlhp.scalarFieldFromVoxelData(
     mlhp.DoubleVector(rho_phys.get().ravel("C")),
-    nvoxels=nvoxels,
-    lengths=domain_lengths,
+    nvoxels=NVOXELS,
+    lengths=DOMAIN_LENGTHS,
 )
 processors = [
     mlhp.solutionProcessor(D, all_dofs, "Displacement"),
@@ -295,7 +288,7 @@ print(f"VTU written to {out}.pvtu")
 if D == 2:
     fig, ax = plt.subplots()
     ax.imshow(
-        rho_phys.get().reshape(nvoxels).T,
+        rho_phys.get().reshape(NVOXELS).T,
         origin="lower",
         cmap="gray_r",
         vmin=0.0,
@@ -303,5 +296,5 @@ if D == 2:
     )
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.tight_layout(pad=0)
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.show()

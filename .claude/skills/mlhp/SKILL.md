@@ -1,6 +1,6 @@
 ---
 name: mlhp
-description: General reference for the mlhp finite-element library (C++ core + `pymlhpcore` Python bindings) pinned in `solvers/mlhp`. Covers the full Python API — meshes/grids, refinement, implicit CSG geometry, hp/B-spline bases, scalar/vector fields, quadrature (incl. moment-fitting FCM), elasticity/Poisson/transient integrands, custom compiled integrands, Dirichlet/Neumann BCs, sparse + matrix-free assembly, CG/BiCGStab solvers, postprocessing/VTU/error indicators, triangulation/STL, and the numbering/orientation conventions (face IDs, voxel/cell ordering). Invoke before writing or editing any mlhp driver, including everything in `projects/16_elastic_fem/`.
+description: General reference for the mlhp finite-element library (C++ core + `pymlhpcore` Python bindings) pinned in `solvers/mlhp`. Covers the full Python API — meshes/grids, refinement, implicit CSG geometry, hp/B-spline bases, scalar/vector fields, quadrature (incl. moment-fitting FCM), elasticity/Poisson/transient integrands, custom compiled integrands, Dirichlet/Neumann BCs, sparse + matrix-free assembly, CG/BiCGStab solvers, postprocessing/VTU/error indicators, triangulation/STL, and the numbering/orientation conventions (face IDs, voxel/cell ordering). Invoke before writing or editing any mlhp driver, including everything in `projects/18_mlhp/`.
 ---
 
 mlhp is a C++ multi-level *hp*-FEM library (arbitrary dimension) with Python bindings exposed as the `pymlhpcore` extension and a thin `mlhp.py` wrapper. Import is always:
@@ -321,7 +321,7 @@ mlhp.integrateOnDomain(basis, integrand, [matrix, vector],
 
 ---
 
-## Recipe: voxel FEM (`projects/16_elastic_fem/`)
+## Recipe: voxel FEM (`projects/18_mlhp/`)
 
 These drivers solve linear elasticity on a CT-derived voxel image, with three solver backends:
 - `elastic_mlhp.py` — assembled sparse matrix + `mlhp.cg`

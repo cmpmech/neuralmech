@@ -10,59 +10,35 @@ The detailed conventions live in skills under `.claude/skills/`. Invoke them by 
 
 | Skill | When |
 |---|---|
-| `neuralmech-style` | Writing or editing ANY `.py` in `code/` (drivers, library, helpers), cleaning a file to match style, or auditing a project. The authoritative rules + house style: hard rules (paths, seeds, model loading, imports, no aligned `=`), banners, ALL_CAPS constants, the 10-step structure, no legends, README shape, chapter/naming registries, and a report-only audit mode. |
-| `optimize_code` | Iterative improvement against a metric (wall clock, validation error, accuracy, memory). |
-| `sweep-dump` | Sweeping a driver over a few constants (beta, latent size, data size, epochs) and dumping per-config sample images + an overview contact sheet + metrics table into `results/<sweep>/` for the user to judge; applying the pick afterwards. |
-| `pvpython` | Writing or editing pvpython/ParaView render scripts in `projects/0_pvpython/` — render pipeline, point-cloud sphere glyphs (avoiding impostor speckles), the shared `.cmap/` colormaps + Spectral pitfall, supersampled AA, transparent backgrounds, legacy-VTK point export. |
-| `mlhp` | Writing or editing any mlhp-based FEM driver — full Python API (meshes/grids, refinement, implicit CSG, hp/B-spline bases, fields, quadrature/FCM, elasticity/Poisson integrands, BCs, sparse + matrix-free assembly, solvers, postprocessing, numbering conventions) plus the `projects/16_elastic_fem/` voxel-FEM recipes (NumPy + CUDA matrix-free, CT geometry loading). |
+| `neuralmech-style` | Writing or editing ANY `.py` in `code/` — the authoritative rules and house style. |
+| `mlhp-overview` | Any mlhp work, C++ or Python; it routes on to `mlhp` (full Python API + the `projects/18_mlhp/` voxel-FEM recipes), `mlhp-immersed-methods`, `mlhp-visualize`, `mlhp-cpp-style`, `mlhp-cpp-utilities`. |
+| `pvpython` | pvpython/ParaView render scripts in `projects/0_pvpython/`. |
+| `sweep-dump` | Sweeping a driver over a few constants and dumping samples for the user to judge. |
+| `optimize_code` | Iterative improvement against a metric (wall clock, error, memory). |
 
 ## Setup
 
-```bash
-pip install -r requirements.txt
-```
-
-### Clone (with submodule)
-```bash
-git clone --recurse-submodules https://github.com/Leon-Herrmann/neuralmech
-```
+`pip install -r requirements.txt`, then `git submodule update --init --recursive`.
 
 ### Submodule: mlhp
-- Path: `solvers/mlhp_source/mlhp`
-- Source: https://gitlab.com/hpfem/code/mlhp (pinned at `0.2.4`)
-- Compiled build: `cmake -S solvers/mlhp_source -B solvers/mlhp_build && cmake --build solvers/mlhp_build -j`; the venv `.pth` puts `solvers/mlhp_build/bin` on `sys.path`, so `import mlhp` resolves to the compiled package (`bin/mlhp/`, with the NeuralMech helper integrands bundled into `mlhp._core`), not PyPI
-- Quick install: `pip install mlhp` (advanced physics requires C++ build)
-- Init/update submodule: `git submodule update --init --recursive`
+- Path: `solvers/mlhp_source/mlhp`, source https://gitlab.com/hpfem/code/mlhp, pinned at `0.2.4`
+- Build: `cmake -S solvers/mlhp_source -B solvers/mlhp_build && cmake --build solvers/mlhp_build -j`
+- The venv `.pth` puts `solvers/mlhp_build/bin` on `sys.path`, so `import mlhp` resolves to the
+  compiled package (`bin/mlhp/`, NeuralMech helper integrands bundled into `mlhp._core`), **not**
+  the PyPI `mlhp`. `pip install mlhp` works but lacks the advanced physics.
 
 ### Dependency: cuwave
-- Source: https://github.com/cmpmech/cuwave, released on PyPI
-- Install: `pip install cuwave` (needs a cupy matching the CUDA toolkit); pinned in
-  `requirements.txt`. Not a submodule -- there is no `solvers/cuwave` checkout
-- Owns the GPU finite difference wave solver and its adjoints: `wave` (Simulation,
-  simulate, stable_dt, grid_coords), `scalar` (ScalarWave, AcousticWave), `sensitivity`
-  (sensitivity, reconstruction_sensitivity, superposition_sensitivity), `boundary`
-  (pad_for_sponge, sponge), `utils` (Sensors, point_source, response_gradient,
-  misfit_gradient), `geometry`, `signals`, plus `elastic`, `anisotropic` and `maxwell`
-- Used by `projects/8_physics_drivers/{waveND,topopt_acoustic2D}.py`,
-  `projects/4_specialized_nns/analog_rnn_*.py`, `projects/16_fwi/*.py`,
-  `projects/0_conceptual_figures/4_analog_rnn.py`
+GPU finite difference wave solver and its adjoints (https://github.com/cmpmech/cuwave). Pip-installed
+and pinned in `requirements.txt` — not a submodule, there is no `solvers/cuwave` checkout. Needs a
+cupy matching the CUDA toolkit. For who uses it: `grep -rl cuwave projects/`.
 
-## Project structure
+## Layout
 
-| Path | Description |
-|---|---|
-| `NN.py` | Network architectures (MLP, DCN, GNN variants, RNN, NODE, Bayesian, ResNet, ELM, AE/VAE, KAN) |
-| `DL.py` | Deep learning utilities (weight init, Standardizer) |
-| `ML.py` | ML utilities |
-| `postprocessing.py` | Output helpers (save_csv, show_image) |
-| `projects/` | Chapter-specific experiment drivers |
-| `templates/` | Reusable patterns (e.g. training loop) |
-| `solvers/` | Classical physics solvers + mlhp submodule |
-| `models/` | Saved/trained networks |
-| `data/` | Generated data (gitignored if large) |
-| `external_data/` | Data generation tools (excluded from main repo) |
-| `results/` | Post-processing outputs (gitignored) |
-| `tests/` | Pytest tests for shared library files (created on demand) |
+`NN.py` architectures · `DL.py` weight init + Standardizer · `ML.py` · `postprocessing.py` save_csv/show_image
+· `projects/<chapter>_<name>/` chapter drivers · `solvers/` classical solvers + mlhp.
+
+`external_data/` holds data-generation tools excluded from the main repo. `data/`, `models/` and
+`results/` are gitignored — regenerate rather than expecting contents.
 
 ## Quick conventions (fallback cheat-sheet)
 
@@ -83,16 +59,3 @@ For the full ruleset, driver style, and scaffolding, invoke `neuralmech-style`.
 - Graph networks: input is a PyG `Data` object (`graph.x`, `graph.edge_index`).
 - `Standardizer` (`DL.py`): call `.inverse()` to undo normalization.
 - `ELM` (`NN.py`): use `.fit(x, y, regularization)` before forward pass.
-
-## Stack
-
-- Python · PyTorch · torch-geometric · torchdiffeq · efficient-kan
-- JAX/Flax, TensorFlow/Keras also installed
-- Bayesian: PyMC, NumPyro, Pyro
-- Solvers: mlhp, scipy, triangle
-- Visualization: matplotlib, plotly, seaborn
-- Testing: pytest
-
-## Gitignored
-
-`results/`, `results/animations/`, `data/`, `external_data/`, `.assets/original_images`, `.assets/animations`, `.idea/`, `projects/0_conceptual_figures`, `projects/0_helpers`

@@ -35,7 +35,7 @@ LENGTHS = [1.0, 1.0]
 NX, NY = 256, 256
 SUB_VOXELS = 4
 DEGREE = 3
-QUAD_ORDER = DEGREE + 1  # integration
+QUAD_ORDER = DEGREE + 1
 
 # physics
 VOLFRAC = 0.6
@@ -46,7 +46,7 @@ LOAD = -1.0
 
 # postprocessing
 THRESHOLD = 0.5
-DUMP_TAG = "default"  # names the dump figure, bump it per experiment
+DUMP_TAG = "default"
 
 # optimization (optimality criterion)
 MOVE = 0.2
@@ -93,12 +93,12 @@ def face_dofs(face, ifield):
     return np.array(mlhp.combineDirichletDofs([bc])[0])
 
 
-symmetry = face_dofs(0, 0)  # left edge
+symmetry = face_dofs(0, 0)
 roller = np.intersect1d(face_dofs(2, 1), face_dofs(1, 1))  # bottom-right corner
 load_dof = np.intersect1d(face_dofs(3, 1), face_dofs(0, 1))  # top-left corner
 
 fixed = np.unique(np.concatenate([symmetry, roller]))
-free = np.setdiff1d(np.arange(ndof), fixed)  # all non-fixed dofs
+free = np.setdiff1d(np.arange(ndof), fixed)
 
 force = np.zeros(ndof)
 force[load_dof] = LOAD
@@ -124,7 +124,6 @@ for it in pbar:
     u[free] = fem.solve(simp(rho, PENAL, EMIN, E0), force_free)
     compliance = force @ u
 
-    # compliance sensitivity, mapped back to the design grid
     dc = -dsimp(rho, PENAL, EMIN, E0) * fem.element_energy(u)
     dc = density_filter.sensitivity(rho, dc)
 
@@ -180,7 +179,6 @@ fields = (
 )
 
 # ---------------------------------------- dump ---------------------------------------
-# annotated side by side of the final and thresholded design, one file per experiment
 DUMP_DIR.mkdir(parents=True, exist_ok=True)
 fig, axes = plt.subplots(1, 2, figsize=(8, 4.4), dpi=150)
 for ax, field in zip(axes, (rho, rho_thresh)):
@@ -221,7 +219,6 @@ elif args.book:
         plt.savefig(RGB_PDF_DIR / f"{name}.pdf", transparent=True)
         plt.close()
 
-# y-displacement evaluated on the thresholded structure (void left transparent)
 indicator_field = mlhp.scalarFieldFromVoxelData(
     mlhp.FloatVector(rho_thresh.ravel("C").astype(np.float32)),
     nvoxels=[NX, NY],
