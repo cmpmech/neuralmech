@@ -10,11 +10,10 @@ external_data/*
 !external_data/.gitkeep
 tmp/*
 !tmp/.gitkeep
-./assets/original_images
-./assets/animations
+/.assets/original_images
+/.assets/animations
 .idea/
-# /projects/0_conceptual_figures
-# /projects/0_helpers
+/projects/0_conceptual_figures/.cache.sqlite
 /solvers/mlhp_build
 /solvers/kernels_build
 .logs/
@@ -27,3 +26,6 @@ projects/*/outputs/
 *.pvtu
 *.vtm
 .ruff_cache/
+*.cubin
+*.pt2
+projects/*/*.stl
