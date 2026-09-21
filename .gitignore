@@ -8,8 +8,7 @@ models/*
 !models/.gitkeep
 external_data/*
 !external_data/.gitkeep
-tmp/*
-!tmp/.gitkeep
+tmp/
 /.assets/original_images
 /.assets/animations
 .idea/
