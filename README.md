@@ -41,6 +41,7 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 - **Neural Network Architectures** (chapter 4)
 - **Probabilistic Machine Learning** (chapter 5)
 - **Governing Equations** (chapter 8)
+- **Numerical Methods** (chapter 9)
 
 </details>
 
@@ -49,7 +50,6 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 
 - **Machine Learning Algorithms** (chapter 6)
 - **Practical Machine Learning** (chapter 7)
-- **Numerical Methods** (chapter 9)
 - **Machine Learning in Computational Mechanics** (chapter 10)
 - **Neural Surrogates** (chapter 11)
 - **Neural Solvers** (chapter 12)
