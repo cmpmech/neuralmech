@@ -15,7 +15,7 @@ from torch.utils.checkpoint import checkpoint
 from tqdm import tqdm
 
 from DL import sinusoidal_embedding
-from solvers.optimization import DensityFilter, StructuredFEM
+from solvers.optimization import StructuredFEM
 
 BASE_DIR = Path(__file__).parent
 MODEL_DIR = (BASE_DIR / "../../models").resolve()
@@ -47,7 +47,6 @@ QUAD_ORDER = DEGREE + 1
 
 # physics
 VOLFRAC = 0.6
-RMIN = 2
 E0, EMIN, NU = 1.0, 1e-9, 0.3
 LOAD = -1.0
 
@@ -172,7 +171,6 @@ force[load_dof] = LOAD
 force_free = force[free]
 
 fem = StructuredFEM(efts, free, ndof, K_locals, (RESOLUTION, RESOLUTION), SUB_VOXELS)
-density_filter = DensityFilter(RMIN, (RESOLUTION, RESOLUTION))
 
 
 def simp(rho):
@@ -204,7 +202,6 @@ for it in pbar:
         compliance0 = compliance
 
     dc = -PENAL * rho ** (PENAL - 1) * (E0 - EMIN) * fem.element_energy(u)
-    dc = density_filter.sensitivity(rho, dc)
 
     mean_rho = rho.mean()
     g = mean_rho / VOLFRAC - 1
