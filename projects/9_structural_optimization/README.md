@@ -10,6 +10,11 @@ the relaxed problem before its solution is meaningful.
     the penalty method, the augmented Lagrangian, the optimality criteria update and MMA
     on a separable test problem with a closed-form optimum
 
+`pareto.py`
+    two analytical objectives whose Pareto front has a nonconvex hump, traced by the
+    epsilon-constraint method in full and by the weighted sum only on its convex hull,
+    along with the tangent points of the hull used by the conceptual figure
+
 `penalization.py`
     Tikhonov and total variation evaluated on a plate with a hole, once with a wide and
     once with a narrow transition across the boundary

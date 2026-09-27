@@ -102,6 +102,16 @@ pip install cuwave
 
 - needs a [cupy](https://cupy.dev) matching the installed CUDA toolkit
 
+### cufluid
+
+- the GPU lattice Boltzmann fluid solver behind the fluid drivers
+- currently private and ongoing work, included as a git submodule in `solvers/cufluid`; it will be released as a pip package soon
+- with access, install it from the submodule with
+
+```
+pip install -e solvers/cufluid
+```
+
 ## Structure
 
 |                                          |                                                                            |

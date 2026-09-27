@@ -32,6 +32,12 @@ GPU finite difference wave solver and its adjoints (https://github.com/cmpmech/c
 and pinned in `requirements.txt` — not a submodule, there is no `solvers/cuwave` checkout. Needs a
 cupy matching the CUDA toolkit. For who uses it: `grep -rl cuwave projects/`.
 
+### Submodule: cufluid
+GPU lattice Boltzmann fluid solver (https://github.com/cmpmech/cufluid), a cuwave sibling.
+Currently private and ongoing work, so it sits at `solvers/cufluid` as a submodule and is installed
+editable (`pip install -e solvers/cufluid`); it will move to a pinned pip package once released.
+Used by `projects/8_physics_drivers/fluid2D.py`.
+
 ## Layout
 
 `NN.py` architectures · `DL.py` weight init + Standardizer · `ML.py` · `postprocessing.py` save_csv/show_image

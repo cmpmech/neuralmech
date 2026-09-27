@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import nrrd
 import numpy as np
 from scipy.ndimage import label
 
@@ -9,13 +8,13 @@ EXT_DATA_DIR = (BASE_DIR / "../../external_data").resolve()
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 
 # -------------------------------------- settings -------------------------------------
-CT_FILE = "B-HAI-1.nrrd"
+CT_FILE = "B-HAI-1.npy"
 CROP = (slice(None), slice(256, 772), slice(1, 1060))  # (z_all, row_crop, col_crop)
 SEED = (5, 5, 5)  # must be solid
 SOLID_STRIP = 3  # voxels of guaranteed solid at x=Lx
 
 # ------------------------------------- load data -------------------------------------
-data, _ = nrrd.read(EXT_DATA_DIR / CT_FILE)
+data = np.load(EXT_DATA_DIR / CT_FILE)
 data = np.array(data)
 
 # ----------------------------------- binarize ----------------------------------------

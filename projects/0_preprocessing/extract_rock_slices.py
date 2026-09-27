@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import nrrd
 import numpy as np
 from pyevtk.hl import gridToVTK
 
@@ -32,7 +31,7 @@ ROCKS = {
 
 # ------------------------------------ load + crop ------------------------------------
 for name in ROCKS:
-    data, _ = nrrd.read(EXT_DATA_DIR / f"{name}.nrrd")
+    data = np.load(EXT_DATA_DIR / f"{name}.npy")
 
     zmin, zmax, xc, yc = ROCKS[name]
     xmin, xmax = xc - DOMAIN_SIZE // 2, xc + DOMAIN_SIZE // 2

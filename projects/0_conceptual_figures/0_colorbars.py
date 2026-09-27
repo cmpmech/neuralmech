@@ -34,6 +34,7 @@ COLORMAPS = [
     ("cmr_fusion", cmr.fusion),
     ("cmr_guppy", cmr.guppy),  # instead of pride -> for fluids
     ("cmr_infinity", cmr.infinity),
+    ("magma_r", "magma_r"),  # fracture
 ]
 
 # ----------------------------------- postprocessing ----------------------------------

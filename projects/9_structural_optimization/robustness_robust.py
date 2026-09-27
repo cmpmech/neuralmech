@@ -36,7 +36,7 @@ args = parser.parse_args()
 # ceiling acoustic topology optimization of topopt_helmholtz2D.py, robust formulation
 
 # geometry & objective
-LENGTHS = [18.0, 9.0]
+LENGTHS = [18.0, 6.0]
 SOURCE_CENTER = [2.0, 2.0]  # harmonic point source (bottom-left)
 SOURCE_WIDTH = 0.3  # Gaussian emulation of the point source
 CEILING_HEIGHT = 1.0
@@ -63,7 +63,7 @@ QUAD_ORDER = DEGREE + 1  # integration
 RHO1, RHO2 = 1.204, 2643.0  # air, aluminium
 KAPPA1, KAPPA2 = 1.419e5, 6.87e10
 RHO_RATIO, KAPPA_RATIO = RHO1 / RHO2, KAPPA1 / KAPPA2
-FREQ = 68.77  # (6, 2) room mode, c/2 * sqrt((n / Lx)**2 + (m / Ly)**2)
+FREQ = 68.77  # (4, 2) room mode, c/2 * sqrt((n / Lx)**2 + (m / Ly)**2)
 OMEGA = 2.0 * np.pi * FREQ / np.sqrt(KAPPA1 / RHO1)
 DAMP = 0.01
 SOURCE_AMP = 10.0

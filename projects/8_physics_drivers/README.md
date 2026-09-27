@@ -33,6 +33,10 @@ topology-optimization drivers built on top of them.
 `advection_diffusion2D.py`
     Steady advection-diffusion of a Gaussian source on a 2D mlhp finite-element mesh.
 
+`fluid2D.py`
+    Incompressible flow past a cylinder in a channel at Re 100 (vortex shedding) on the
+    cufluid lattice Boltzmann GPU solver, with a velocity inlet and a pressure outlet.
+
 `elasticity2D.py`
     Linear elasticity on a 2D mlhp finite-element mesh.
 
@@ -54,6 +58,13 @@ topology-optimization drivers built on top of them.
     The same J2 plasticity problem on the pure-Python structured FEM (solvers/FEM):
     the return mapping is a vectorized NumPy usermat evaluated over all quadrature
     points at once, with history stored directly at the points.
+
+`fracture2D.py`
+    AT2 phase-field fracture of the single-edge notched shear test (Miehe et al. 2010),
+    staggered, with the volumetric-deviatoric split. Degraded material, damage equation and
+    history update are C subroutines (solvers/material_subroutines/phasefield.py) handed to
+    mlhp; bilinear elements refined along the notch and in the lower right quadrant, the
+    notch as nearly void elements, pardiso through mlhp.mkl.
 
 `helmholtz2D.py`
     Time-harmonic acoustics (Helmholtz) on a 2D mlhp finite-element mesh.

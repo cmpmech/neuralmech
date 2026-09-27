@@ -1,3 +1,8 @@
 [submodule "solvers/mlhp_source/mlhp"]
 	path = solvers/mlhp_source/mlhp
 	url = https://gitlab.com/hpfem/code/mlhp.git
+# cufluid: GPU lattice Boltzmann fluid solver, currently private and ongoing work;
+# it will be released as a pip package soon, replacing this submodule
+[submodule "solvers/cufluid"]
+	path = solvers/cufluid
+	url = https://github.com/cmpmech/cufluid.git

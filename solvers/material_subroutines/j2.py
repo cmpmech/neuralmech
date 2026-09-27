@@ -13,6 +13,8 @@ NHISTORY = 13  # doubles per material point
 
 # material parameter layout shared by both callbacks: [E, nu, sigmaY, H, beta]
 # with hardening modulus H and beta in [0, 1] (0 = isotropic, 1 = kinematic).
+# optional user fields [E, sigmaY] (after the history in `material`, first in `update`)
+# override the constant E and sigmaY per point.
 _SOURCE = r"""
     #include <math.h>
     #include <stdint.h>
@@ -120,16 +122,31 @@ _SOURCE = r"""
 
     // Constitutive callback: strain is the increment (incremental=True),
     // userFields[0] the history, userData[0] the parameter vector.
+    // Parameters of one point: prm, with E and sigmaY taken from the user fields
+    // first and first + 1 when present (heterogeneous materials).
+    static void local_params(const double* prm, double** userFields, int64_t nfields,
+                             int64_t first, double* local)
+    {
+        memcpy(local, prm, 5 * sizeof(double));
+
+        if(nfields >= first + 2)
+        {
+            local[0] = userFields[first][0];
+            local[2] = userFields[first + 1][0];
+        }
+    }
+
     static int64_t material(double* stress, double* tangent, double* energyDensity,
                             double* gradient, double* strain, double* xyz, double* rst,
                             double** userFields, double** userData, double* tmp,
                             int64_t* sizes, int64_t* userFieldSizes, int64_t ielement)
     {
-        double dstrain[6] = { 0.0 }, stressLocal[6], tangentLocal[36], history1[13];
+        double dstrain[6] = { 0.0 }, stressLocal[6], tangentLocal[36], history1[13], prm[5];
 
         for(int a = 0; a < 3; ++a) dstrain[M[a]] = strain[a];
 
-        j2(userData[0], userFields[0], dstrain, stressLocal, tangentLocal, history1);
+        local_params(userData[0], userFields, sizes[2], 1, prm);
+        j2(prm, userFields[0], dstrain, stressLocal, tangentLocal, history1);
 
         if(stress) for(int a = 0; a < 3; ++a) stress[a] = stressLocal[M[a]];
 
@@ -147,11 +164,12 @@ _SOURCE = r"""
                           double* tmp, int64_t* sizes, int64_t* userFieldSizes,
                           int64_t ielement)
     {
-        double dstrain[6] = { 0.0 }, stress[6], tangent[36], history1[13];
+        double dstrain[6] = { 0.0 }, stress[6], tangent[36], history1[13], prm[5];
 
         for(int a = 0; a < 3; ++a) dstrain[M[a]] = strains[1][a] - strains[0][a];
 
-        j2(userData[0], history, dstrain, stress, tangent, history1);
+        local_params(userData[0], userFields, sizes[3], 0, prm);
+        j2(prm, history, dstrain, stress, tangent, history1);
 
         memcpy(history, history1, 13 * sizeof(double));
 
