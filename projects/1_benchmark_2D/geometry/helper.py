@@ -2,11 +2,18 @@ import csv
 import json
 import struct
 import subprocess
+import tomllib
 import urllib.parse
+from pathlib import Path
 
 import numpy as np
 import torch
 from scipy import ndimage
+
+BASE_DIR = Path(__file__).parent
+
+with open(BASE_DIR / "../settings.toml", "rb") as f:
+    SETTINGS = tomllib.load(f)["geometry"]
 
 DPMP_URL = "https://digitalporousmedia.org/api"
 
@@ -68,25 +75,37 @@ def normalize(image, clip):
     return np.round(255 * np.clip(image, 0, 1)).astype(np.uint8)
 
 
-def sample_block(shape, res, rng, axes=(0, 1, 2)):
-    """random axis-aligned res x res crop of a block volume; returns (axis, slice, corner_0, corner_1).
+def shape_name(res, aspect):
+    """file tag of a crop: 256 for a square, 256x64 for aspect ratio 4."""
+    return f"{res}" if aspect == 1 else f"{res}x{res // aspect}"
 
-    Axes whose slice plane is smaller than res are never drawn. Returns None when no axis fits.
+
+def sample_block(shape, size, rng, axes=(0, 1, 2)):
+    """random axis-aligned crop of `size` pixels from a block volume; returns
+    (axis, slice, corner_0, corner_1, transposed).
+
+    A rectangle is cut along either in-plane direction and transposed back, so that its
+    long side stays first. Axes whose slice plane is too small are never drawn. Returns
+    None when no axis fits.
     """
-    axes = [a for a in axes if min(np.delete(shape, a)) >= res]
+    transposed = size[0] != size[1] and bool(rng.random() < 0.5)
+    size = size[::-1] if transposed else size
+    axes = [a for a in axes if all(np.delete(shape, a) >= size)]
     if not axes:
         return None
     axis = int(rng.choice(axes))
     plane = np.delete(shape, axis)
     slice_idx = int(rng.integers(shape[axis]))
-    x0 = int(rng.integers(plane[0] - res + 1))
-    y0 = int(rng.integers(plane[1] - res + 1))
-    return axis, slice_idx, x0, y0
+    x0 = int(rng.integers(plane[0] - size[0] + 1))
+    y0 = int(rng.integers(plane[1] - size[1] + 1))
+    return axis, slice_idx, x0, y0, transposed
 
 
-def crop(volume, axis, slice_idx, x0, y0, res):
+def crop(volume, axis, slice_idx, x0, y0, transposed, size):
+    size = size[::-1] if transposed else size
     image = np.take(volume, slice_idx, axis=axis)
-    return np.asarray(image[x0 : x0 + res, y0 : y0 + res])
+    image = np.asarray(image[x0 : x0 + size[0], y0 : y0 + size[1]])
+    return image.T if transposed else image
 
 
 def material_mask(volume):
@@ -129,44 +148,50 @@ def texture_mask(image, fov, margin):
     return ndimage.binary_erosion(ndimage.binary_fill_holes(region), iterations=int(margin * scale) + 1)
 
 
-def extract(volume, kind, name, resolutions, samples, rng, geometries, index, clip=None, mask=None, axes=(0, 1, 2)):
-    """append `samples` random crops per resolution of one volume to geometries and index.
+def extract(volume, kind, name, rng, geometries, index, clip=None, mask=None, axes=(0, 1, 2)):
+    """append the crops of one volume, `samples` per resolution and aspect ratio, to
+    geometries and index.
 
     `clip` maps gray values to 0-255; None keeps a binary volume as 0/255. With a `mask`,
     only crops lying entirely inside it are kept (rejection sampling). `axes` limits the slice
-    normals, e.g. (0,) for cross-sections of fibres running along axis 0.
+    normals, e.g. (0,) for cross-sections of fibres running along axis 0. Rectangles draw from
+    a child of `rng`, so the squares stay the same when aspect ratios are added.
     """
-    for res in resolutions:
-        images = geometries.setdefault((kind, res), [])
-        for _ in range(samples):
-            for _ in range(1000):
-                position = sample_block(volume.shape, res, rng, axes)
-                if position is None or mask is None or crop(mask, *position, res).all():
+    rect_rng = rng.spawn(1)[0]
+    for aspect in SETTINGS["aspect_ratios"]:
+        generator = rng if aspect == 1 else rect_rng
+        for res in SETTINGS["resolutions"]:
+            size = (res, res // aspect)
+            images = geometries.setdefault((kind, shape_name(res, aspect)), [])
+            for _ in range(SETTINGS["samples"]):
+                for _ in range(1000):
+                    position = sample_block(volume.shape, size, generator, axes)
+                    if position is None or mask is None or crop(mask, *position, size).all():
+                        break
+                else:
+                    position = None
+                if position is None:
+                    print(f"skip {name}: {shape_name(res, aspect)} does not fit")
                     break
-            else:
-                position = None
-            if position is None:
-                print(f"skip {name}: resolution {res} does not fit")
-                break
-            image = crop(volume, *position, res)
-            image = normalize(image, clip) if clip is not None else (255 * (image > 0)).astype(np.uint8)
-            index.append([f"{kind}_{res}_{len(images)}", name, *position])
-            images.append(image)
+                image = crop(volume, *position, size)
+                image = normalize(image, clip) if clip is not None else (255 * (image > 0)).astype(np.uint8)
+                index.append([f"{kind}_{shape_name(res, aspect)}_{len(images)}", name, *position])
+                images.append(image)
 
 
 def export(geometries, index, out_dir):
-    """one uint8 tensor (N, res, res) per (type, res) plus an index csv of where each crop came from."""
+    """one uint8 tensor (N, R_1, R_2) per type and shape plus an index csv of where each crop came from."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    for (kind, res), images in geometries.items():
+    for (kind, shape), images in geometries.items():
         if not images:
             continue
-        file = out_dir / f"{kind}_{res}.pt"
+        file = out_dir / f"{kind}_{shape}.pt"
         torch.save(torch.from_numpy(np.stack(images)), file)
-        print(f"saved {file} {(len(images), res, res)}")
+        print(f"saved {file} {(len(images), *images[0].shape)}")
 
     with open(out_dir / "index.csv", "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["name", "volume", "slice_axis", "slice_index", "corner_0", "corner_1"])
+        writer.writerow(["name", "volume", "slice_axis", "slice_index", "corner_0", "corner_1", "transposed"])
         writer.writerows(index)
 
 

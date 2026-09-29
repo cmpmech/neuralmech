@@ -1,59 +1,65 @@
+import tomllib
 from pathlib import Path
 
-from boundary import BoundaryConditions, save, source
+from boundary import BoundaryConditions, save, shape_name, source
 
 BASE_DIR = Path(__file__).parent
 SETUP_DIR = (BASE_DIR / "../../../../data/2D_benchmark/setups").resolve()
 
-# -------------------------------------- settings -------------------------------------
-RESOLUTIONS = [128, 256]
+with open(BASE_DIR / "../../settings.toml", "rb") as f:
+    SETTINGS = tomllib.load(f)
 
-# loads refer to the unit square; ramped loads give the final value
-TRACTION = 1.0  # elasticity, right edge
-STRETCH = 2e-3  # plasticity, right edge displacement as a fraction of the width
-OPENING = 2e-2  # fracture, top edge displacement
+# -------------------------------------- settings -------------------------------------
+RESOLUTIONS = SETTINGS["geometry"]["resolutions"]
+ASPECT_RATIOS = SETTINGS["geometry"]["aspect_ratios"]
+
+# loads refer to a unit long side; ramped loads give the final value
+TRACTION = SETTINGS["presets"]["traction"]
+STRETCH = SETTINGS["presets"]["stretch"]
+OPENING = SETTINGS["presets"]["opening"]
+BURST = SETTINGS["presets"]["burst"]
 
 
 # ---------------------------------------- setup --------------------------------------
-def tension(R):
+def tension(R, aspect):
     """uniaxial tension: rollers left and bottom, traction on the right edge."""
-    bc = BoundaryConditions.empty(R)
-    bc.fix("left", 0)
-    bc.fix("bottom", 1)
+    bc = BoundaryConditions.empty(R, aspect)
+    bc.fix("left", 0, closed=True)
+    bc.fix("bottom", 1, closed=True)
     bc.load("right", 0, TRACTION)
     return bc
 
 
-def conduction(R):
+def conduction(R, aspect):
     """temperature 0 on the left, 1 on the right, insulated top and bottom."""
-    bc = BoundaryConditions.empty(R)
-    bc.fix("left", 0, 0.0)
-    bc.fix("right", 0, 1.0)
+    bc = BoundaryConditions.empty(R, aspect)
+    bc.fix("left", 0, 0.0, closed=True)
+    bc.fix("right", 0, 1.0, closed=True)
     return bc
 
 
-def stretch(R):
+def stretch(R, aspect):
     """uniaxial tension under displacement control."""
-    bc = BoundaryConditions.empty(R)
-    bc.fix("left", 0)
-    bc.fix("bottom", 1)
-    bc.fix("right", 0, STRETCH)
+    bc = BoundaryConditions.empty(R, aspect)
+    bc.fix("left", 0, closed=True)
+    bc.fix("bottom", 1, closed=True)
+    bc.fix("right", 0, STRETCH, closed=True)
     return bc
 
 
-def opening(R):
+def opening(R, aspect):
     """clamped bottom, top edge pulled up (and held horizontally)."""
-    bc = BoundaryConditions.empty(R)
+    bc = BoundaryConditions.empty(R, aspect)
     for component in (0, 1):
-        bc.fix("bottom", component)
-    bc.fix("top", 0)
-    bc.fix("top", 1, OPENING)
+        bc.fix("bottom", component, closed=True)
+    bc.fix("top", 0, closed=True)
+    bc.fix("top", 1, OPENING, closed=True)
     return bc
 
 
-def channel(R):
+def channel(R, aspect):
     """inflow on the left (unit velocity), outflow on the right, no-slip top and bottom."""
-    bc = BoundaryConditions.empty(R)
+    bc = BoundaryConditions.empty(R, aspect)
     bc.fix("left", 0, 1.0)
     bc.fix("left", 1)
     for edge in ("bottom", "top"):
@@ -64,12 +70,14 @@ def channel(R):
 
 # ---------------------------------------- export -------------------------------------
 for R in RESOLUTIONS:
-    save(SETUP_DIR / f"tension_{R}.pt", tension(R))
-    save(SETUP_DIR / f"conduction_{R}.pt", conduction(R))
-    save(SETUP_DIR / f"stretch_{R}.pt", stretch(R))
-    save(SETUP_DIR / f"opening_{R}.pt", opening(R))
-    save(SETUP_DIR / f"channel_{R}.pt", channel(R))
-    # reflecting edges, a sine burst from a point source in the centre
-    burst = source("point", (0.5, 0.5), 0.02, (1.0,), frequency=30.0, cycles=2)
-    save(SETUP_DIR / f"burst_{R}.pt", BoundaryConditions.empty(R), [burst])
+    for aspect in ASPECT_RATIOS:
+        shape = shape_name(R, aspect)
+        save(SETUP_DIR / f"tension_{shape}.pt", tension(R, aspect))
+        save(SETUP_DIR / f"conduction_{shape}.pt", conduction(R, aspect))
+        save(SETUP_DIR / f"stretch_{shape}.pt", stretch(R, aspect))
+        save(SETUP_DIR / f"opening_{shape}.pt", opening(R, aspect))
+        save(SETUP_DIR / f"channel_{shape}.pt", channel(R, aspect))
+        # reflecting edges, a sine burst from a point source in the centre
+        burst = source("point", BURST["position"], BURST["width"], (1.0,), BURST["frequency"], BURST["cycles"])
+        save(SETUP_DIR / f"burst_{shape}.pt", BoundaryConditions.empty(R, aspect), [burst])
 print(f"setups written to {SETUP_DIR}")

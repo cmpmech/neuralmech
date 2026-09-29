@@ -9,6 +9,7 @@ from cuwave.signals import sineburst
 from cuwave.utils import interior_slice, point_source
 from cuwave.wave import simulate, stable_dt
 from helper import (
+    SETTINGS,
     benchmark_parser,
     load_phase,
     load_setup,
@@ -20,10 +21,11 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 
 parser = benchmark_parser(setup="burst")
-parser.add_argument("--rho-min", type=float, default=1e3)  # heavy and stiff:
-parser.add_argument("--rho-max", type=float, default=1.0)
-parser.add_argument("--kappa-min", type=float, default=1e3)  # sound-hard holes
-parser.add_argument("--kappa-max", type=float, default=1.0)
+MATERIAL = SETTINGS["materials"]["wave"]
+parser.add_argument("--rho-min", type=float, default=MATERIAL["rho"][0])  # heavy and stiff:
+parser.add_argument("--rho-max", type=float, default=MATERIAL["rho"][1])
+parser.add_argument("--kappa-min", type=float, default=MATERIAL["kappa"][0])  # sound-hard holes
+parser.add_argument("--kappa-max", type=float, default=MATERIAL["kappa"][1])
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
@@ -43,7 +45,8 @@ bc, sources = load_setup(args)  # edges reflect (homogeneous Neumann), bc unused
 
 # --------------------------------------- setup ---------------------------------------
 R = args.resolution
-Nx, dx = (R + 3,) * 2, (1.0 / R,) * 2  # R + 1 interior nodes plus one ghost ring
+R1, R2 = g.shape
+Nx, dx = (R1 + 3, R2 + 3), (1.0 / R,) * 2  # R + 1 interior nodes plus one ghost ring
 speed = math.sqrt(max(args.kappa_min / args.rho_min, args.kappa_max / args.rho_max))
 dt = SAFETY * stable_dt(dx, speed, SPACE_ORDER)
 N = math.ceil(DURATION / dt)
@@ -74,17 +77,18 @@ indicator = cp.asarray(np.pad(nodal, pad, mode="edge"), dtype=sim.dtype)
 # scaled by the nodal phase so that nothing is injected into holes
 t = np.arange(N) * dt
 coords, signals = [], []
-x = np.linspace(0.0, 1.0, R + 1)
-x, y = [c.ravel() for c in np.meshgrid(x, x, indexing="ij")]
+x, y = np.meshgrid(np.linspace(0.0, 1.0, R1 + 1), np.linspace(0.0, R2 / R, R2 + 1), indexing="ij")
+x, y = x.ravel(), y.ravel()
 phase = nodal.ravel()
 for s in sources:
     burst = sineburst(t, s["amplitude"][0], s["frequency"], s["cycles"])
+    position = (s["position"][0], s["position"][1] * R2 / R)  # fractions of each side
     if s["kind"] == "point":
-        i, j = (int(round(c * R)) for c in s["position"])
-        coords.append(np.array([s["position"]]))
+        i, j = (int(round(c * n)) for c, n in zip(s["position"], g.shape))
+        coords.append(np.array([position]))
         signals.append(burst[:, None] * nodal[i, j])
         continue
-    r2 = (x - s["position"][0]) ** 2 + (y - s["position"][1]) ** 2
+    r2 = (x - position[0]) ** 2 + (y - position[1]) ** 2
     near = r2 < (4 * s["width"]) ** 2
     weight = (
         np.exp(-0.5 * r2[near] / s["width"] ** 2) / (2 * np.pi * s["width"] ** 2) / R**2

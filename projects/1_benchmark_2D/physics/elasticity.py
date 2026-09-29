@@ -5,6 +5,7 @@ import numpy as np
 import torch
 
 from helper import (
+    SETTINGS,
     PixelMesh,
     benchmark_parser,
     interpolate,
@@ -25,12 +26,13 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 
 parser = benchmark_parser(setup="tension")
-parser.add_argument("--E-min", type=float, default=0.1)
-parser.add_argument("--E-max", type=float, default=1.0)
+MATERIAL = SETTINGS["materials"]["elasticity"]
+parser.add_argument("--E-min", type=float, default=MATERIAL["E"][0])
+parser.add_argument("--E-max", type=float, default=MATERIAL["E"][1])
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
-NU = 0.3  # plane strain
+NU = MATERIAL["nu"]  # plane strain
 
 # ------------------------------------- load data -------------------------------------
 g = load_phase(args)
@@ -38,7 +40,7 @@ bc, sources = load_setup(args)
 E = interpolate(g, args.E_min, args.E_max)
 
 # --------------------------------------- setup ---------------------------------------
-mesh = PixelMesh(args.resolution, nfields=2)
+mesh = PixelMesh(args.resolution, nfields=2, aspect=args.aspect)
 dirichlet = mesh.dirichlet(bc)
 
 matrix = mlhp.allocateSparseMatrix(mesh.basis, dirichlet[0])

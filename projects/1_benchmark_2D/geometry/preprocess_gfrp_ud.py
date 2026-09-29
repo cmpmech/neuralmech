@@ -7,7 +7,7 @@ import tifffile
 import torch
 from scipy import ndimage
 
-from helper import download, export, extract, texture_mask
+from helper import SETTINGS, download, export, extract, texture_mask
 
 BASE_DIR = Path(__file__).parent
 RAW_DIR = (BASE_DIR / "../../../external_data/2D_benchmark/gfrp_ud").resolve()
@@ -20,9 +20,6 @@ rng = np.random.default_rng(11)
 # -------------------------------------- settings -------------------------------------
 RECORD = "https://zenodo.org/api/records/1195879/files"  # doi:10.5281/zenodo.1195879, CC-BY 4.0
 SCANS = {"XCT_L": "XCT_LR/", "XCT_M": "XCT_MR/", "XCT_H": "XCT_HR/", "SRCT": "SCT/"}  # zip -> folder
-RESOLUTIONS = [128, 256]  # also possible: 512 (lab CT), 1024 (synchrotron)
-SAMPLES = 10  # per scan and resolution
-CLIP = (0.1, 99.9)  # grayscale percentiles mapped to 0 and 255, inside the specimen
 MARGIN = 10  # voxels (per 1000 px of slice width) kept clear of the fibre region edge
 KEEP_RAW = True  # keep the downloaded zips in RAW_DIR
 
@@ -59,9 +56,9 @@ for scan, folder in SCANS.items():
         footprint &= texture_mask(image, field_of_view(image, scan == "SRCT"), MARGIN)
     mask = np.broadcast_to(footprint, volume.shape)
 
-    clip = np.percentile(volume[:, footprint][::3], CLIP)
+    clip = np.percentile(volume[:, footprint][::3], SETTINGS["clip"])
     kind = f"gfrp_{scan.lower()}"
-    extract(volume, kind, scan, RESOLUTIONS, SAMPLES, rng, geometries, index, clip, mask, axes=(0,))
+    extract(volume, kind, scan, rng, geometries, index, clip, mask, axes=(0,))
     print(f"{scan}: {volume.shape}, specimen fraction {footprint.mean():.2f}")
 
     if not KEEP_RAW:

@@ -4,13 +4,14 @@ from pathlib import Path
 import numpy as np
 import tifffile
 
+from helper import SETTINGS
+
 BASE_DIR = Path(__file__).parent
 EXT_DATA_DIR = (BASE_DIR / "../../../external_data").resolve()
 SCAN_DIR = (EXT_DATA_DIR / "ctscans").resolve()
 SCAN_DIR.mkdir(parents=True, exist_ok=True)
 
 # -------------------------------------- settings -------------------------------------
-CLIP = (0.1, 99.9)  # percentiles of the core gray values mapped to 0 and 255
 OVERWRITE = False  # redo scans that already exist in SCAN_DIR
 
 # ----------------------------------- preprocessing -----------------------------------
@@ -35,7 +36,7 @@ for scan in scans:
 
     sample = volume[::4, ::4, ::4]
     air, rock = np.percentile(sample, [1, 99])
-    lo, hi = np.percentile(sample[sample > (air + rock) / 2], CLIP)
+    lo, hi = np.percentile(sample[sample > (air + rock) / 2], SETTINGS["clip"])
     volume = np.round(255 * np.clip((volume - lo) / (hi - lo), 0, 1)).astype(np.uint8)
 
     np.save(out, volume)

@@ -4,6 +4,7 @@ import numpy as np
 import torch
 
 from helper import (
+    SETTINGS,
     PixelMesh,
     benchmark_parser,
     interpolate,
@@ -19,8 +20,9 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 
 parser = benchmark_parser(setup="conduction")
-parser.add_argument("--kappa-min", type=float, default=0.1)
-parser.add_argument("--kappa-max", type=float, default=1.0)
+MATERIAL = SETTINGS["materials"]["poisson"]
+parser.add_argument("--kappa-min", type=float, default=MATERIAL["kappa"][0])
+parser.add_argument("--kappa-max", type=float, default=MATERIAL["kappa"][1])
 args = parser.parse_args()
 
 # ------------------------------------- load data -------------------------------------
@@ -29,7 +31,7 @@ bc, sources = load_setup(args)
 kappa = interpolate(g, args.kappa_min, args.kappa_max)
 
 # --------------------------------------- setup ---------------------------------------
-mesh = PixelMesh(args.resolution, nfields=1)
+mesh = PixelMesh(args.resolution, nfields=1, aspect=args.aspect)
 dirichlet = mesh.dirichlet(bc)
 
 matrix = mlhp.allocateSparseMatrix(mesh.basis, dirichlet[0])

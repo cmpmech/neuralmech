@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from helper import export
+from helper import SETTINGS, export, shape_name
 
 BASE_DIR = Path(__file__).parent
 SCAN_DIR = (BASE_DIR / "../../../external_data/ctscans").resolve()  # uint8 scans from convert_ctscans.py
@@ -13,10 +13,9 @@ GEOMETRY_DIR = (BASE_DIR / "../../../data/2D_benchmark/geometries/ctscans").reso
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 rng = np.random.default_rng(0)
+rect_rng = rng.spawn(1)[0]  # rectangles draw separately, so the squares stay the same
 
 # -------------------------------------- settings -------------------------------------
-RESOLUTIONS = [128, 256]  # also possible: up to ~350, the largest square inside the cores
-SAMPLES = 10  # per scan and resolution, half horizontal and half vertical slices
 MARGIN = 8  # voxels kept clear of the core surface
 END_BRIGHTNESS = 0.8  # slices dimmer than this fraction of the core median are end caps
 STEP = 6  # jump in mean core gray value between 5-slice windows that marks a stitch
@@ -54,40 +53,49 @@ def detect_core(data):
     return center, radius - MARGIN, zrange, segments
 
 
-def sample_horizontal(center, radius, zrange, res):
-    half = res / 2
+def fits_horizontal(radius, size):
+    return (size[0] / 2) ** 2 + (size[1] / 2) ** 2 <= radius**2
+
+
+def fits_vertical(radius, segments, size):
+    return size[0] / 2 <= radius and any(b - a >= size[1] for a, b in segments)
+
+
+def sample_horizontal(center, radius, zrange, size, generator):
+    half = np.array(size) / 2
     while True:
-        dx, dy = rng.uniform(-radius, radius, 2)
-        if (abs(dx) + half) ** 2 + (abs(dy) + half) ** 2 <= radius**2:
+        dx, dy = generator.uniform(-radius, radius, 2)
+        if (abs(dx) + half[0]) ** 2 + (abs(dy) + half[1]) ** 2 <= radius**2:
             break
-    x0 = int(center[0] + dx - half)
-    y0 = int(center[1] + dy - half)
-    z = int(rng.integers(zrange[0], zrange[1] + 1))
+    x0 = int(center[0] + dx - half[0])
+    y0 = int(center[1] + dy - half[1])
+    z = int(generator.integers(zrange[0], zrange[1] + 1))
     return 2, z, x0, y0
 
 
-def sample_vertical(center, radius, segments, res):
-    half = res / 2
-    axis = int(rng.integers(2))
-    offset = rng.uniform(-1, 1) * np.sqrt(radius**2 - half**2)
+def sample_vertical(center, radius, segments, size, generator):
+    """size is (lateral, along the core axis)."""
+    half = size[0] / 2
+    axis = int(generator.integers(2))
+    offset = generator.uniform(-1, 1) * np.sqrt(radius**2 - half**2)
     chord = np.sqrt(radius**2 - offset**2)
-    lateral = rng.uniform(-1, 1) * (chord - half)
+    lateral = generator.uniform(-1, 1) * (chord - half)
     slice_idx = int(center[axis] + offset)
     x0 = int(center[1 - axis] + lateral - half)
-    fits = [(a, b) for a, b in segments if b - a >= res]
-    lengths = np.array([b - a - res + 1 for a, b in fits])
-    a, b = fits[rng.choice(len(fits), p=lengths / lengths.sum())]
-    z0 = int(rng.integers(a, b - res + 2))
+    fits = [(a, b) for a, b in segments if b - a >= size[1]]
+    lengths = np.array([b - a - size[1] + 1 for a, b in fits])
+    a, b = fits[generator.choice(len(fits), p=lengths / lengths.sum())]
+    z0 = int(generator.integers(a, b - size[1] + 2))
     return axis, slice_idx, x0, z0
 
 
-def crop(data, slice_axis, slice_idx, x0, y0, res):
+def crop(data, slice_axis, slice_idx, x0, y0, size):
     if slice_axis == 2:
-        image = data[x0 : x0 + res, y0 : y0 + res, slice_idx]
+        image = data[x0 : x0 + size[0], y0 : y0 + size[1], slice_idx]
     elif slice_axis == 0:
-        image = data[slice_idx, x0 : x0 + res, y0 : y0 + res]
+        image = data[slice_idx, x0 : x0 + size[0], y0 : y0 + size[1]]
     else:
-        image = data[x0 : x0 + res, slice_idx, y0 : y0 + res]
+        image = data[x0 : x0 + size[0], slice_idx, y0 : y0 + size[1]]
     return image
 
 
@@ -101,23 +109,29 @@ for file in sorted(SCAN_DIR.glob("*.npy")):
     data = np.load(file)
 
     center, radius, zrange, segments = detect_core(data)
-    max_res = min(int(np.sqrt(2) * radius), max(b - a for a, b in segments))
-    print(f"{scan}: radius {radius:.0f}, z {zrange}, parts {segments}, max resolution {max_res}")
+    print(f"{scan}: radius {radius:.0f}, z {zrange}, parts {segments}")
 
-    for res in RESOLUTIONS:
-        if res > max_res:
-            raise ValueError(f"resolution {res} does not fit in {scan}, max is {max_res}")
+    for aspect in SETTINGS["aspect_ratios"]:
+        generator = rng if aspect == 1 else rect_rng
+        for res in SETTINGS["resolutions"]:
+            images = geometries.setdefault((kind, shape_name(res, aspect)), [])
+            for i in range(SETTINGS["samples"]):
+                # a rectangle is cut along either in-plane direction and transposed back
+                transposed = aspect != 1 and bool(generator.random() < 0.5)
+                size = (res // aspect, res) if transposed else (res, res // aspect)
+                horizontal = i < SETTINGS["samples"] // 2
+                fits = fits_horizontal(radius, size) if horizontal else fits_vertical(radius, segments, size)
+                if not fits:
+                    print(f"skip {scan}: {shape_name(res, aspect)} does not fit")
+                    break
+                if horizontal:
+                    position = sample_horizontal(center, radius, zrange, size, generator)
+                else:
+                    position = sample_vertical(center, radius, segments, size, generator)
 
-        images = geometries.setdefault((kind, res), [])
-        for i in range(SAMPLES):
-            if i < SAMPLES // 2:
-                slice_axis, slice_idx, x0, y0 = sample_horizontal(center, radius, zrange, res)
-            else:
-                slice_axis, slice_idx, x0, y0 = sample_vertical(center, radius, segments, res)
-
-            image = np.array(crop(data, slice_axis, slice_idx, x0, y0, res))
-            index.append([f"{kind}_{res}_{len(images)}", scan, slice_axis, slice_idx, x0, y0])
-            images.append(image)
+                image = np.array(crop(data, *position, size))
+                index.append([f"{kind}_{shape_name(res, aspect)}_{len(images)}", scan, *position, transposed])
+                images.append(image.T if transposed else image)
 
     del data
 

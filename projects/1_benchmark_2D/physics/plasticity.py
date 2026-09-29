@@ -5,6 +5,7 @@ import numpy as np
 import torch
 
 from helper import (
+    SETTINGS,
     PixelMesh,
     benchmark_parser,
     interpolate,
@@ -25,16 +26,17 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 
 parser = benchmark_parser(setup="stretch")
-parser.add_argument("--E-min", type=float, default=21e3)  # MPa
-parser.add_argument("--E-max", type=float, default=210e3)
-parser.add_argument("--yield-min", type=float, default=25.0)
-parser.add_argument("--yield-max", type=float, default=250.0)
+MATERIAL = SETTINGS["materials"]["plasticity"]
+parser.add_argument("--E-min", type=float, default=MATERIAL["E"][0])  # MPa
+parser.add_argument("--E-max", type=float, default=MATERIAL["E"][1])
+parser.add_argument("--yield-min", type=float, default=MATERIAL["yield"][0])
+parser.add_argument("--yield-max", type=float, default=MATERIAL["yield"][1])
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
 # physics (plane strain)
-NU = 0.3
-HARDENING = 210e3 / 50.0  # linear isotropic hardening modulus
+NU = MATERIAL["nu"]
+HARDENING = MATERIAL["hardening"]  # linear isotropic hardening modulus
 
 # loading: the setup's prescribed values ramped in equal steps
 NSTEPS = 10
@@ -52,7 +54,7 @@ sigma_y = voxel_field(interpolate(g, args.yield_min, args.yield_max))
 
 # --------------------------------------- setup ---------------------------------------
 lib = build()
-mesh = PixelMesh(args.resolution, nfields=2)
+mesh = PixelMesh(args.resolution, nfields=2, aspect=args.aspect)
 kinematics = mlhp.smallStrainKinematics(2)
 fixed = mesh.dirichlet(bc)
 homogeneous = [fixed[0], [0.0] * len(fixed[0])]

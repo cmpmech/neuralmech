@@ -5,7 +5,7 @@ import h5py
 import numpy as np
 import torch
 
-from helper import download, export, extract, texture_mask
+from helper import SETTINGS, download, export, extract, texture_mask
 
 BASE_DIR = Path(__file__).parent
 RAW_DIR = (BASE_DIR / "../../../external_data/2D_benchmark/cfrp_t700").resolve()
@@ -18,9 +18,6 @@ rng = np.random.default_rng(12)
 # -------------------------------------- settings -------------------------------------
 URL = "https://zenodo.org/api/records/7632124/files/data.zip/content"  # doi:10.5281/zenodo.7632124, CC-BY 4.0
 SCANS = ["T700-T-02", "T700-T-08", "T700-T-21", "T700-T-26"]  # slow 0.4 um scans; the fast GF scans are noisy
-RESOLUTIONS = [128, 256]  # the specimen is ~460 px wide, 512 does not fit
-SAMPLES = 10  # per scan and resolution
-CLIP = (0.1, 99.9)  # grayscale percentiles mapped to 0 and 255, inside the fibre region
 MARGIN = 10  # voxels (per 1000 px of slice width) kept clear of the fibre region edge
 INVERT = True  # fibres are darker than the matrix in these reconstructions; invert so denser is brighter
 KEEP_RAW = True  # keep the downloaded zip in RAW_DIR; the extracted h5 files are always removed
@@ -49,8 +46,8 @@ with zipfile.ZipFile(file) as archive:
             footprint &= texture_mask(image, np.ones(image.shape, dtype=bool), MARGIN)
         mask = np.broadcast_to(footprint, volume.shape)
 
-        clip = np.percentile(volume[:, footprint][::5], CLIP)
-        extract(volume, "cfrp_t700", scan, RESOLUTIONS, SAMPLES, rng, geometries, index, clip, mask, axes=(0,))
+        clip = np.percentile(volume[:, footprint][::5], SETTINGS["clip"])
+        extract(volume, "cfrp_t700", scan, rng, geometries, index, clip, mask, axes=(0,))
         print(f"{scan}: {volume.shape}, fibre region fraction {footprint.mean():.2f}")
         del volume, mask
 

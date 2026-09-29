@@ -10,13 +10,13 @@ from cufluid.lbm.boundary import Outflow, Wall
 from cufluid.lbm.lbm import LatticeBoltzmann, moments, simulate
 
 from bcs.boundary import EDGES
-from helper import benchmark_parser, load_phase, load_setup, plot_field, save_solution
+from helper import SETTINGS, benchmark_parser, load_phase, load_setup, plot_field, save_solution
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 
 parser = benchmark_parser(setup="channel")
-parser.add_argument("--reynolds", type=float, default=100.0)  # with the domain width
+parser.add_argument("--reynolds", type=float, default=SETTINGS["materials"]["fluid"]["reynolds"])
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
@@ -31,20 +31,20 @@ DURATION = 3  # flow-through times of the domain
 # ------------------------------------- load data -------------------------------------
 g = load_phase(args)
 bc, sources = load_setup(args)
-threshold = 0.5 if args.threshold is None else args.threshold
+threshold = SETTINGS["geometry"]["threshold"] if args.threshold is None else args.threshold
 solid = g < threshold  # the weak phase is solid, the fluid flows through the matrix
 
 
 # --------------------------------------- helper --------------------------------------
 def face(edge):
     """cufluid condition of a whole edge: a (moving) wall when prescribed, else outflow."""
-    e = EDGES.index(edge)
-    dirichlet = bc.dirichlet[e].numpy()
+    e, nodes = EDGES.index(edge), bc.edge_nodes(edge)  # without the padding
+    dirichlet = bc.dirichlet[e, :nodes].numpy()
     if not dirichlet.any():
         return Outflow()
     if not dirichlet.all():
         raise ValueError(f"cufluid needs one condition per face, {edge} is mixed")
-    velocity = VELOCITY * bc.u[e].numpy().mean(axis=0)
+    velocity = VELOCITY * bc.u[e, :nodes].numpy().mean(axis=0)
     return Wall(velocity=tuple(velocity)) if np.abs(velocity).max() > 0 else Wall()
 
 
@@ -61,10 +61,10 @@ open_labels = np.unique(np.concatenate([edges[e] for e in outflow]))
 solid |= ~np.isin(labels, open_labels[open_labels > 0])
 
 # --------------------------------------- setup ---------------------------------------
-R = args.resolution
-Nx = (R + 2, R + 2)  # plus one ghost layer
-viscosity = VELOCITY * R / args.reynolds
-N = math.ceil(DURATION * R / VELOCITY)
+R1, R2 = g.shape  # the channel runs along the long side x_1
+Nx = (R1 + 2, R2 + 2)  # plus one ghost layer
+viscosity = VELOCITY * R1 / args.reynolds  # with the long side, as stable as the square
+N = math.ceil(DURATION * R1 / VELOCITY)
 
 mask = cp.zeros(Nx, dtype=cp.bool_)
 mask[1:-1, 1:-1] = cp.asarray(solid)

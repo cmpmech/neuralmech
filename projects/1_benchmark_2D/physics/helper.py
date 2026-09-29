@@ -1,4 +1,5 @@
 import argparse
+import tomllib
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -8,11 +9,14 @@ import pypardiso
 import scipy.sparse as sp
 import torch
 
-from bcs.boundary import load
+from bcs.boundary import OFFSET, load, shape_name
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../../data/2D_benchmark").resolve()
 RGB_PDF_DIR = (BASE_DIR / "../../../results/rgb_pdf").resolve()
+
+with open(BASE_DIR / "../settings.toml", "rb") as f:
+    SETTINGS = tomllib.load(f)
 
 OVERLAY = 0.35  # opacity of the black overlay marking the weak phase in plots
 
@@ -23,7 +27,8 @@ def benchmark_parser(setup):
     parser.add_argument("--source", default="ctscans")
     parser.add_argument("--type", default="B_HAI")
     parser.add_argument("--sample", type=int, default=0)
-    parser.add_argument("--resolution", type=int, default=256)
+    parser.add_argument("--resolution", type=int, default=256, help="pixels along x_1")
+    parser.add_argument("--aspect", type=int, default=1, help="long : short side")
     parser.add_argument(
         "--threshold",
         type=float,
@@ -42,7 +47,8 @@ def benchmark_parser(setup):
 
 def load_phase(args):
     """phase indicator g in [0, 1] per pixel, g[i, j] at pixel (x_i, y_j)."""
-    file = DATA_DIR / "geometries" / args.source / f"{args.type}_{args.resolution}.pt"
+    shape = shape_name(args.resolution, args.aspect)
+    file = DATA_DIR / "geometries" / args.source / f"{args.type}_{shape}.pt"
     image = torch.load(file, weights_only=False, map_location="cpu")[
         args.sample
     ].numpy()
@@ -52,28 +58,35 @@ def load_phase(args):
 
 def load_setup(args):
     """(BoundaryConditions or None, list of source dicts)."""
-    return load(DATA_DIR / "setups" / f"{args.setup}_{args.resolution}.pt")
+    shape = shape_name(args.resolution, args.aspect)
+    return load(DATA_DIR / "setups" / f"{args.setup}_{shape}.pt")
 
 
 def interpolate(g, low, high):
     return low + g * (high - low)
 
 
+def lengths(shape):
+    """side lengths of a domain of `shape` pixels, the long side x_1 of unit length."""
+    return [1.0, shape[1] / shape[0]]
+
+
 def voxel_field(values):
-    """piecewise constant mlhp field over the unit square, one value per pixel."""
+    """piecewise constant mlhp field over the domain, one value per pixel."""
     data = mlhp.DoubleVector(np.ascontiguousarray(values, dtype=float).ravel().tolist())
-    return mlhp.scalarFieldFromVoxelData(data, list(values.shape), [1.0, 1.0])
+    return mlhp.scalarFieldFromVoxelData(data, list(values.shape), lengths(values.shape))
 
 
 class PixelMesh:
-    """one bilinear element per pixel, so the dofs sit on the pixel nodes.
+    """one bilinear element per square pixel, so the dofs sit on the pixel nodes.
 
     `dof[i, j, c]` is the dof of component c at node (x_i, y_j).
     """
 
-    def __init__(self, resolution, nfields):
+    def __init__(self, resolution, nfields, aspect=1):
         self.R, self.nfields = resolution, nfields
-        self.grid = mlhp.makeRefinedGrid(mlhp.makeGrid([resolution] * 2, [1.0, 1.0]))
+        self.shape = (resolution, resolution // aspect)
+        self.grid = mlhp.makeRefinedGrid(mlhp.makeGrid(list(self.shape), lengths(self.shape)))
         self.basis = mlhp.makeHpTensorSpace(self.grid, degree=1, nfields=nfields)
         self.ndof = self.basis.ndof()
 
@@ -87,58 +100,65 @@ class PixelMesh:
                 np.rint(np.array(mlhp.projectOnto(self.basis, field)) * resolution)
             )
         component = np.array(self.basis.fieldmap()) if nfields > 1 else 0
-        self.dof = np.zeros((resolution + 1, resolution + 1, nfields), dtype=int)
+        self.dof = np.zeros((self.shape[0] + 1, self.shape[1] + 1, nfields), dtype=int)
         self.dof[ij[0].astype(int), ij[1].astype(int), component] = np.arange(self.ndof)
 
-    def edge_dofs(self, edge):
-        """dofs (R + 1, nfields) along edge 0-3 (left, right, bottom, top)."""
+    def closed_edge_dofs(self, edge):
+        """dofs (nodes, nfields) of all nodes along edge 0-3 (left, right, bottom, top)."""
         return [self.dof[0], self.dof[-1], self.dof[:, 0], self.dof[:, -1]][edge]
+
+    def edge_dofs(self, edge):
+        """dofs of the nodes edge 0-3 holds: all but the corner it passes on."""
+        dofs = self.closed_edge_dofs(edge)
+        return dofs[1:] if OFFSET[edge] else dofs[:-1]
 
     def dirichlet(self, bc, scale=1.0):
         """mlhp dirichlet dofs [indices, values], prescribed values scaled by `scale`."""
         ids, values = [], []
         for edge in range(4):
-            mask = bc.dirichlet[edge, :, : self.nfields].numpy()
-            ids.append(self.edge_dofs(edge)[mask])
-            values.append(scale * bc.u[edge, :, : self.nfields].numpy()[mask])
+            dofs = self.edge_dofs(edge)
+            mask = bc.dirichlet[edge, : len(dofs), : self.nfields].numpy()
+            ids.append(dofs[mask])
+            values.append(scale * bc.u[edge, : len(dofs), : self.nfields].numpy()[mask])
         ids, first = np.unique(np.concatenate(ids), return_index=True)
         return [ids.tolist(), np.concatenate(values)[first].tolist()]
 
     def neumann(self, bc, scale=1.0):
         """nodal loads from the edge tractions, lumped with the trapezoidal rule."""
         h = 1.0 / self.R
-        weights = np.full(self.R + 1, h)
-        weights[[0, -1]] = 0.5 * h
         load = np.zeros(self.ndof)
         for edge in range(4):
-            t = (bc.t * bc.neumann)[edge, :, : self.nfields].numpy()
-            np.add.at(
-                load, self.edge_dofs(edge).ravel(), (weights[:, None] * t).ravel()
-            )
+            dofs = self.closed_edge_dofs(edge)
+            weights = np.full(len(dofs), h)
+            weights[[0, -1]] = 0.5 * h
+            t = (bc.t * bc.neumann)[edge, : len(dofs) - 1, : self.nfields].numpy()
+            # the traction reaches the corner the edge passes on, continued from its neighbor
+            t = np.concatenate([t[:1], t]) if OFFSET[edge] else np.concatenate([t, t[-1:]])
+            np.add.at(load, dofs.ravel(), (weights[:, None] * t).ravel())
         return scale * load
 
     def sources(self, sources, g, scale=1.0):
         """nodal loads of point, gaussian and gravity sources (nodal quadrature).
 
-        Gravity scales with the phase g averaged onto the nodes (density ~ gray value).
+        Positions are fractions of each side. Gravity scales with the phase g averaged onto
+        the nodes (density ~ gray value).
         """
-        R, h = self.R, 1.0 / self.R
-        x, y = np.meshgrid(
-            np.linspace(0, 1, R + 1), np.linspace(0, 1, R + 1), indexing="ij"
-        )
-        area = np.full((R + 1, R + 1), h * h)
+        (R1, R2), h = self.shape, 1.0 / self.R
+        x, y = np.meshgrid(np.arange(R1 + 1) * h, np.arange(R2 + 1) * h, indexing="ij")
+        area = np.full((R1 + 1, R2 + 1), h * h)
         area[[0, -1]] *= 0.5
         area[:, [0, -1]] *= 0.5
         load = np.zeros(self.ndof)
         for s in sources:
             amplitude = np.array(s["amplitude"])[: self.nfields]
             if s["kind"] == "point":
-                i, j = (int(round(p * R)) for p in s["position"])
+                i, j = (int(round(p * n)) for p, n in zip(s["position"], self.shape))
                 load[self.dof[i, j]] += amplitude
                 continue
             if s["kind"] == "gaussian":
                 w = s["width"]
-                r2 = (x - s["position"][0]) ** 2 + (y - s["position"][1]) ** 2
+                x0, y0 = (p * n * h for p, n in zip(s["position"], self.shape))
+                r2 = (x - x0) ** 2 + (y - y0) ** 2
                 density = np.exp(-0.5 * r2 / w**2) / (2 * np.pi * w**2)
             else:
                 padded = np.pad(g, 1, mode="edge")
@@ -156,22 +176,23 @@ class PixelMesh:
         return scale * load
 
     def cell_values(self, function):
-        """(R, R, ncomponents) values of an mlhp mesh function at the pixel centres."""
-        values = np.array([function(cell, [0.0, 0.0]) for cell in range(self.R**2)])
+        """(R_1, R_2, ncomponents) values of an mlhp mesh function at the pixel centres."""
+        ncells = self.shape[0] * self.shape[1]
+        values = np.array([function(cell, [0.0, 0.0]) for cell in range(ncells)])
         if not hasattr(self, "pixel"):
             xy = mlhp.vectorField(
                 2, [mlhp.scalarField(2, "x"), mlhp.scalarField(2, "y")]
             )
             centres = mlhp.meshFunction(self.grid, xy)
-            ij = np.array([centres(cell, [0.0, 0.0]) for cell in range(self.R**2)])
+            ij = np.array([centres(cell, [0.0, 0.0]) for cell in range(ncells)])
             self.pixel = tuple(np.floor(ij * self.R).astype(int).T)
-        out = np.zeros((self.R, self.R, values.shape[1]))
+        out = np.zeros((*self.shape, values.shape[1]))
         out[self.pixel] = values
         return out
 
     @staticmethod
     def pixel_mean(nodal):
-        """(R, R, ...) pixel averages of nodal values (R + 1, R + 1, ...)."""
+        """(R_1, R_2, ...) pixel averages of nodal values (R_1 + 1, R_2 + 1, ...)."""
         return 0.25 * (
             nodal[1:, 1:] + nodal[:-1, 1:] + nodal[1:, :-1] + nodal[:-1, :-1]
         )
@@ -181,7 +202,7 @@ class PixelMesh:
         return np.delete(load, dirichlet[0])
 
     def nodal(self, dofs):
-        """(R + 1, R + 1, nfields) nodal values of a full dof vector."""
+        """(R_1 + 1, R_2 + 1, nfields) nodal values of a full dof vector."""
         return np.asarray(dofs)[self.dof]
 
 
@@ -203,15 +224,16 @@ def solve(matrix, vector):
 
 
 def pixel_gradient(nodal):
-    """gradient at the pixel centres, (R, R, nfields, 2), from (R + 1, R + 1, nfields)."""
-    R = nodal.shape[0] - 1
+    """gradient at the pixel centres, (R_1, R_2, nfields, 2), from (R_1 + 1, R_2 + 1, nfields)."""
+    R = nodal.shape[0] - 1  # square pixels of size 1 / R_1
     dx = 0.5 * R * (nodal[1:, 1:] - nodal[:-1, 1:] + nodal[1:, :-1] - nodal[:-1, :-1])
     dy = 0.5 * R * (nodal[1:, 1:] - nodal[1:, :-1] + nodal[:-1, 1:] - nodal[:-1, :-1])
     return np.stack([dx, dy], axis=-1)
 
 
 def save_solution(args, physics, **fields):
-    name = f"{args.source}_{args.type}_{args.sample}_{args.resolution}_{args.setup}.pt"
+    shape = shape_name(args.resolution, args.aspect)
+    name = f"{args.source}_{args.type}_{args.sample}_{shape}_{args.setup}.pt"
     file = DATA_DIR / "solutions" / physics / name
     file.parent.mkdir(parents=True, exist_ok=True)
     torch.save({key: torch.as_tensor(value) for key, value in fields.items()}, file)
@@ -219,13 +241,14 @@ def save_solution(args, physics, **fields):
 
 
 def plot_field(field, g, cmap, name, book, vmin=None, vmax=None, solid=None):
-    """field (nodal or per pixel) over the unit square, weak phase darkened.
+    """field (nodal or per pixel) over the domain, weak phase darkened.
 
     With a `solid` gray level, the weak phase (g < 0.5) is painted opaque instead, for
     fields that do not exist there (fluid flow).
     """
-    fig, ax = plt.subplots(figsize=(5, 5), dpi=100 if book else 150)
-    extent = (0.0, 1.0, 0.0, 1.0)
+    width, height = lengths(g.shape)
+    fig, ax = plt.subplots(figsize=(5 * width, 5 * height), dpi=100 if book else 150)
+    extent = (0.0, width, 0.0, height)
     ax.imshow(
         field.T,
         origin="lower",

@@ -28,3 +28,4 @@ projects/*/outputs/
 *.cubin
 *.pt2
 projects/*/*.stl
+projects/0_website/

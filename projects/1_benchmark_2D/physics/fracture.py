@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from helper import (
+    SETTINGS,
     PixelMesh,
     benchmark_parser,
     interpolate,
@@ -21,16 +22,17 @@ torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 
 parser = benchmark_parser(setup="opening")
-parser.add_argument("--E-min", type=float, default=21.0)  # kN / mm^2
-parser.add_argument("--E-max", type=float, default=210.0)
-parser.add_argument("--gc-min", type=float, default=2.7e-4)  # kN / mm
-parser.add_argument("--gc-max", type=float, default=2.7e-3)
+MATERIAL = SETTINGS["materials"]["fracture"]
+parser.add_argument("--E-min", type=float, default=MATERIAL["E"][0])  # kN / mm^2
+parser.add_argument("--E-max", type=float, default=MATERIAL["E"][1])
+parser.add_argument("--gc-min", type=float, default=MATERIAL["gc"][0])  # kN / mm
+parser.add_argument("--gc-max", type=float, default=MATERIAL["gc"][1])
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
-# physics (plane strain, unit square in mm)
-NU = 0.3
-ELL = 0.015  # phase-field length scale
+# physics (plane strain, long side of 1 mm)
+NU = MATERIAL["nu"]
+ELL = MATERIAL["ell"]  # phase-field length scale
 RESIDUAL = 1e-7  # stiffness left in fully broken material
 
 # loading: the setup's prescribed values ramped in equal steps until the body breaks
@@ -49,8 +51,8 @@ Gc_field = voxel_field(interpolate(g, args.gc_min, args.gc_max))
 
 # --------------------------------------- setup ---------------------------------------
 lib = build()
-mesh_u = PixelMesh(args.resolution, nfields=2)
-mesh_d = PixelMesh(args.resolution, nfields=1)
+mesh_u = PixelMesh(args.resolution, nfields=2, aspect=args.aspect)
+mesh_d = PixelMesh(args.resolution, nfields=1, aspect=args.aspect)
 kinematics = mlhp.smallStrainKinematics(2)
 fixed = mesh_u.dirichlet(bc)
 ids = np.array(fixed[0], dtype=int)

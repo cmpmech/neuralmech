@@ -1,0 +1,53 @@
+# Deliberate choices of the 2D benchmark, read by geometry/, physics/ and physics/bcs/.
+# Extraction technicalities of a single source (masks, margins, raw file layouts) stay in
+# its preprocess script; solver numerics (steps, tolerances) stay in the physics drivers.
+
+[geometry]
+resolutions = [128, 256]  # pixels along x1, the long side; 512 and 1024 fit only some sources
+aspect_ratios = [1, 2, 4, 8]  # long : short side, so 256 at 4 is 256 x 64 pixels
+samples = 10  # crops per volume, resolution and aspect ratio
+clip = [0.1, 99.9]  # gray value percentiles mapped to 0 and 255
+threshold = 0.5  # binarization of the gray value scaled to [0, 1] in the book figures
+
+[boundary_conditions]
+count = 10  # random setups per resolution and aspect ratio
+max_dirichlet_edges = 2  # clamped edges beyond this are exotic
+zero_dirichlet = 0.7  # probability that a prescribed value is a plain support (zero)
+load = 0.5  # probability that a free edge carries a load
+max_sources = 2
+value_scale = 1.0  # magnitude of prescribed values, loads and sources
+source_position = [0.1, 0.9]  # range of source positions, as fractions of each side
+source_width = [0.01, 0.1]  # range of gaussian source widths, in units of the long side
+
+[presets]
+traction = 1.0  # elasticity, right edge
+stretch = 2e-3  # plasticity, right edge displacement as a fraction of the long side
+opening = 2e-2  # fracture, top edge displacement
+burst = { position = [0.5, 0.5], width = 0.02, frequency = 30.0, cycles = 2 }  # wave
+
+# material properties interpolate between min (gray value 0) and max (gray value 1)
+[materials.elasticity]
+E = [0.1, 1.0]
+nu = 0.3
+
+[materials.poisson]
+kappa = [0.1, 1.0]
+
+[materials.plasticity]
+E = [21e3, 210e3]  # MPa
+yield = [25.0, 250.0]
+nu = 0.3
+hardening = 4.2e3  # linear isotropic hardening modulus, E_max / 50
+
+[materials.fracture]
+E = [21.0, 210.0]  # kN / mm^2
+gc = [2.7e-4, 2.7e-3]  # kN / mm
+nu = 0.3
+ell = 0.015  # phase-field length scale, in units of the long side
+
+[materials.wave]
+rho = [1e3, 1.0]  # heavy and stiff: sound-hard holes
+kappa = [1e3, 1.0]
+
+[materials.fluid]
+reynolds = 100.0  # with the long side; the short side lowers the viscosity to instability

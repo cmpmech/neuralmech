@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+from helper import SETTINGS, shape_name
+
 BASE_DIR = Path(__file__).parent
 GEOMETRY_DIR = (BASE_DIR / "../../../data/2D_benchmark/geometries").resolve()
 RESULTS_DIR = (BASE_DIR / "../../../results").resolve()
@@ -33,7 +35,7 @@ SOURCE = "ctscans"
 # SOURCE = "gfrp_ud"
 # SOURCE = "cfrp_t700"
 RESOLUTION = 256  # 128, 256
-THRESHOLD = 0.5  # binarization of the gray value scaled to [0, 1]
+ASPECT = 1  # 1, 2, 4, 8, preview only; the book figure shows squares
 
 # book figure: (source, material type, sample), rocks first, then engineered materials
 BOOK_SAMPLES = [
@@ -55,7 +57,7 @@ BOOK_SAMPLES = [
 
 # ------------------------------------- load data -------------------------------------
 if not args.book:
-    files = sorted((GEOMETRY_DIR / SOURCE).glob(f"*_{RESOLUTION}.pt"))
+    files = sorted((GEOMETRY_DIR / SOURCE).glob(f"*_{shape_name(RESOLUTION, ASPECT)}.pt"))
     kinds = [file.stem.rsplit("_", 1)[0] for file in files]
     images = [
         torch.load(file, weights_only=False, map_location=device)[0] for file in files
@@ -75,13 +77,13 @@ if not args.book:
         ax.axis("off")
     for ax, kind, image in zip(axs.flat, kinds, images):
         ax.imshow(image.T, cmap="gray", origin="lower", vmin=0, vmax=255)
-        ax.set_title(f"{kind}_{RESOLUTION}_0")
+        ax.set_title(f"{kind}_{shape_name(RESOLUTION, ASPECT)}_0")
     fig.subplots_adjust(left=0, right=1, top=0.94, bottom=0, hspace=0.12, wspace=0.02)
     plt.show()
 # -------------------------------- book postprocessing --------------------------------
 else:
     for (source, kind, i), image in zip(BOOK_SAMPLES, images):
-        binary = 255 * (image / 255 >= THRESHOLD)
+        binary = 255 * (image / 255 >= SETTINGS["threshold"])
         for suffix, field in (("", image), ("_binary", binary)):
             fig = plt.figure(figsize=(1, 1))
             ax = fig.add_axes([0, 0, 1, 1])
