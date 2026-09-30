@@ -17,3 +17,14 @@ written directly in the design variables.
 - `neuraltopopt_mbb.py`
   compliance minimization of a half MBB beam where the density field is the output of
   a convolutional generator, a multilayer perceptron, or the voxels themselves
+- `neuralfwi_data.py -> data/neuralfwi.npz`
+  random elliptical voids with the first FWI gradient of each (homogeneous start)
+- `neuralfwi_pretraining.py -> models/neuralfwi_unet.pt`
+  a U-Net pretrained from the first gradient to the void indicator, _needs neuralfwi.npz_
+- `neuralfwi.py`
+  synthetic full waveform inversion (cuwave) of a circle stack on the voxels, through a
+  smoothed Heaviside projection, through a
+  randomly initialized generator, or through the pretrained U-Net (transfer learning),
+  _needs neuralfwi_unet.pt_ for `--ansatz pretrained`
+- `neuralfwi_wave.py`
+  one shot through the true geometry of `neuralfwi.py`, as a video of the wavefield
