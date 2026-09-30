@@ -164,6 +164,21 @@ _xr_update = cp.ElementwiseKernel(
 _p_update = cp.ElementwiseKernel(
     "T z, raw T s", "T p", "p = z + (s[4] - s[3]) / s[0] * p", "p_update"
 )
+# element-block Schwarz: z_e = B_e r[eft_e], one thread per element row
+_block_apply = cp.ElementwiseKernel(
+    "raw T B, raw int32 efts, raw T r, int32 N",
+    "T z",
+    "T acc = 0; for (int j = 0; j < N; ++j) acc += B[i * N + j] * r[efts[i - i % N + j]];"
+    " z = acc",
+    "block_apply",
+)
+_subtract = cp.ElementwiseKernel("T b, T a", "T r", "r = b - a", "subtract")
+_cheb_first = cp.ElementwiseKernel(
+    "T z, raw T c, int32 add", "T d, T x", "d = c[0] * z; x = add ? x + d : d", "cheb_first"
+)
+_cheb_step = cp.ElementwiseKernel(
+    "T z, raw T c", "T d, T x", "d = c[0] * d + c[1] * z; x += d", "cheb_step"
+)
 
 
 def grid_to_elements(field, nel, sub):
@@ -286,7 +301,42 @@ class Level:
         self.row_kernel("apply", u, out)
         return out
 
-    def estimate_lmax(self, iters):  # power iteration on D^-1 A, warm-started
+    def set_schwarz(self):
+        """inverses B_e of the assembled matrix restricted to every element's dofs."""
+        if not hasattr(self, "B"):
+            # element entry (e, i, j) -> assembled entry (eft[e, i], eft[e, j])
+            efts = cp.asnumpy(self.efts).astype(np.int64)
+            keys = (efts[:, :, None] * self.ndof + efts[:, None, :]).ravel()
+            _, entry = np.unique(keys, return_inverse=True)
+            order = np.argsort(entry, kind="stable")
+            counts = np.bincount(entry)
+            starts = np.concatenate([[0], np.cumsum(counts)[:-1]])
+            entry_adj = np.full((counts.size, counts.max()), -1, dtype=np.int32)
+            entry_adj[entry[order], np.arange(entry.size) - starts[entry[order]]] = order
+            self.entry, self.entry_adj = cp.asarray(entry), cp.asarray(entry_adj)
+            self.z = cp.zeros(self.ndof, self.dtype)
+            self.z_e = cp.zeros(self.n_elems * self.n, self.dtype)
+        K = self.K if self.S == 0 else self.coeff @ self.K.reshape(self.S, -1)
+        assembled = cp.empty(len(self.entry_adj), cp.float64)
+        _gather_rows(
+            self.entry_adj, K.astype(cp.float64), self.entry_adj.shape[1], assembled
+        )
+        blocks = assembled[self.entry].reshape(self.n_elems, self.n, self.n)
+        m = self.mask[self.efts].astype(cp.float64)
+        blocks *= m[:, :, None] * m[:, None, :]
+        blocks += (1.0 - m)[:, :, None] * cp.eye(self.n)
+        # diagonal scaling takes the SIMP contrast out of the blocks before inverting
+        scale = 1.0 / cp.sqrt(cp.diagonal(blocks, axis1=1, axis2=2))
+        scale = scale[:, :, None] * scale[:, None, :]
+        inverse = cp.linalg.inv((blocks * scale).astype(self.dtype))
+        assign(self, "B", (inverse * scale).astype(self.dtype))
+
+    def schwarz(self, r, z):  # z = sum_e R_e^T B_e R_e r
+        _block_apply(self.B, self.efts, r, np.int32(self.n), self.z_e)
+        _gather_rows(self.adj, self.z_e, self.adj.shape[1], z)
+        return z
+
+    def estimate_lmax(self, iters):  # power iteration on D^-1 A or B A, warm-started
         if self._power_vector is None:
             rng = cp.random.default_rng(0)
             self._power_vector = rng.random(self.ndof).astype(self.dtype)
@@ -294,7 +344,8 @@ class Level:
         v = self._power_vector * self.mask
         Av = cp.empty_like(v)
         for _ in range(iters):
-            v = self.dinv * self.apply(v / cp.linalg.norm(v), Av)
+            Av = self.apply(v / cp.linalg.norm(v), Av)
+            v = self.schwarz(Av, cp.empty_like(v)) if self.degree > 1 else self.dinv * Av
         self._power_vector = v
         return float(cp.linalg.norm(v))
 
@@ -315,8 +366,9 @@ class VoxelMultigrid:
 
     The fine elements span `sub_voxels`^D voxels and are preintegrated once per
     sub-voxel from an mlhp integrand, so the fine operator only reads the voxel
-    coefficients. The hierarchy drops to p = 1 on the same mesh, then halves the mesh
-    until a dense solve is cheap. Coarse element matrices are Galerkin products of
+    coefficients. The hierarchy lowers the degree one at a time on the same mesh
+    (smoothed with element-block Schwarz), then halves the p = 1 mesh until a dense
+    solve is cheap. Coarse element matrices are Galerkin products of
     their children, so the V-cycle follows high material contrast. One CG iteration,
     V-cycle included, is replayed as a single CUDA graph.
 
@@ -384,12 +436,12 @@ class VoxelMultigrid:
         while True:
             fine = self.levels[-1]
             if fine.degree > 1:
-                coarse, children = make_level(fine.nel, 1), 1
+                coarse, children = make_level(fine.nel, fine.degree - 1), 1
             elif all(n % 2 == 0 for n in fine.nel) and fine.ndof > coarse_dofs:
                 coarse, children = make_level([n // 2 for n in fine.nel], 1), 2
             else:
                 break
-            T = local_transfers(space, D, fine.degree, 1, children)
+            T = local_transfers(space, D, fine.degree, coarse.degree, children)
             T = np.stack([np.kron(np.eye(nfields), Tk) for Tk in T])
             self.transfers.append(self._transfer(fine, coarse, T, children))
             self.levels.append(coarse)
@@ -456,9 +508,19 @@ class VoxelMultigrid:
         coeff = grid_to_elements(
             cp.asarray(coeff, dtype=cp.float64), fine.nel, self.sub
         )
-        self.operator.set_operator(self.K_locals, coeff, self.mask)
-        fine.set_operator(self.K_locals, coeff, self.mask)
+        if self.sub > 1:  # sum the sub-voxels once per design, not in every matvec
+            S, n = self.K_locals.shape[:2]
+            K_e = (coeff @ self.K_locals.reshape(S, -1)).reshape(-1, n, n)
+            self.operator.set_operator(K_e, mask=self.mask)
+            fine.set_operator(K_e, mask=self.mask)
+        else:
+            self.operator.set_operator(self.K_locals, coeff, self.mask)
+            fine.set_operator(self.K_locals, coeff, self.mask)
+        coeff = coeff.astype(self.dtype)
+        K_locals = self.K_locals.astype(self.dtype)
         for i, lv in enumerate(self.levels):
+            if lv.degree > 1:
+                lv.set_schwarz()
             hi = 1.1 * lv.estimate_lmax(self.power_iters)
             lo = hi / self.eig_ratio
             theta, delta = 0.5 * (hi + lo), 0.5 * (hi - lo)
@@ -475,12 +537,12 @@ class VoxelMultigrid:
             tr = self.transfers[i]
             if i == 0:
                 K = (
-                    fine.coeff[tr["children"]].reshape(len(tr["children"]), -1)
+                    coeff[tr["children"]].reshape(len(tr["children"]), -1)
                     @ self._K1_locals
                 )
                 ids = self._boundary
                 K_children = cp.einsum(
-                    "bks,sij->bkij", fine.coeff[tr["children"][ids]], fine.K
+                    "bks,sij->bkij", coeff[tr["children"][ids]], K_locals
                 )
                 mask_e = fine.mask[fine.efts[tr["children"][ids]]]
                 K_children *= mask_e[..., :, None] * mask_e[..., None, :]
@@ -493,8 +555,23 @@ class VoxelMultigrid:
             self, "coarse_inverse", cp.linalg.inv(cp.asarray(self.levels[-1].dense()))
         )
 
+    def _smooth_schwarz(self, lv, pre):
+        """Chebyshev with the element-block Schwarz preconditioner (p > 1 levels)."""
+        if pre:
+            lv.r[...] = lv.b
+        else:
+            _subtract(lv.b, lv.apply(lv.x, lv.d2), lv.r)
+        _cheb_first(lv.schwarz(lv.r, lv.z), lv.cheb, np.int32(not pre), lv.d, lv.x)
+        for k in range(lv.smoothing - 1):
+            lv.row_kernel("update_residual", lv.d, lv.r)
+            _cheb_step(lv.schwarz(lv.r, lv.z), lv.cheb[2 * k + 1 :], lv.d, lv.x)
+        if pre:
+            lv.row_kernel("update_residual", lv.d, lv.r)
+
     def _smooth(self, lv, pre):
         """Chebyshev-Jacobi on lv.x for rhs lv.b; pre-smoothing starts from x = 0."""
+        if lv.degree > 1:
+            return self._smooth_schwarz(lv, pre)
         d, d_next = lv.d, lv.d2
         if pre:
             _pre_first(lv.b, lv.dinv, lv.cheb, lv.r, d, lv.x)

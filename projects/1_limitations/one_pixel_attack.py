@@ -44,6 +44,7 @@ ACTIVATIONS = [nn.ReLU() for _ in range(len(LAYERS) - 2)]
 SAMPLES = 1000  # test images searched
 EXAMPLES = 4
 UPSAMPLING = 10  # pixel blocks keep the exported images crisp
+HIGHLIGHT = [0.773, 0.239, 0.255]  # changed pixel in col13 of the book palette
 
 # ------------------------------------- load data -------------------------------------
 mnist = load_dataset("ylecun/mnist").with_format("numpy")
@@ -111,19 +112,18 @@ for idx, y, pred, prob, row, col, value in examples:
 # ----------------------------------- postprocessing ----------------------------------
 images = {}
 for idx, y, pred, prob, row, col, value in examples:
-    attacked = X_test[idx].clone()
-    attacked[row, col] = value
-    for name, image in [(f"{idx}", X_test[idx]), (f"{idx}_attacked", attacked)]:
-        image = np.kron(1 - image.numpy(), np.ones((UPSAMPLING, UPSAMPLING)))
-        images[name] = image
+    image = np.repeat(1 - X_test[idx].numpy()[:, :, None], 3, axis=2)  # white background
+    images[f"{idx}"] = image
+    attacked = image.copy()
+    attacked[row, col] = HIGHLIGHT
+    images[f"{idx}_attacked"] = attacked
+images = {name: np.kron(image, np.ones((UPSAMPLING, UPSAMPLING, 1))) for name, image in images.items()}
 
 if not args.book:
     fig, axs = plt.subplots(2, len(examples), figsize=(2 * len(examples), 4))
     for k, (idx, y, pred, prob, row, col, value) in enumerate(examples):
-        axs[0, k].imshow(images[f"{idx}"], cmap="gray", vmin=0, vmax=1)
-        axs[1, k].imshow(images[f"{idx}_attacked"], cmap="gray", vmin=0, vmax=1)
-        axs[1, k].plot(UPSAMPLING * (col + 0.5), UPSAMPLING * (row + 0.5), "ro", mfc="none",
-                       markersize=12)
+        axs[0, k].imshow(images[f"{idx}"])
+        axs[1, k].imshow(images[f"{idx}_attacked"])
         axs[0, k].set_title(f"{y}")
         axs[1, k].set_title(f"{pred} {100 * prob:.1f}%")
     for ax in axs.flat:
@@ -133,7 +133,7 @@ if not args.book:
 # -------------------------------- book postprocessing --------------------------------
 else:
     for name, image in images.items():
-        show_image(image, grayscale=True, path=RGB_PDF_DIR / f"one_pixel_{name}.pdf", close=True)
+        show_image(image, path=RGB_PDF_DIR / f"one_pixel_{name}.pdf", close=True)
     ids, labels, preds, probs, rows, cols, values = zip(*examples)
     save_csv(CSV_DIR / "one_pixel_attack.csv", idx=ids, label=labels, pred=preds, prob=probs,
              row=rows, col=cols, value=values)

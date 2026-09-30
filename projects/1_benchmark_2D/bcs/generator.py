@@ -7,9 +7,9 @@ import numpy as np
 from boundary import EDGES, BoundaryConditions, save, shape_name, source
 
 BASE_DIR = Path(__file__).parent
-SETUP_DIR = (BASE_DIR / "../../../../data/2D_benchmark/setups").resolve()
+SETUP_DIR = (BASE_DIR / "../../../data/2D_benchmark/setups").resolve()
 
-with open(BASE_DIR / "../../settings.toml", "rb") as f:
+with open(BASE_DIR / "../settings.toml", "rb") as f:
     SETTINGS = tomllib.load(f)["boundary_conditions"]
 
 parser = argparse.ArgumentParser()

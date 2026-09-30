@@ -1,6 +1,6 @@
-# Deliberate choices of the 2D benchmark, read by geometry/, physics/ and physics/bcs/.
+# Deliberate choices of the 2D benchmark, read by geometry/, bcs/, forward/ and optimization/.
 # Extraction technicalities of a single source (masks, margins, raw file layouts) stay in
-# its preprocess script; solver numerics (steps, tolerances) stay in the physics drivers.
+# its preprocess script; solver numerics (steps, tolerances) stay in the drivers.
 
 [geometry]
 resolutions = [128, 256]  # pixels along x1, the long side; 512 and 1024 fit only some sources
@@ -24,6 +24,8 @@ traction = 1.0  # elasticity, right edge
 stretch = 2e-3  # plasticity, right edge displacement as a fraction of the long side
 opening = 2e-2  # fracture, top edge displacement
 burst = { position = [0.5, 0.5], width = 0.02, frequency = 30.0, cycles = 2 }  # wave
+cantilever = 1.0  # compliance, point load at the middle of the right edge
+heat_sink = { length = 0.1, source = 1.0 }  # heat conduction, sink as a fraction of the left edge
 
 # material properties interpolate between min (gray value 0) and max (gray value 1)
 [materials.elasticity]
@@ -51,3 +53,20 @@ kappa = [1e3, 1.0]
 
 [materials.fluid]
 reynolds = 100.0  # with the long side; the short side lowers the viscosity to instability
+
+# density-based topology optimization, SIMP with a density filter and optimality criteria
+[optimization]
+iterations = 128  # design updates; the book shows the iterates 1, 2, 4, ..., 64
+penalization = 3.0
+filter_radius = 6.0  # pixels
+move = 0.2
+
+[optimization.compliance]
+E = [1e-9, 1.0]
+nu = 0.3
+volume = 0.3
+
+[optimization.heat_conduction]
+kappa = [1e-3, 1.0]
+volume = 0.4
+

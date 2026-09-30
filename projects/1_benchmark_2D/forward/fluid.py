@@ -9,8 +9,7 @@ from scipy import ndimage
 from cufluid.lbm.boundary import Outflow, Wall
 from cufluid.lbm.lbm import LatticeBoltzmann, moments, simulate
 
-from bcs.boundary import EDGES
-from helper import SETTINGS, benchmark_parser, load_phase, load_setup, plot_field, save_solution
+from helper import EDGES, SETTINGS, benchmark_parser, load_phase, load_setup, plot_field, save_solution
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True

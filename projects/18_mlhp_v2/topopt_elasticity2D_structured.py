@@ -3,9 +3,8 @@ from pathlib import Path
 
 import cupy as cp
 import matplotlib.pyplot as plt
-import mlhp
 import numpy as np
-from helper import VoxelMultigrid
+from structured import StructuredMultigrid
 from tqdm import tqdm
 
 from solvers.optimization import DensityFilter, dsimp, simp
@@ -18,14 +17,9 @@ BASE_DIR = Path(__file__).parent
 LENGTHS = [4.0, 1.0]
 
 # discretization
-NX, NY = 640, 160
-# Groen et al. (2017) avoid artificially stiff patterns (filter R = 2h) with
-# DEGREE >= round(0.75 SUB_VOXELS); recommended 2D pairs (DEGREE, SUB_VOXELS) are
-# (2, 3), (3, 5), (4, 6), (6, 8), (7, 10). In 3D a moderate degree is best, since
-# p > 4 makes the element matrices costly: (3, 5) is their robust choice, (2, 4) is
-# faster but not safe in general
-DEGREE = 1
-SUB_VOXELS = 1  # design voxels per element edge
+NX, NY = 2560, 640  # divisible by 8 SUB_VOXELS, powers of two coarsen deepest
+SUB_VOXELS = 2  # voxels per bilinear element edge; needs RMIN >= SUB_VOXELS, 4 to 8 is
+# fastest at large RMIN (8192 x 2048, RMIN 25.6: 49 s with 8 against 1101 s with 1)
 
 # physics
 VOLFRAC = 0.5
@@ -46,50 +40,33 @@ CHANGE_TOL = 0.01
 # solver
 CG_TOL = 1e-5  # relative residual, sensitivities to ~1e-6
 
-
-# -------------------------------- boundary conditions --------------------------------
-# faces: 0=left, 1=right, 2=bottom, 3=top
-def face_dofs(basis, face, ifield):
-    bc = mlhp.integrateDirichletDofs(
-        mlhp.scalarField(2, 0.0), basis, [face], ifield=ifield
-    )
-    return np.array(mlhp.combineDirichletDofs([bc])[0])
-
-
-def mbb_supports(basis):
-    symmetry = face_dofs(basis, 0, 0)
-    roller = np.intersect1d(face_dofs(basis, 2, 1), face_dofs(basis, 1, 1))
-    return np.unique(np.concatenate([symmetry, roller]))
-
+# ---------------------------------------- helper -------------------------------------
+oc_update = cp.ElementwiseKernel(
+    "T rho, T base, T scale, T move",
+    "T rho_new",
+    "rho_new = min(min((T)1, rho + move), max(max((T)0, rho - move), base * scale))",
+    "oc_update",
+)
 
 # ---------------------------------------- setup --------------------------------------
-material = mlhp.planeStressMaterial(mlhp.scalarField(2, 1.0), mlhp.scalarField(2, NU))
-integrand = mlhp.staticDomainIntegrand(
-    mlhp.smallStrainKinematics(2), material, mlhp.vectorField(2, [0.0, 0.0])
-)
+nx, ny = NX // SUB_VOXELS, NY // SUB_VOXELS
+fixed = np.zeros((2, nx + 1, ny + 1), dtype=bool)
+fixed[0, 0, :] = True
+fixed[1, nx, 0] = True
+force = cp.zeros((2, nx + 1, ny + 1))
+force[1, 0, ny] = LOAD
+force = force.ravel()
+
 tic = time.time()
-solver = VoxelMultigrid(
-    integrand,
-    [NX, NY],
-    LENGTHS,
-    DEGREE,
-    SUB_VOXELS,
-    2,
-    mbb_supports,
-)
+solver = StructuredMultigrid([NX, NY], LENGTHS, NU, fixed, sub_voxels=SUB_VOXELS)
 print(f"multigrid levels {[level.ndof for level in solver.levels]}")
 print(f"setup time {time.time() - tic:.2f} s")
 
-load_dof = np.intersect1d(face_dofs(solver.basis, 3, 1), face_dofs(solver.basis, 0, 1))
-force = cp.zeros(solver.ndof)
-force[cp.asarray(load_dof)] = LOAD
-
-density_filter = DensityFilter(RMIN, (NX, NY), xp=cp)
+density_filter = DensityFilter(RMIN, (NX, NY), xp=cp, dtype=cp.float32, fft=True)
 
 # ------------------------------------ optimization -----------------------------------
-rho = cp.full((NX, NY), VOLFRAC)
+rho = cp.full((NX, NY), VOLFRAC, dtype=cp.float32)
 u = None
-history = []
 cg_history = []
 
 tic = time.time()
@@ -102,22 +79,20 @@ for it in pbar:
     dc = -dsimp(rho, PENAL, EMIN, E0) * solver.element_energy(u)
     dc = density_filter.sensitivity(rho, dc)
 
-    # optimality criterion update with bisection on the volume multiplier
+    # optimality criterion update with bisection on the log volume multiplier
     base = rho * cp.maximum(0.0, -dc) ** DAMPING
-    lo = cp.maximum(0.0, rho - MOVE)
-    hi = cp.minimum(1.0, rho + MOVE)
-    l1, l2 = 0.0, 1e9
-    while (l2 - l1) / (l1 + l2) > 1e-4:
-        lmid = 0.5 * (l1 + l2)
-        rho_new = cp.clip(base / lmid**DAMPING, lo, hi)
-        if float(rho_new.mean()) > VOLFRAC:
+    move = cp.float32(MOVE)
+    l1, l2 = 1e-9, 1e9
+    while l2 / l1 > 1.0 + 2e-4:
+        lmid = (l1 * l2) ** 0.5
+        rho_new = oc_update(rho, base, cp.float32(lmid**-DAMPING), move)
+        if float(rho_new.mean(dtype=cp.float64)) > VOLFRAC:
             l1 = lmid
         else:
             l2 = lmid
 
     change = float(cp.abs(rho_new - rho).max())
     rho = rho_new
-    history.append(compliance)
     cg_history.append(cg_iters)
     pbar.set_postfix(
         {"c": f"{compliance:.3e}", "change": f"{change:.2e}", "cg": cg_iters}
@@ -130,18 +105,19 @@ toc = time.time()
 print(
     f"elapsed time {toc - tic:.2f} s for {it} iter\n"
     f"time per iter {(toc - tic) / it:.2e} s\n"
-    f"cg iterations mean {np.mean(cg_history):.1f} max {max(cg_history)}"
+    f"cg iterations mean {np.mean(cg_history):.1f} max {max(cg_history)}\n"
+    f"gpu memory {cp.get_default_memory_pool().total_bytes() / (NX * NY):.0f} B/voxel"
 )
 
 # ----------------------------------- postprocessing ----------------------------------
-rho_thresh = (rho > THRESHOLD).astype(float)
+rho_thresh = (rho > THRESHOLD).astype(cp.float32)
 solver.update(simp(rho_thresh, PENAL, EMIN, E0))
 u_thresh, _ = solver.solve(force, rtol=CG_TOL)
 compliance_thresh = float(force @ u_thresh)
 print(f"thresholded  c {compliance_thresh:.3e} vol {float(rho_thresh.mean()):.3f}")
 
 for field in (rho, rho_thresh):
-    fig, ax = plt.subplots(figsize=(NX / 100, NY / 100), dpi=150)
+    fig, ax = plt.subplots(figsize=(12.8, 3.2), dpi=150)
     ax.imshow(field.get().T, origin="lower", cmap="binary", vmin=0.0, vmax=1.0)
     ax.axis("off")
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)

@@ -2,7 +2,8 @@
 
 2D heterogeneous microstructure benchmark for **Chapter 1 (Computational Mechanics
 Meets Artificial Intelligence)**: real CT (and other) images of rocks and engineered
-materials in `geometry/`, and the physics solved on them in `physics/`.
+materials in `geometry/`, the physics solved on them in `forward/`, and topology optimization
+under the same setups in `optimization/`.
 
 ## Geometry (`geometry/`)
 
@@ -50,7 +51,18 @@ deleted after extraction unless `KEEP_RAW = True`. Licenses and DOIs are in `sou
   shows sample 0 of every type of one source at one resolution; `--book` exports one picked
   slice per source for the Chapter 1 overview figure
 
-## Physics (`physics/`)
+## Setups (`bcs/`)
+
+Boundary conditions and sources, shared by `forward/` and `optimization/`, and `pixelmesh.py`,
+which maps them onto the dofs of one bilinear element per pixel.
+
+- `presets.py` -> `data/2D_benchmark/setups/<name>_<RESOLUTION>.pt`
+  the representative setups: `tension`, `conduction`, `stretch`, `opening`, `burst`, `channel`,
+  and for optimization `cantilever`, `heat_sink`
+- `generator.py` -> `setups/random<nfields>_<seed>_<i>_<RESOLUTION>.pt`
+  random admissible boundary conditions and sources (`--count --nfields --seed`)
+
+## Forward problems (`forward/`)
 
 Every driver solves one geometry (`--source --type --sample --resolution`, grayscale, or
 two-phase with `--threshold`) under one setup (`--setup`, boundary conditions and sources)
@@ -59,10 +71,6 @@ with material properties interpolated between `--<property>-min` (gray value 0) 
 `data/2D_benchmark/solutions/<physics>/`, `--book` the figure of the Chapter 1 overview
 (run with `--threshold 0.5`, the defaults otherwise).
 
-- `bcs/presets.py` -> `data/2D_benchmark/setups/<name>_<RESOLUTION>.pt`
-  the representative setups: `tension`, `conduction`, `stretch`, `opening`, `burst`, `channel`
-- `bcs/generator.py` -> `setups/random<nfields>_<seed>_<i>_<RESOLUTION>.pt`
-  random admissible boundary conditions and sources (`--count --nfields --seed`)
 - `elasticity.py` _needs a setup_
   plane-strain linear elasticity, E from the gray value (`tension`)
 - `poisson.py` _needs a setup_
@@ -80,6 +88,20 @@ with material properties interpolated between `--<property>-min` (gray value 0) 
   incompressible Navier-Stokes by lattice Boltzmann on cufluid, the weak phase solid and the
   matrix fluid (`channel`, `--reynolds`)
 
+## Optimization problems (`optimization/`)
+
+Every driver runs density-based topology optimization (SIMP, density filter, optimality
+criteria) on the full rectangle under one setup (`--setup --resolution --aspect`), with the
+settings of `[optimization]` in `settings.toml`. `--save` writes all physical (filtered)
+iterates as gray values, like the geometries, with their compliance to
+`data/2D_benchmark/optimization/<problem>/<setup>_<RESOLUTION>.pt`; `--book` the iterates
+1, 2, 4, ..., 64 for the Chapter 1 figure.
+
+- `compliance.py` _needs a setup_
+  minimum compliance, plane-strain linear elasticity (`cantilever`)
+- `heat_conduction.py` _needs a setup_
+  minimum thermal compliance, steady heat conduction with a uniform source (`heat_sink`)
+
 ## Non-obvious technicalities (authored by Claude)
 
 **Physics: one element per pixel.** The drivers mesh the unit square with $R^2$ bilinear
@@ -88,6 +110,19 @@ and the per-pixel material (`mlhp.scalarFieldFromVoxelData`) is constant in each
 `PixelMesh` finds the node of every dof by projecting $x$ and $y$ onto the basis, which
 bilinear shape functions reproduce exactly. Dirichlet values enter as mlhp dirichlet dofs,
 edge tractions as nodal loads (trapezoidal rule), both read from the setup files.
+
+**Shared setups.** `bcs/` sits beside `forward/` and `optimization/`, and a project directory
+starting with a digit cannot be imported as a package, so both helpers append `bcs/` to
+`sys.path` before importing `boundary` and `pixelmesh` from it.
+
+**Optimization.** The designs are stored with gray value 1 the strong phase, as the
+geometries, so every iterate is a valid geometry of the forward problems; the plots invert
+this to the usual solid black of topology optimization. The
+setups need homogeneous Dirichlet conditions (the objective $\mathbf{f}^\top\mathbf{u}$ is
+the compliance only then); the heat source is `uniform`, independent of the design. The void
+bounds, `E = 1e-9` and `kappa = 1e-3`, follow the usual topology optimization choices rather
+than the contrast of the forward problems; the filter radius is in pixels, so designs at 128
+and 256 differ in their finest members.
 
 **Displacement control.** A prescribed increment is never written into the iterate
 directly; the first Newton iteration of a step lifts it (the increment as nonhomogeneous

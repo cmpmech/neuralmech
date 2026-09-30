@@ -80,9 +80,10 @@ def source(
     frequency=None,
     cycles=None,
 ):
-    """one source: kind "point", "gaussian" or "gravity" (position and width unused).
+    """one source of kind "point", "gaussian", "uniform" or "gravity".
 
-    frequency and cycles make it a sine burst in time (transient physics only).
+    Uniform and gravity sources ignore position and width. frequency and cycles make it a
+    sine burst in time (transient physics only).
     """
     return dict(
         kind=kind,

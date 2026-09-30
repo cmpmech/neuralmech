@@ -375,28 +375,34 @@ class ComplexStructuredFEM(_StructuredFEM):
 
 
 class DensityFilter:
-    """conic density filter of radius `rmin` on a 2D grid, with adjoint and OC variants.
+    """conic density filter of radius `rmin` in 2D or 3D, with adjoint and OC variants.
 
-    Pass `xp=cupy` (and optionally a `dtype`) to build and convolve on the GPU.
+    Pass `xp=cupy` (and optionally a `dtype`) to build and convolve on the GPU, and
+    `fft=True` for large radii, where the direct convolution costs O(rmin^2) per cell.
 
     References:
         https://doi.org/10.1007/s001580050176
         https://doi.org/10.1002/nme.116
     """
 
-    def __init__(self, rmin, shape, xp=np, dtype=None):
+    def __init__(self, rmin, shape, xp=np, dtype=None, fft=False):
         if xp is np:
             import scipy.ndimage as ndi
+            import scipy.signal as signal
         else:
             import cupyx.scipy.ndimage as ndi
-        self.xp, self.ndi = xp, ndi
+            import cupyx.scipy.signal as signal
+        self.xp, self.ndi, self.signal, self.fft = xp, ndi, signal, fft
         r = xp.arange(-math.ceil(rmin), math.ceil(rmin) + 1)
-        self.kernel = xp.maximum(0.0, rmin - xp.sqrt(r[:, None] ** 2 + r[None, :] ** 2))
+        grid = xp.meshgrid(*[r] * len(shape), indexing="ij")
+        self.kernel = xp.maximum(0.0, rmin - xp.sqrt(sum(g**2 for g in grid)))
         if dtype is not None:
             self.kernel = self.kernel.astype(dtype)
         self.Hs = self._convolve(xp.ones(shape, self.kernel.dtype))
 
     def _convolve(self, x):
+        if self.fft:
+            return self.signal.fftconvolve(x, self.kernel, mode="same")
         return self.ndi.convolve(x, self.kernel, mode="constant", cval=0.0)
 
     def __call__(self, x):  # conic smoothing of the raw design

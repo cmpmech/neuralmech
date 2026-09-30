@@ -40,6 +40,8 @@ Illustrates limitations of state-of-the-art deep learning for **Chapter 1 (Compu
   targeted gradient ascent turns uniform noise into any class with 100 % probability of EfficientNetV2
 - `translation_shift.py`
   MNIST test accuracy of an MLP and a CNN under horizontal shifts of the digits
+- `saliency_maps.py`
+  SmoothGrad saliency of EfficientNetV2 for a goose and for its adversarial toaster look alike
 
 ## Non-obvious technicalities (authored by Claude)
 
@@ -64,3 +66,8 @@ Illustrates limitations of state-of-the-art deep learning for **Chapter 1 (Compu
   EfficientNetV2 the same search would be far too expensive.
 - The small CPU drivers here slow down by a factor of about 40 when the machine is busy and
   torch uses all cores; `OMP_NUM_THREADS=4` avoids it.
+- `saliency_maps.py` takes the largest gradient magnitude over the color channels per pixel and
+  clips the map at its 99th percentile before normalizing, otherwise a few pixels saturate the
+  colormap. A randomly initialized EfficientNetV2 (the sanity check of Adebayo et al.,
+  https://arxiv.org/abs/1810.03292) gave a blurry map that does not resemble the goose, so it is
+  not shown.
