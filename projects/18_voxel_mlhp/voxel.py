@@ -608,6 +608,7 @@ _cheb_step = cp.ElementwiseKernel(
     "cheb_step",
 )
 _subtract = cp.ElementwiseKernel("T a", "T x", "x -= a", "subtract")
+_add_product = cp.ElementwiseKernel("T a, T b", "T x", "x += a * b", "add_product")
 _init_residual = cp.ElementwiseKernel(
     "S b, uint8 m", "T r", "r = m ? (T)b - r : (T)0", "init_residual"
 )
@@ -814,18 +815,19 @@ class Level:
         nodes = cp.ravel_multi_index(tuple(g), self.nodes)
         return cp.concatenate([nodes + f * self.nn for f in range(self.NF)], axis=1)
 
-    def estimate_lmax(self, iters):  # power iteration on M^-1 A, warm-started
+    def estimate_lmax(self, iters):  # power iteration on M^-1 A, from a fixed random start
+        # not warm-started: over hundreds of design updates the carried vector locks
+        # onto a localized mode and underestimated lmax by up to 37%, the Chebyshev
+        # smoother then amplified the top modes and CG ran into maxiter
         v, Av = self.d, self.Ad
         if self._power_vector is None:
             rng = cp.random.default_rng(0)
             self._power_vector = rng.random(self.ndof, dtype=cp.float32)
-            iters *= 3
         v[...] = self._power_vector
         _mask(self.mask, v)
         for _ in range(iters):
             v *= cp.dot(v, v) ** -0.5
             cp.multiply(self.dinv, self.op(v, Av), out=v)
-        self._power_vector[...] = v
         return float(cp.dot(v, v)) ** 0.5
 
     def point_matrices(self):
@@ -927,7 +929,7 @@ class VoxelMultigrid:
         coarse_dofs=2000,
         eig_ratio=30.0,
         safety=1.1,
-        power_iters=8,
+        power_iters=24,
     ):
         self.D = len(nvoxels)
         self.NF = self.D if physics == "elasticity" else 1
@@ -1108,7 +1110,7 @@ class VoxelMultigrid:
             return energy
         grouped = self._by_element(energy)
         total = grouped.sum(axis=tuple(range(1, 2 * self.D, 2)), keepdims=True)
-        grouped += self._by_element(self._dfloor) * total
+        _add_product(self._by_element(self._dfloor), total, grouped)  # no nvoxels temporary
         return energy
 
     def apply(self, u):
@@ -1187,12 +1189,12 @@ class VoxelMultigrid:
         self._dot(r, z, self.scalars[0])
         self._dot(r, r, self.scalars[2])
 
-    def solve(self, rhs, x0=None, rtol=1e-8, maxiter=1000, check=20):
+    def solve(self, rhs, x0=None, rtol=1e-8, maxiter=1000):
         """flexible PCG on the fine operator; returns (u, iterations).
 
-        u is the solver's float64 buffer, overwritten by the next solve. CG restarts
-        from the true residual when its best norm drops less than 2x over `check`
-        iterations.
+        u is the solver's float64 buffer, overwritten by the next solve. No restarts:
+        restarting on slow progress discarded the Krylov space and turned slow solves
+        on thin-strut designs into 1000 iteration ones.
         """
         cp.cuda.get_current_stream().synchronize()
         x = self.x
@@ -1208,17 +1210,10 @@ class VoxelMultigrid:
                 self.stream.begin_capture()
                 self._iteration()
                 self.graph = self.stream.end_capture()
-            best = best_check = float(self.scalars[2])
             for it in range(1, maxiter + 1):
                 self.graph.launch(self.stream)
-                rr = float(self.scalars[2])
-                if rr <= tol:
+                if float(self.scalars[2]) <= tol:
                     break
-                best = min(best, rr)
-                if it % check == 0:
-                    if best > 0.25 * best_check:
-                        self._restart(rhs)
-                    best_check = best
         self.stream.synchronize()
         return x, it
 
