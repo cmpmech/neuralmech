@@ -4,7 +4,7 @@ description: Hyperparameter / data / epoch sweeps of a NeuralMech driver whose o
 ---
 
 Sweep a driver over a few constants, dump images the user can judge, apply their pick.
-The repo stays untouched until the user chooses. Claude reports numbers, the user judges
+The repo stays untouched until the user chooses. The agent reports numbers, the user judges
 the pictures — do not call a config "best" on visual grounds.
 
 ## 1. Diagnose before sweeping
@@ -46,7 +46,7 @@ Same seed in every copy so samples are comparable across rows.
 ## 4. Deliverables in `results/<sweep>/` (gitignored)
 - `<tag>_<knob>.png` — raw sample-script output per config
 - `overview*.png` — one contact sheet per knob value, rows = tags:
-  `python .claude/skills/sweep-dump/scripts/overview.py $OUT/overview.png "title" tag1 tag2 ...`
+  `python .agents/skills/sweep-dump/scripts/overview.py $OUT/overview.png "title" tag1 tag2 ...`
   (expects `$OUT/<tag>_<knob>.png` next to it; pass `--suffix _T1.0`)
 - `metrics.txt` — one row per tag from the log's summary prints; put the data row last
 - `<tag>.log`, `models/<tag>.pt2`

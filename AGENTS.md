@@ -1,4 +1,4 @@
-# NeuralMech — Claude Code Project Guide
+# NeuralMech — Agent Project Guide
 
 ## About
 ML-enhanced physics solvers accompanying the book **"Deep Learning in Computational Mechanics"** (3rd ed., Springer).
@@ -6,7 +6,7 @@ Central question: *When and where is deep learning useful in numerical simulatio
 
 ## Where the rules live
 
-The detailed conventions live in skills under `.claude/skills/`. Invoke them by task:
+The detailed conventions live in skills under `.agents/skills/` (`.claude/skills` is a symlink to it). Invoke them by task:
 
 | Skill | When |
 |---|---|

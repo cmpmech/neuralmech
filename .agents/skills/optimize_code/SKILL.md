@@ -123,6 +123,6 @@ After the budget runs out:
 ## Boundaries
 
 - **Don't change the experiment's intent.** If the driver is comparing two architectures, don't unify them; if it sweeps a hyperparameter, don't fix the value.
-- **Don't break the `--book` / `--animate` outputs.** A driver that feeds a book figure must remain reproducible against the printed figure (see the monorepo CLAUDE.md). If a change shifts the output, flag it before keeping the change.
+- **Don't break the `--book` / `--animate` outputs.** A driver that feeds a book figure must remain reproducible against the printed figure (see the monorepo AGENTS.md / CLAUDE.md). If a change shifts the output, flag it before keeping the change.
 - **Don't bypass the `neuralmech-style` hard rules.** The reproducibility lines, `Path(__file__).parent`, etc. stay even when optimizing.
 - **One change per iteration.** Don't bundle multiple changes — you lose attribution when something works (or breaks).
