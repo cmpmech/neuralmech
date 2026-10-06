@@ -42,6 +42,7 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 - **Probabilistic Machine Learning** (chapter 5)
 - **Governing Equations** (chapter 8)
 - **Numerical Methods** (chapter 9)
+- **Physics-Informed Neural Networks** (chapter 13)
 
 </details>
 
@@ -53,7 +54,6 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 - **Machine Learning in Computational Mechanics** (chapter 10)
 - **Neural Surrogates** (chapter 11)
 - **Neural Solvers** (chapter 12)
-- **Physics-Informed Neural Networks** (chapter 13)
 - **Constitutive Modeling with Neural Networks** (chapter 14)
 - **Generative Artificial Intelligence** (chapter 15)
 - **Neural Optimization** (chapter 16)

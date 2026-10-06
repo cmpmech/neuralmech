@@ -206,6 +206,34 @@ def corner_plot_points(dimension, resolution):
     )
 
 
+# ---------------------------------- finite elements ----------------------------------
+def fem(EA, p, g, f, elements):
+    """nodal displacements of the bar on [0, 1] with linear elements.
+
+    Clamped to g at x=0 and loaded by the force f at x=1; differentiable with respect
+    to the stiffness function EA, which is evaluated at the element midpoints.
+    """
+    h = 1 / elements
+    x_mid = torch.linspace(h / 2, 1 - h / 2, elements).unsqueeze(1)
+    k = EA(x_mid)[:, 0] / h  # element stiffness at the midpoints
+    zero = torch.zeros(1)
+    K = torch.diag(torch.cat([k, zero]) + torch.cat([zero, k]))
+    K = K - torch.diag(k, 1) - torch.diag(k, -1)
+    load = p(x_mid.requires_grad_())[:, 0] * h / 2
+    F = torch.cat([load, zero]) + torch.cat([zero, load])
+    F[-1] += f[0, 0]
+    u_free = torch.linalg.solve(K[1:, 1:], F[1:] - K[1:, 0] * g[0, 0])
+    return torch.cat([g[0], u_free])
+
+
+def interpolate(u_nodes, x):
+    """linear interpolation of the nodal displacements at the points x (N, 1)."""
+    elements = len(u_nodes) - 1
+    i = torch.clamp((x[:, 0] * elements).long(), max=elements - 1)
+    xi = x[:, 0] * elements - i
+    return ((1 - xi) * u_nodes[i] + xi * u_nodes[i + 1]).unsqueeze(1)
+
+
 # ---------------------------------------- costs --------------------------------------
 def pinn_cost(residuals, weights=None):
     """weighted sum of the mean squared residuals (domain, boundary, or measurement).

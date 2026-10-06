@@ -6,17 +6,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
-from solvers.optimization import DensityFilter, dsimp, simp
+from solvers.optimization import DensityFilter, simp
 from voxel import VoxelMultigrid
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dim", type=int, default=2, choices=[2, 3])
 parser.add_argument("--resolution", type=int, default=160)  # voxels per unit length
-# (p, s) = (2, 4) matches the voxel reference designs, (1, 2) is the robust fallback
+# (p, s) = (2, 4) matches the voxel reference here, under low-load regions only (2, 3)
 parser.add_argument("--degree", type=int, default=2)
 parser.add_argument("--sub", type=int, default=4)  # voxels per element and direction
 parser.add_argument("--floor", type=float, default=1e-3)  # element-wise alpha, 0 off
 parser.add_argument("--filter", default="density", choices=["density", "sensitivity"])
+parser.add_argument("--cycle", choices=["V", "W"])  # default W in 3D, V in 2D
 args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
@@ -42,16 +43,40 @@ CHANGE_TOL = 0.01
 
 # solver
 CG_TOL = 1e-5  # relative residual, sensitivities to ~1e-6
+CYCLE = args.cycle or ("W" if D == 3 else "V")  # W pays where coarse meshes are cheap
 
 # postprocessing
 THRESHOLD = 0.5
 
 # ---------------------------------------- helper -------------------------------------
+# fused kernels, no design-sized temporaries: these set the memory peak at large grids
+OC_STEP = "min(min((T)1, x + move), max(max((T)0, x - move), base * scale))"
 oc_update = cp.ElementwiseKernel(
-    "T x, T base, T scale, T move",
-    "T x_new",
-    "x_new = min(min((T)1, x + move), max(max((T)0, x - move), base * scale))",
-    "oc_update",
+    "T x, T base, T scale, T move", "T x_new", f"x_new = {OC_STEP}", "oc_update"
+)
+oc_volume = cp.ReductionKernel(
+    "T x, T base, T scale, T move, T volume",
+    "float64 total",
+    f"(double)({OC_STEP}) * volume",
+    "a + b",
+    "total = a",
+    "0",
+    "oc_volume",
+)
+oc_base = cp.ElementwiseKernel(
+    "T x, T volume, T damping",
+    "T dc",
+    "dc = x * pow(max((T)0, -dc) / volume, damping)",
+    "oc_base",
+)
+simp_chain = cp.ElementwiseKernel(  # g *= -dsimp(rho)
+    "T rho, T penal, T scale",
+    "T g",
+    "g *= -penal * pow(rho, penal - 1) * scale",
+    "simp_chain",
+)
+max_change = cp.ReductionKernel(
+    "T a, T b", "T y", "abs(a - b)", "max(a, b)", "y = a", "0", "max_change"
 )
 
 
@@ -79,7 +104,14 @@ def create_solver(degree, sub):
     else:
         fixed[:, 0] = True
     solver = VoxelMultigrid(
-        nvoxels, LENGTHS, "elasticity", fixed, degree, sub, floor=args.floor
+        nvoxels,
+        LENGTHS,
+        "elasticity",
+        fixed,
+        degree,
+        sub,
+        floor=args.floor,
+        w_cycle=CYCLE == "W",
     )
     if D == 2:
         force = cp.zeros((2, *nodes))
@@ -112,7 +144,8 @@ for it in pbar:
     u, cg_iters = solver.solve(force, x0=u, rtol=CG_TOL)
     compliance = float(force @ u)
 
-    dc = -dsimp(rho, PENAL, EMIN, E0) * solver.energy_gradient(u)
+    dc = solver.energy_gradient(u)
+    simp_chain(rho, cp.float32(PENAL), cp.float32(E0 - EMIN), dc)
     if args.filter == "density":
         dc = density_filter.adjoint(dc)
     else:
@@ -120,18 +153,19 @@ for it in pbar:
 
     # optimality criterion update with bisection on the log volume multiplier
     volume = dv if args.filter == "density" else cp.ones_like(x)
-    base = x * (cp.maximum(0.0, -dc) / volume) ** DAMPING
+    base = oc_base(x, volume, cp.float32(DAMPING), dc)
     move = cp.float32(MOVE)
     l1, l2 = 1e-9, 1e9
     while l2 / l1 > 1.0 + 2e-4:
         lmid = (l1 * l2) ** 0.5
-        x_new = oc_update(x, base, cp.float32(lmid**-DAMPING), move)
-        if float((x_new * volume).mean(dtype=cp.float64)) > VOLFRAC:
+        scale = cp.float32(lmid**-DAMPING)
+        if float(oc_volume(x, base, scale, move, volume)) / x.size > VOLFRAC:
             l1 = lmid
         else:
             l2 = lmid
+    x_new = oc_update(x, base, scale, move, base)
 
-    change = float(cp.abs(x_new - x).max())
+    change = float(max_change(x_new, x))
     x = x_new
     cg_history.append(cg_iters)
     pbar.set_postfix(

@@ -271,23 +271,25 @@ __global__ void element_op(const int e0, const int e1, const int e2, const int c
     }
 }
 
-// fine node g lies in coarse element e = g / R at local position xi[g % R], xi[R] = 1
-__device__ __forceinline__ void coarse_of(const int g, const int nc, const int R, int& e,
+// fine node g lies in coarse element e = g / R at local row j = g % R of the transfer
+// table, row R is the end of the last element
+__device__ __forceinline__ void coarse_of(const int g, const int ne, const int R, int& e,
                                           int& j)
 {
     e = g / R;
     j = g % R;
-    if (e >= nc - 1) {
-        e = nc - 2;
+    if (e >= ne) {
+        e = ne - 1;
         j = g - e * R;
     }
 }
 
-// xf += mask (P xc), tensor-product linear interpolation from the coarse nodes
-template <typename T>
+// xf += mask (P xc), tensor-product Lagrange interpolation from the Q nodes of the
+// coarse element, table[j * Q + a] is coarse basis function a at fine row j
+template <typename T, int Q>
 __global__ void prolong(const int f0, const int f1, const int f2, const int c0,
                         const int c1, const int c2, const int R, const int nf,
-                        const T* xi, const T* xc, T* xf, const unsigned char* mask)
+                        const T* table, const T* xc, T* xf, const unsigned char* mask)
 {
     const long long nn = (long long)f0 * f1 * f2, nnc = (long long)c0 * c1 * c2;
     const long long t = (long long)blockDim.x * blockIdx.x + threadIdx.x;
@@ -296,20 +298,19 @@ __global__ void prolong(const int f0, const int f1, const int f2, const int c0,
                       (int)(t % f2)};
     const int nc[3] = {c0, c1, c2};
     int e[3], lo[3];
-    T w[3][2];
+    T w[3][Q];
     for (int d = 0; d < 3; ++d) {
         if (nc[d] == 1) {
             e[d] = 0;
             lo[d] = 1;
             w[d][0] = 1;
-            w[d][1] = 0;
             continue;
         }
         int j;
-        coarse_of(g[d], nc[d], R, e[d], j);
-        lo[d] = 2;
-        w[d][0] = 1 - xi[j];
-        w[d][1] = xi[j];
+        coarse_of(g[d], (nc[d] - 1) / (Q - 1), R, e[d], j);
+        e[d] *= Q - 1;
+        lo[d] = Q;
+        for (int a = 0; a < Q; ++a) w[d][a] = table[j * Q + a];
     }
     for (int f = 0; f < nf; ++f) {
         T v = 0;
@@ -324,10 +325,10 @@ __global__ void prolong(const int f0, const int f1, const int f2, const int c0,
 }
 
 // bc = mask (P^T rf)
-template <typename T>
+template <typename T, int Q>
 __global__ void restrict_(const int f0, const int f1, const int f2, const int c0,
                           const int c1, const int c2, const int R, const int nf,
-                          const T* xi, const T* rf, T* bc, const unsigned char* mask)
+                          const T* table, const T* rf, T* bc, const unsigned char* mask)
 {
     const long long nn = (long long)f0 * f1 * f2, nnc = (long long)c0 * c1 * c2;
     const long long t = (long long)blockDim.x * blockIdx.x + threadIdx.x;
@@ -336,26 +337,40 @@ __global__ void restrict_(const int f0, const int f1, const int f2, const int c0
                       (int)(t % c2)};
     const int nc[3] = {c0, c1, c2}, nfd[3] = {f0, f1, f2};
     int lo[3], hi[3];
-    for (int d = 0; d < 3; ++d) {
-        lo[d] = nc[d] == 1 ? 0 : max(0, (I[d] - 1) * R + 1);
-        hi[d] = nc[d] == 1 ? 0 : min(nfd[d] - 1, (I[d] + 1) * R - 1);
+    for (int d = 0; d < 3; ++d) {  // fine nodes of the coarse elements around I
+        const int first = max(0, (I[d] - 1) / (Q - 1)), last = I[d] / (Q - 1);
+        lo[d] = nc[d] == 1 ? 0 : first * R;
+        hi[d] = nc[d] == 1 ? 0 : min(nfd[d] - 1, (last + 1) * R);
     }
-    auto wt = [&](const int d, const int g) -> T {
-        if (nc[d] == 1) return 1;
-        int e, j;
-        coarse_of(g, nc[d], R, e, j);
-        return e == I[d] ? 1 - xi[j] : (e + 1 == I[d] ? xi[j] : (T)0);
-    };
-    for (int f = 0; f < nf; ++f) {
-        T s = 0;
-        for (int a = lo[0]; a <= hi[0]; ++a) {
-            const T wa = wt(0, a);
-            for (int b = lo[1]; b <= hi[1]; ++b) {
-                const T wb = wa * wt(1, b);
-                for (int c = lo[2]; c <= hi[2]; ++c)
-                    s += wb * wt(2, c) * rf[f * nn + ((long long)a * f1 + b) * f2 + c];
+    // nonzero weights per direction, at most the 2 R + 1 fine nodes of two elements
+    constexpr int MAXW = 33;
+    int g[3][MAXW], count[3];
+    T w[3][MAXW];
+    for (int d = 0; d < 3; ++d) {
+        count[d] = 0;
+        for (int x = lo[d]; x <= hi[d] && count[d] < MAXW; ++x) {
+            T v = 1;
+            if (nc[d] > 1) {
+                int e, j;
+                coarse_of(x, (nc[d] - 1) / (Q - 1), R, e, j);
+                const int a = I[d] - e * (Q - 1);
+                v = a >= 0 && a < Q ? table[j * Q + a] : (T)0;
+            }
+            if (v != (T)0) {
+                g[d][count[d]] = x;
+                w[d][count[d]++] = v;
             }
         }
+    }
+    for (int f = 0; f < nf; ++f) {
+        T s = 0;
+        for (int a = 0; a < count[0]; ++a)
+            for (int b = 0; b < count[1]; ++b) {
+                const T wab = w[0][a] * w[1][b];
+                const long long row = ((long long)g[0][a] * f1 + g[1][b]) * f2;
+                for (int c = 0; c < count[2]; ++c)
+                    s += wab * w[2][c] * rf[f * nn + row + g[2][c]];
+            }
         const long long k = f * nnc + t;
         bc[k] = mask[k] ? s : (T)0;
     }
@@ -443,10 +458,12 @@ __global__ void voxel_energy(const int e0, const int e1, const int e2, const flo
 }
 
 // w_q = int_e c l_q from the voxels of an element, one block per element and a thread
-// per point; L holds the integrals of the Lagrange polynomials over each voxel
+// per point; L holds the integrals of the Lagrange polynomials over each voxel, every
+// voxel moves the fraction alpha towards the top of its fine element (of fsub voxels)
 template <int D, int NQ>
 __global__ void fit_voxels(const int e1, const int e2, const int sub, const float* L,
-                           const float volume, const float* c, float* w)
+                           const float volume, const float* c, const float* top,
+                           const float alpha, const int fsub, float* w)
 {
     constexpr int NQ2 = D == 3 ? NQ : 1, NQD = NQ * NQ * NQ2;
     __shared__ float Ls[64 * NQ];
@@ -456,26 +473,33 @@ __global__ void fit_voxels(const int e1, const int e2, const int sub, const floa
     const int c2 = D == 3 ? e2 : 1;
     const int E2 = elem % c2, E1 = (elem / c2) % e1, E0 = elem / ((long long)c2 * e1);
     const int V1 = e1 * sub, V2 = D == 3 ? e2 * sub : 1, sub2 = D == 3 ? sub : 1;
+    const int F1 = V1 / fsub, F2 = D == 3 ? V2 / fsub : 1;
     for (int q = threadIdx.x; q < NQD; q += blockDim.x) {
         const int q2 = q % NQ2, q1 = (q / NQ2) % NQ, q0 = q / (NQ2 * NQ);
         float acc = 0;
         for (int l0 = 0; l0 < sub; ++l0)
             for (int l1 = 0; l1 < sub; ++l1) {
                 const float w01 = Ls[l0 * NQ + q0] * Ls[l1 * NQ + q1];
-                const long long row = ((long long)(E0 * sub + l0) * V1 + E1 * sub + l1) * V2
-                                      + (D == 3 ? E2 * sub : 0);
-                for (int l2 = 0; l2 < sub2; ++l2)
-                    acc += c[row + l2] * w01 * (D == 3 ? Ls[l2 * NQ + q2] : 1.0f);
+                const int X0 = E0 * sub + l0, X1 = E1 * sub + l1;
+                const long long row = ((long long)X0 * V1 + X1) * V2 + (D == 3 ? E2 * sub : 0);
+                const long long frow = ((long long)(X0 / fsub) * F1 + X1 / fsub) * F2;
+                for (int l2 = 0; l2 < sub2; ++l2) {
+                    float v = c[row + l2];
+                    if (alpha != 0.0f)
+                        v = (1.0f - alpha) * v
+                            + alpha * top[frow + (D == 3 ? (E2 * sub + l2) / fsub : 0)];
+                    acc += v * w01 * (D == 3 ? Ls[l2 * NQ + q2] : 1.0f);
+                }
             }
         w[elem * NQD + q] = acc * volume;
     }
 }
 
-// every voxel of an element gains alpha times the P-norm of the element's coefficients,
-// dfloor = d(raised coefficient of any voxel of the element) / d(voxel coefficient)
+// top of every element: the P-norm of its coefficients, close to their maximum but
+// differentiable
 template <int D, int P>
-__global__ void element_floor(const int e1, const int e2, const int sub, const float alpha,
-                              const float* c, float* out, float* dfloor)
+__global__ void element_top(const int e1, const int e2, const int sub, const float* c,
+                            float* top)
 {
     __shared__ float red[256];
     const long long elem = blockIdx.x;
@@ -513,26 +537,41 @@ __global__ void element_floor(const int e1, const int e2, const int sub, const f
         for (int k = 0; k < P; ++k) rp *= r;
         s += rp;
     }
-    const float top = m * powf(reduce(s, false) / n, 1.0f / P);
-    for (int l = threadIdx.x; l < n; l += blockDim.x) {
-        const long long v = voxel(l);
-        const float r = top > 0 ? c[v] / top : 0.0f;
-        float rp = 1;
-        #pragma unroll
-        for (int k = 0; k < P - 1; ++k) rp *= r;
-        out[v] = c[v] + alpha * top;
-        dfloor[v] = alpha * rp / n;
-    }
+    s = reduce(s, false);
+    if (threadIdx.x == 0) top[elem] = m * powf(s / n, 1.0f / P);
 }
 
-template <typename T>
-__global__ void dense_matvec(const double* A, const T* x, T* y, const int n)
+// energy = (1 - alpha) energy + alpha d(top) / d(c) times the energy of the element,
+// the chain rule of the floor; one thread per voxel
+template <int D, int P>
+__global__ void floor_gradient(const int v0, const int v1, const int v2, const int sub,
+                               const float alpha, const float* c, const float* top,
+                               const float* total, float* energy)
 {
-    const int i = blockDim.x * blockIdx.x + threadIdx.x;
-    if (i >= n) return;
-    double acc = 0;
-    for (int j = 0; j < n; ++j) acc += A[(long long)i * n + j] * (double)x[j];
-    y[i] = (T)acc;
+    const long long v = (long long)blockDim.x * blockIdx.x + threadIdx.x;
+    if (v >= (long long)v0 * v1 * v2) return;
+    const int X2 = v % v2, X1 = (v / v2) % v1, X0 = v / ((long long)v2 * v1);
+    const long long elem = ((long long)(X0 / sub) * (v1 / sub) + X1 / sub)
+                           * (D == 3 ? v2 / sub : 1) + (D == 3 ? X2 / sub : 0);
+    const float r = top[elem] > 0 ? c[v] / top[elem] : 0.0f;
+    float rp = 1;
+    #pragma unroll
+    for (int k = 0; k < P - 1; ++k) rp *= r;
+    energy[v] = (1.0f - alpha) * energy[v]
+                + alpha * rp / (sub * sub * (D == 3 ? sub : 1)) * total[elem];
+}
+
+// y = A x, float32 matrix, one warp per row for coalesced reads
+template <typename T>
+__global__ void dense_matvec(const float* A, const T* x, T* y, const int n)
+{
+    const int row = (blockDim.x * blockIdx.x + threadIdx.x) / 32, lane = threadIdx.x % 32;
+    if (row >= n) return;
+    float acc = 0;
+    for (int j = lane; j < n; j += 32) acc += A[(long long)row * n + j] * (float)x[j];
+    for (int offset = 16; offset > 0; offset /= 2)
+        acc += __shfl_down_sync(0xffffffff, acc, offset);
+    if (lane == 0) y[row] = (T)acc;
 }
 
 template <typename A, typename B>
@@ -581,7 +620,6 @@ def ctype(dtype):
     return "float" if dtype == cp.float32 else "double"
 
 
-_cast = cp.ElementwiseKernel("S a", "T b", "b = (T)a", "cast")
 _mask = cp.ElementwiseKernel("uint8 m", "T x", "x = m ? x : (T)0", "mask")
 _identity_rows = cp.ElementwiseKernel(
     "uint8 m, S u", "T out", "out = m ? out : (T)u", "identity_rows"
@@ -590,15 +628,15 @@ _unit_rows = cp.ElementwiseKernel(
     "uint8 m", "T out", "out = m ? out : (T)1", "unit_rows"
 )
 _cheb_pre = cp.ElementwiseKernel(
-    "T b, T dinv, raw T cheb",
+    "B b, T dinv, raw T cheb",
     "T r, T d, T x",
-    "r = b; d = dinv * b * cheb[0]; x = d",
+    "r = (T)b; d = dinv * r * cheb[0]; x = d",
     "cheb_pre",
 )
 _cheb_post = cp.ElementwiseKernel(
-    "T b, T Ad, T dinv, raw T cheb",
+    "B b, T Ad, T dinv, raw T cheb",
     "T r, T d, T x",
-    "r = b - Ad; d = dinv * r * cheb[0]; x += d",
+    "r = (T)b - Ad; d = dinv * r * cheb[0]; x += d",
     "cheb_post",
 )
 _cheb_step = cp.ElementwiseKernel(
@@ -608,7 +646,12 @@ _cheb_step = cp.ElementwiseKernel(
     "cheb_step",
 )
 _subtract = cp.ElementwiseKernel("T a", "T x", "x -= a", "subtract")
-_add_product = cp.ElementwiseKernel("T a, T b", "T x", "x += a * b", "add_product")
+_lanczos = cp.ElementwiseKernel(
+    "T Av, T dinv, T v, T vp, raw D alpha, raw D beta",
+    "T w",
+    "w = dinv * Av - (T)alpha[0] * v - (T)beta[0] * vp",
+    "lanczos",
+)
 _init_residual = cp.ElementwiseKernel(
     "S b, uint8 m", "T r", "r = m ? (T)b - r : (T)0", "init_residual"
 )
@@ -779,7 +822,6 @@ class Level:
             cp.zeros(self.ndof, cp.float32) for _ in range(5)
         )
         self.dinv = cp.ones(self.ndof, cp.float32)
-        self._power_vector = None
         self._dense = None
 
     def op(self, u, out, T=cp.float32, diag=False):
@@ -815,20 +857,31 @@ class Level:
         nodes = cp.ravel_multi_index(tuple(g), self.nodes)
         return cp.concatenate([nodes + f * self.nn for f in range(self.NF)], axis=1)
 
-    def estimate_lmax(self, iters):  # power iteration on M^-1 A, from a fixed random start
-        # not warm-started: over hundreds of design updates the carried vector locks
-        # onto a localized mode and underestimated lmax by up to 37%, the Chebyshev
-        # smoother then amplified the top modes and CG ran into maxiter
-        v, Av = self.d, self.Ad
-        if self._power_vector is None:
-            rng = cp.random.default_rng(0)
-            self._power_vector = rng.random(self.ndof, dtype=cp.float32)
-        v[...] = self._power_vector
+    def estimate_lmax(self, steps):
+        """largest eigenvalue of M^-1 A by Lanczos in the D inner product.
+
+        Always from the same random start: over hundreds of design updates a carried
+        power iteration vector locked onto a localized mode and underestimated lmax by
+        up to 37%, the Chebyshev smoother then amplified the top modes.
+        """
+        v, vp, w, Dw = self.d, self.x, self.r, self.Ad
+        v[...] = cp.random.default_rng(0).random(self.ndof, dtype=cp.float32)
         _mask(self.mask, v)
-        for _ in range(iters):
-            v *= cp.dot(v, v) ** -0.5
-            cp.multiply(self.dinv, self.op(v, Av), out=v)
-        return float(cp.dot(v, v)) ** 0.5
+        cp.divide(v, self.dinv, out=Dw)
+        v *= cp.dot(v, Dw) ** -0.5
+        vp.fill(0)
+        ab = cp.zeros((steps, 2))  # alpha, beta of the Lanczos tridiagonal
+        for k in range(steps):
+            self.op(v, Dw)
+            ab[k, 0] = cp.dot(v, Dw)
+            _lanczos(Dw, self.dinv, v, vp, ab[k], ab[k - 1, 1:] if k else ab[k, 1:], w)
+            cp.divide(w, self.dinv, out=Dw)
+            ab[k, 1] = cp.dot(w, Dw) ** 0.5
+            vp, v = v, vp
+            cp.divide(w, ab[k, 1], out=v)
+        a, b = cp.asnumpy(ab).T
+        T = np.diag(a) + np.diag(b[:-1], 1) + np.diag(b[:-1], -1)
+        return float(np.linalg.eigvalsh(T)[-1])
 
     def point_matrices(self):
         """(NQ^D, n, n) element matrix contributions of every point for unit weight."""
@@ -894,9 +947,9 @@ class VoxelMultigrid:
     constant coefficients the element matrices only depend on the weights
     w_q = int_e c l_q of a (2p + 1)^D Gauss grid, which integrate them exactly and are
     all a fine level stores; with s = 1 the voxel coefficients are read directly. The
-    hierarchy goes Q_p -> Q_1 on the same mesh, then coarsens the mesh by 2 (or 3, 5),
-    every level matrix-free from its own exactly fitted weights, down to a dense coarse
-    inverse.
+    hierarchy goes Q_p (-> Q_p/2) -> Q_1 on the same mesh, then coarsens the mesh by 2
+    (or 3, 5), every level matrix-free from its own exactly fitted weights, down to a
+    dense coarse inverse.
     CG keeps x and r in float64, the rest in float32 with Chebyshev smoothing, and
     one CG iteration is replayed as a single CUDA graph.
 
@@ -907,11 +960,18 @@ class VoxelMultigrid:
         fixed: bool array (NF, *nodes), True on Dirichlet dofs (see `node_coordinates`).
         degree, sub_voxels: p and s.
         fitted: fitted weights on the fine level, by default for s > 1.
-        smoothing: Chebyshev degree per level from fine to coarse (last repeats).
-        floor: element-wise finite cell alpha, every voxel of an element gains
-            `floor` times the 8-norm of the element's coefficients (close to its
-            maximum, but differentiable); keeps Jacobi smoothing robust for cut
-            elements with p > 1 (0 for the unmodified material).
+        smoothing: Chebyshev degree per level from fine to coarse (last repeats), the
+            first one also for the intermediate p levels.
+        floor: element-wise finite cell alpha, every voxel of an element moves the
+            fraction `floor` towards the 8-norm of the element's coefficients (close
+            to its maximum, but differentiable), homogeneous elements stay unchanged;
+            keeps Jacobi smoothing robust for cut elements with p > 1 (0 for the
+            unmodified material).
+        p_levels: degrees between p and 1 on the fine mesh, by default p // 2 for
+            p >= 5.
+        lanczos_steps: Lanczos steps for the largest eigenvalue of every level.
+        w_cycle: W-cycle on the coarsened meshes, fewer CG iterations on thin
+            members; pays in 3D, not on launch-bound 2D grids.
     """
 
     def __init__(
@@ -929,7 +989,9 @@ class VoxelMultigrid:
         coarse_dofs=2000,
         eig_ratio=30.0,
         safety=1.1,
-        power_iters=24,
+        lanczos_steps=12,
+        p_levels=None,
+        w_cycle=False,
     ):
         self.D = len(nvoxels)
         self.NF = self.D if physics == "elasticity" else 1
@@ -939,7 +1001,8 @@ class VoxelMultigrid:
             self.lam, self.mu = nu / (1 - nu**2), 0.5 / (1 + nu)
         else:
             self.lam, self.mu = nu / ((1 + nu) * (1 - 2 * nu)), 0.5 / (1 + nu)
-        self.eig_ratio, self.safety, self.power_iters = eig_ratio, safety, power_iters
+        self.eig_ratio, self.safety = eig_ratio, safety
+        self.lanczos_steps = lanczos_steps
         self.floor = floor
         self.stream = cp.cuda.Stream(non_blocking=True)
         self.graph = None
@@ -953,11 +1016,22 @@ class VoxelMultigrid:
             Level(self, elements, degree, nq, fitted, sub_voxels, mask.ravel())
         ]
         self.transfers = []
-        if degree > 1:
-            mask = mask[(slice(None),) + (slice(None, None, degree),) * self.D]
-            self.levels.append(Level(self, elements, 1, 3, True, 1, mask.ravel()))
-            xi = np.append(gauss_lobatto(degree)[:-1], 1.0)
-            self.transfers.append((degree, cp.asarray(xi, dtype=cp.float32)))
+        # halving p pays from p = 5 on, below it costs more than it saves
+        if p_levels is None:
+            p_levels = (degree // 2,) if degree >= 5 else ()
+        p_levels = [q for q in p_levels if 1 < q < degree]
+        for q in p_levels + [1] * (degree > 1):
+            P = self.levels[-1].P
+            # Q_q nodes take the Dirichlet mask of the nearest Q_P node of their element
+            sel = [
+                cp.asarray(n // q * P + np.round(n % q * P / q).astype(int))
+                for n in (np.arange(q * e + 1) for e in elements)
+            ]
+            mask = mask[cp.ix_(cp.arange(self.NF), *sel)]
+            level = Level(self, elements, q, 2 * q + 1, True, sub_voxels, mask.ravel())
+            self.levels.append(level)
+            table = lagrange(gauss_lobatto(q), gauss_lobatto(P))[0]
+            self.transfers.append((P, q, cp.asarray(table, dtype=cp.float32)))
         while self.levels[-1].ndof > coarse_dofs:
             fine = self.levels[-1]
             # halve the mesh, or divide it by 3 or 5 where 2 does not divide it
@@ -969,22 +1043,33 @@ class VoxelMultigrid:
             elements = tuple(e // R for e in fine.elements)
             self.levels.append(Level(self, elements, 1, 3, True, 1, mask.ravel()))
             xi = np.linspace(0.0, 1.0, R + 1)
-            self.transfers.append((R, cp.asarray(xi, dtype=cp.float32)))
+            table = np.stack([1.0 - xi, xi], axis=1)
+            self.transfers.append((R, 1, cp.asarray(table, dtype=cp.float32)))
         assert self.levels[-1].ndof <= 4 * coarse_dofs, "grid does not coarsen enough"
 
         smoothing = [smoothing] if np.isscalar(smoothing) else list(smoothing)
+        # the intermediate p levels smooth like the finest
         for i, lv in enumerate(self.levels):
-            lv.smoothing = smoothing[min(i, len(smoothing) - 1)]
+            k = i - len(p_levels) if i > len(p_levels) else 0
+            lv.smoothing = smoothing[min(k, len(smoothing) - 1)]
             lv.cheb = cp.zeros(2 * lv.smoothing - 1, cp.float32)
         self.coarse_inverse = None
-        self._floored = None
+        self._top = None
+        # W-cycle from the first mesh coarsening on, its levels need the first visit
+        self.w_from = 1 + len(p_levels) + (degree > 1) if w_cycle else None
+        for lv in self.levels[self.w_from or len(self.levels) : -1]:
+            lv.x0 = cp.zeros_like(lv.x)
 
         # persistent CG state, z is the V-cycle output; scalars hold rz, pAp, rr,
         # rz_old, rz_new
         self.ndof = self.levels[0].ndof
         self.mask = self.levels[0].mask
         self.x, self.r = cp.zeros(self.ndof), cp.zeros(self.ndof)
-        self.p, self.Ap = (cp.zeros(self.ndof, cp.float32) for _ in range(2))
+        # the V-cycle reads the float64 residual directly and reuses A p as scratch,
+        # A p is dead once x and r are updated
+        fine = self.levels[0]
+        fine.b, self.Ap = self.r, fine.Ad
+        self.p = cp.zeros(self.ndof, cp.float32)
         self.scalars = cp.zeros(5)
         self.partial = cp.zeros(DOT_BLOCKS)
 
@@ -1028,15 +1113,14 @@ class VoxelMultigrid:
     def _update(self, coeff):
         coeff = cp.asarray(coeff, dtype=cp.float32)
         e3 = [np.int32(e) for e in list(self.levels[0].elements) + [1] * (3 - self.D)]
-        if self.floor and self.sub > 1:
-            if self._floored is None:
-                self._floored = cp.empty(self.nvoxels, cp.float32)
-                self._dfloor = cp.empty(self.nvoxels, cp.float32)
-            args = (*e3[1:], np.int32(self.sub), np.float32(self.floor), coeff)
-            args += (self._floored, self._dfloor)
-            function = kernel(f"element_floor<{self.D}, {FLOOR_POWER}>")
+        alpha = self.floor if self.sub > 1 else 0.0
+        if self._top is None:  # one float per fine element
+            self._top = cp.zeros(int(np.prod(e3)) if alpha else 1, cp.float32)
+        if alpha:
+            args = (*e3[1:], np.int32(self.sub), coeff, self._top)
+            function = kernel(f"element_top<{self.D}, {FLOOR_POWER}>")
             function((int(np.prod(e3)),), (256,), args)
-            coeff = self._floored
+            self._coeff = coeff  # for the chain rule of the floor in energy_gradient
         voxel = np.prod([L / n for L, n in zip(self.lengths, self.nvoxels)])
         previous = None
         for lv in self.levels:
@@ -1050,8 +1134,9 @@ class VoxelMultigrid:
                 L = voxel_table(lv.NQ, sub)
                 e = [np.int32(n) for n in list(lv.elements) + [1] * (3 - self.D)]
                 args = (*e[1:], np.int32(sub), L, np.float32(voxel * sub**self.D))
+                args += (coeff, self._top, np.float32(alpha), np.int32(self.sub), W)
                 function = kernel(f"fit_voxels<{self.D}, {lv.NQ}>")
-                function((int(np.prod(lv.elements)),), (128,), (*args, coeff, W))
+                function((int(np.prod(lv.elements)),), (128,), args)
             else:  # exactly from the finer level's weights
                 R = previous.elements[0] // lv.elements[0]
                 W = contract_weights(
@@ -1064,7 +1149,7 @@ class VoxelMultigrid:
             previous = lv
         for lv in self.levels[:-1]:
             lv.set_diagonal()
-            hi = self.safety * lv.estimate_lmax(self.power_iters)
+            hi = self.safety * lv.estimate_lmax(self.lanczos_steps)
             cheb = chebyshev_coefficients(hi, self.eig_ratio, lv.smoothing)
             lv.cheb[...] = cp.asarray(cheb, dtype=cp.float32)
         # float32 inverse of the Jacobi-scaled matrix, 10x faster than float64 on
@@ -1072,7 +1157,7 @@ class VoxelMultigrid:
         A = self.levels[-1].dense()
         scale = cp.diag(A) ** -0.5
         inverse = cp.linalg.inv((scale[:, None] * A * scale).astype(cp.float32))
-        inverse = scale[:, None] * inverse * scale
+        inverse = (scale[:, None] * inverse * scale).astype(cp.float32)
         if self.coarse_inverse is None:
             self.coarse_inverse = inverse
         else:
@@ -1109,8 +1194,11 @@ class VoxelMultigrid:
         if not (self.floor and self.sub > 1):
             return energy
         grouped = self._by_element(energy)
-        total = grouped.sum(axis=tuple(range(1, 2 * self.D, 2)), keepdims=True)
-        _add_product(self._by_element(self._dfloor), total, grouped)  # no nvoxels temporary
+        total = grouped.sum(axis=tuple(range(1, 2 * self.D, 2)))
+        v3 = [np.int32(n) for n in list(self.nvoxels) + [1] * (3 - self.D)]
+        args = (*v3, np.int32(self.sub), np.float32(self.floor), self._coeff, self._top)
+        function = kernel(f"floor_gradient<{self.D}, {FLOOR_POWER}>")
+        launch(function, energy.size, (*args, total, energy))
         return energy
 
     def apply(self, u):
@@ -1133,29 +1221,36 @@ class VoxelMultigrid:
 
     def _transfer(self, name, i, source, target, mask):
         fine, coarse = self.levels[i], self.levels[i + 1]
-        R, xi = self.transfers[i]
+        R, q, table = self.transfers[i]
         f3 = list(fine.nodes) + [1] * (3 - self.D)
         c3 = list(coarse.nodes) + [1] * (3 - self.D)
         args = (*[np.int32(n) for n in f3 + c3], np.int32(R), np.int32(self.NF))
         threads = fine.nn if name == "prolong" else coarse.nn
-        launch(kernel(f"{name}<float>"), threads, args + (xi, source, target, mask))
+        function = kernel(f"{name}<float, {q + 1}>")
+        launch(function, threads, args + (table, source, target, mask))
 
-    def _vcycle(self):  # levels[0].b -> levels[0].x
+    def _cycle(self, i=0):  # levels[i].b -> levels[i].x
         L = len(self.levels) - 1
-        for i in range(L):
-            fine, coarse = self.levels[i], self.levels[i + 1]
-            self._smooth(fine, pre=True)
-            self._transfer("restrict_", i, fine.r, coarse.b, coarse.mask)
-        coarse = self.levels[L]
-        launch(
-            kernel("dense_matvec<float>"),
-            coarse.ndof,
-            (self.coarse_inverse, coarse.b, coarse.x, np.int32(coarse.ndof)),
-        )
-        for i in reversed(range(L)):
-            fine, coarse = self.levels[i], self.levels[i + 1]
-            self._transfer("prolong", i, coarse.x, fine.x, fine.mask)
-            self._smooth(fine, pre=False)
+        if i == L:
+            coarse = self.levels[L]
+            launch(
+                kernel("dense_matvec<float>"),
+                32 * coarse.ndof,
+                (self.coarse_inverse, coarse.b, coarse.x, np.int32(coarse.ndof)),
+            )
+            return
+        fine, coarse = self.levels[i], self.levels[i + 1]
+        self._smooth(fine, pre=True)
+        self._transfer("restrict_", i, fine.r, coarse.b, coarse.mask)
+        self._cycle(i + 1)
+        if self.w_from is not None and self.w_from <= i + 1 < L:
+            # second visit on the residual of the first
+            coarse.x0[...] = coarse.x
+            _subtract(coarse.op(coarse.x, coarse.Ad), coarse.b)
+            self._cycle(i + 1)
+            coarse.x += coarse.x0
+        self._transfer("prolong", i, coarse.x, fine.x, fine.mask)
+        self._smooth(fine, pre=False)
 
     def _dot(self, a, b, out):  # deterministic two-stage reduction
         partial = kernel(f"dot_partial<{ctype(a.dtype)}, {ctype(b.dtype)}>")
@@ -1164,8 +1259,7 @@ class VoxelMultigrid:
         final((1,), (1,), (self.partial, out, np.int32(DOT_BLOCKS)))
 
     def _precondition(self):  # r -> z = levels[0].x
-        _cast(self.r, self.levels[0].b)
-        self._vcycle()
+        self._cycle()
 
     def _iteration(self):  # one flexible PCG step on the persistent state
         x, r, p, Ap, z = self.x, self.r, self.p, self.Ap, self.levels[0].x

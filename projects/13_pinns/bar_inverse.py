@@ -9,7 +9,7 @@ from torch import nn
 
 from DL import differentiate, init_weights
 from NN import MLP
-from helper import grid, pinn_cost, train
+from helper import fem, grid, interpolate, pinn_cost, train
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
@@ -45,7 +45,7 @@ LAYERS = [1, 32, 32, 1]
 ACTIVATIONS = [nn.Tanh() for _ in range(len(LAYERS) - 2)]
 
 # ------------------------------------ prepare data -----------------------------------
-x, _ = grid([0.0], [1.0], SAMPLES)
+x, w = grid([0.0], [1.0], SAMPLES)
 x0 = torch.zeros(1, 1, requires_grad=True)
 x1 = torch.ones(1, 1, requires_grad=True)
 
@@ -63,34 +63,10 @@ init_weights(model_EA, ACTIVATIONS[0])
 EA_hat = lambda x: nn.functional.softplus(model_EA(x))  # positive stiffness
 params = list(model_EA.parameters())
 
-
-# nodal displacements of linear finite elements, differentiable with respect to EA
-def fem(EA, elements):
-    h = 1 / elements
-    x_mid = torch.linspace(h / 2, 1 - h / 2, elements).unsqueeze(1)
-    k = EA(x_mid)[:, 0] / h
-    zero = torch.zeros(1)
-    K = torch.diag(torch.cat([k, zero]) + torch.cat([zero, k]))
-    K = K - torch.diag(k, 1) - torch.diag(k, -1)
-    load = p_fun(x_mid.requires_grad_())[:, 0] * h / 2
-    F = torch.cat([load, zero]) + torch.cat([zero, load])
-    F[-1] += f[0, 0]
-    u_free = torch.linalg.solve(K[1:, 1:], F[1:] - K[1:, 0] * g[0, 0])
-    return torch.cat([g[0], u_free])
-
-
-# linear interpolation of the nodal displacements at the points x (N, 1)
-def interpolate(u_nodes, x):
-    elements = len(u_nodes) - 1
-    i = torch.clamp((x[:, 0] * elements).long(), max=elements - 1)
-    xi = x[:, 0] * elements - i
-    return ((1 - xi) * u_nodes[i] + xi * u_nodes[i + 1]).unsqueeze(1)
-
-
 if DATA == "full":
     u_hat = u_fun
 elif SOLVER == "fem":
-    u_hat = lambda x: interpolate(fem(EA_hat, SAMPLES), x)
+    u_hat = lambda x: interpolate(fem(EA_hat, p_fun, g, f, SAMPLES), x)
 else:
     model_u = MLP(LAYERS, [nn.Tanh() for _ in range(len(LAYERS) - 2)])
     model_u.to(device)
@@ -98,19 +74,24 @@ else:
     u_hat = lambda x: model_u(x)
     params += list(model_u.parameters())
 
+residual = lambda x: differentiate(EA_hat(x) * differentiate(u_hat(x), x), x) + p_fun(x)
+neumann = lambda: EA_hat(x1) * differentiate(u_hat(x1), x1) - f
+term_history = []
+
 
 def cost_fun():
-    if DATA == "partial" and SOLVER == "fem":
-        return pinn_cost([u_hat(x_m) - u_m])
-    residuals = [
-        differentiate(EA_hat(x) * differentiate(u_hat(x), x), x) + p_fun(x),
-        EA_hat(x1) * differentiate(u_hat(x1), x1) - f,
-    ]
-    weights = [1.0, 1.0]
-    if DATA == "partial":
-        residuals += [u_hat(x_m) - u_m, u_hat(x0) - g]
-        weights += [DATA_WEIGHT, DATA_WEIGHT]
-    return pinn_cost(residuals, weights)
+    if DATA == "full":  # the neumann residual vanishes for any EA, since u'(1)=0
+        terms = [pinn_cost([residual(x)])]
+    elif SOLVER == "fem":
+        terms = [pinn_cost([u_hat(x_m) - u_m])]
+    else:
+        terms = [
+            pinn_cost([residual(x)]),
+            pinn_cost([neumann(), u_hat(x0) - g], [1.0, DATA_WEIGHT]),
+            pinn_cost([u_hat(x_m) - u_m], [DATA_WEIGHT]),
+        ]
+    term_history.append([term.item() for term in terms])
+    return sum(terms)
 
 
 # -------------------------------------- training -------------------------------------
@@ -118,6 +99,15 @@ tic = time.time()
 cost_history = train(cost_fun, params, EPOCHS, LR, decay=DECAY)
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
+
+if DATA == "full":  # direct inversion of the integrated equation, EA u' = f + int_x^1 p
+    tic = time.time()
+    p_w = w * p_fun(x)
+    axial_force = f + torch.flip(torch.cumsum(torch.flip(p_w, [0]), 0), [0]) - p_w / 2
+    EA_direct = (axial_force / differentiate(u_fun(x), x)).detach()
+    toc = time.time()
+    error = torch.linalg.norm(EA_direct - EA_fun(x)) / torch.linalg.norm(EA_fun(x))
+    print(f"direct inversion: {toc - tic:.2e} s, relative L2 error of EA {error:.2e}")
 
 # ----------------------------------- postprocessing ----------------------------------
 x_test = torch.linspace(0, 1, 200).unsqueeze(1)
@@ -158,4 +148,8 @@ else:
         upred=u_pred_test[:, 0],
     )
     save_csv(CSV_DIR / f"{name}_sensors.csv", x=x_m[:, 0], u=u_m[:, 0])
-    save_csv(CSV_DIR / f"{name}_cost_history.csv", cost=np.array(cost_history))
+    history = {"cost": np.array(cost_history)}
+    if DATA == "partial" and SOLVER == "pinn":
+        terms = np.array(term_history)
+        history.update(Cr=terms[:, 0], Cb=terms[:, 1], Cm=terms[:, 2])
+    save_csv(CSV_DIR / f"{name}_cost_history.csv", **history)

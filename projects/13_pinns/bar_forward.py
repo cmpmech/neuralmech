@@ -9,7 +9,7 @@ from torch import nn
 
 from DL import differentiate, init_weights
 from NN import MLP
-from helper import energy_cost, grid, pinn_cost, train, weak_cost
+from helper import energy_cost, fem, grid, interpolate, pinn_cost, train, weak_cost
 from postprocessing import save_csv
 
 BASE_DIR = Path(__file__).parent
@@ -70,15 +70,18 @@ else:
 
 dudx = lambda x: differentiate(u_hat(x), x)
 ascent_params = None
+term_history = []
 
 if METHOD == "pinn":
-    cost_fun = lambda: pinn_cost(
-        [
-            differentiate(EA_fun(x) * dudx(x), x) + p_fun(x),
-            u_hat(x0) - g,
-            EA_fun(x1) * dudx(x1) - f,
-        ]
-    )
+    residual = lambda x: differentiate(EA_fun(x) * dudx(x), x) + p_fun(x)
+    cost_r = lambda: pinn_cost([residual(x)])
+    cost_b = lambda: pinn_cost([u_hat(x0) - g, EA_fun(x1) * dudx(x1) - f])
+
+    def cost_fun():
+        terms = [cost_r(), cost_b()]
+        term_history.append([term.item() for term in terms])
+        return sum(terms)
+
 elif METHOD == "dem":
     energy = lambda x, w: energy_cost(
         [
@@ -127,6 +130,10 @@ cost_history = train(
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
+tic = time.time()
+u_fem = fem(EA_fun, p_fun, g, f, SAMPLES).detach()  # reference with linear elements
+toc = time.time()
+
 # ----------------------------------- postprocessing ----------------------------------
 if PROBLEM == "smooth":
     x_test = torch.linspace(0, 1, 200).unsqueeze(1)
@@ -136,6 +143,9 @@ u_test = u_fun(x_test)
 u_pred_test = u_hat(x_test).detach()
 error = torch.linalg.norm(u_pred_test - u_test) / torch.linalg.norm(u_test)
 print(f"relative L2 error {error:.2e}")
+u_fem_test = interpolate(u_fem, x_test)
+error = torch.linalg.norm(u_fem_test - u_test) / torch.linalg.norm(u_test)
+print(f"finite elements: elapsed time {toc - tic:.2e} s, relative L2 error {error:.2e}")
 x_test.requires_grad_()
 dudx_test = differentiate(u_fun(x_test), x_test).detach()
 dudx_pred_test = dudx(x_test).detach()
@@ -173,4 +183,7 @@ else:
     history = {"cost": np.array(cost_history)}
     if VALIDATION:
         history["val"] = np.array(val_history)
+    if METHOD == "pinn":
+        terms = np.array(term_history)
+        history.update(Cr=terms[:, 0], Cb=terms[:, 1])
     save_csv(CSV_DIR / f"{name}_cost_history.csv", **history)
