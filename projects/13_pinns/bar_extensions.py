@@ -19,6 +19,7 @@ CSV_DIR = (RESULTS_DIR / "data").resolve()
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 device = torch.device("cpu")  # faster on cpu, because matrices are small
+torch.set_num_threads(1)  # threading overhead dominates for such small networks
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -26,11 +27,12 @@ args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
 # hyperparameters
-OPTIMIZER = "adam"  # adam, lbfgs or elm
+OPTIMIZER = "adam"  # adam, lbfgs, adam+lbfgs or elm
 SAMPLING = "uniform"  # uniform, random, sobol or adaptive
 SELF_ADAPTIVE = False  # learnable weight per point, adam with uniform or sobol only
-EPOCHS = 5000 if OPTIMIZER == "adam" else 500
-LR = 1e-3 if OPTIMIZER == "adam" else 1.0
+ADAM_EPOCHS = {"adam": 5000, "adam+lbfgs": 1000}.get(OPTIMIZER, 0)
+LBFGS_EPOCHS = 20 if "lbfgs" in OPTIMIZER else 0  # each runs up to 20 iterations
+LR = 3e-3  # adam, l-bfgs takes unit steps with a line search
 SAMPLES = 100  # collocation points
 ASCENT_LR = 1e-2  # self-adaptive weights only
 REFINE_EVERY = 1000  # adaptive only, epochs between refinements
@@ -43,7 +45,8 @@ EA_fun = lambda x: (torch.cos(2 * torch.pi * x) + 3) / 4
 
 # model settings
 LAYERS = [1, 200, 1] if OPTIMIZER == "elm" else [1, 32, 32, 1]
-ACTIVATIONS = [nn.Tanh() for _ in range(len(LAYERS) - 2)]
+ACTIVATION = nn.Tanh if OPTIMIZER == "elm" else nn.GELU
+ACTIVATIONS = [ACTIVATION() for _ in range(len(LAYERS) - 2)]
 
 # ------------------------------------ prepare data -----------------------------------
 x, _ = sample([0.0], [1.0], SAMPLES, "uniform" if SAMPLING == "adaptive" else SAMPLING)
@@ -95,11 +98,18 @@ else:
     cost_history = train(
         cost_fun,
         model.parameters(),
-        EPOCHS,
+        ADAM_EPOCHS,
         LR,
-        optimizer=OPTIMIZER,
         ascent_params=weights,
         ascent_lr=ASCENT_LR,
+        callback=update_points,
+    )
+    cost_history += train(
+        cost_fun,
+        model.parameters(),
+        LBFGS_EPOCHS,
+        1.0,
+        optimizer="lbfgs",
         callback=update_points,
     )
 toc = time.time()

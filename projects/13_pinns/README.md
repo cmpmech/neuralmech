@@ -3,7 +3,8 @@
 Physics-informed neural networks and their variations for **Chapter 13 (Physics-Informed
 Neural Networks)**. The physics is written directly in each driver as a residual,
 energy density, or weak-form integrand using `DL.differentiate`; `helper.py` only
-supplies sampling, the cost of each method, and the training loop, in any dimension.
+supplies sampling, the cost of each method, and the training loop, in any dimension, plus
+a differentiable linear finite element solver for the bar.
 
 ## Data generation
 
@@ -19,17 +20,50 @@ supplies sampling, the cost of each method, and the training loop, in any dimens
 
 - `bar_forward.py`
   forward bar with a manufactured solution, solved as `METHOD` = pinn, dem, vpinn or wan;
-  `PROBLEM` = smooth or singular (weak singularity at $x=0$), and `VALIDATION` tracks the
-  deep energy method's energy on a ten times finer grid
+  `PROBLEM` = smooth or singular (weak singularity at $x=0$); the physics-informed neural
+  network collocates at midpoints, the integral methods use `ORDER` Gauss points per cell,
+  graded toward $x=0$ with `QUADRATURE = "graded"`; `VALIDATION` tracks the
+  deep energy method's energy on a ten times finer grid; the timing and error of quadratic
+  finite element solutions (`DEGREE`, sparse and in double precision) are printed for
+  comparison, with `DOFS` = 150, with as many as network
+  parameters, and with the fewest that match the network error
 - `bar_extensions.py`
   forward bar physics-informed neural network with `OPTIMIZER` (adam, lbfgs, elm),
   `SAMPLING` (uniform, random, sobol, adaptive), and self-adaptive weights
 - `bar_inverse.py`
   identifies the stiffness $EA$ of the bar from full-field or sparse displacement data; for
-  sparse data, `SOLVER` = pinn (second network for $u$) or fem (differentiable finite elements)
+  sparse data, `SOLVER` = pinn (second network for $u$, 10 000 epochs) or fem (differentiable
+  `ELEMENTS` = 150 linear finite elements, 1 000 epochs, as each epoch already satisfies the physics);
+  for full-field data, the direct inversion $EA = (f + \int_x^1 p)/u'$ on `ELEMENTS` midpoints is printed for comparison
+
+Both bar drivers record the relative $L^2$ error on 200 test points every 10 epochs
+(`*_error_history.csv`) and run on a single thread, since the threading overhead dominates
+for networks this small (with 16 threads, training and especially the error evaluation run
+several times slower). The cost history of the physics-informed neural network also holds
+the residual and boundary costs, and that of the deep energy method the internal and
+external energy.
+
+**Activation.** The smooth bar uses GELU, the singular bar tanh. On the smooth bar, GELU
+lowers the error of every method, e.g. physics-informed neural network $8\cdot10^{-6}$ to
+$6\cdot10^{-4}$ over four seeds against $1.6\cdot10^{-4}$ to $2.2\cdot10^{-3}$ with tanh
+(learning rate $3\cdot10^{-3}$ instead of $10^{-3}$), weak adversarial network $6\cdot10^{-3}$
+against $7\cdot10^{-2}$ (where tanh lets its cost collapse to round-off after about 2600
+epochs and freezes the error; `ACTIVATION = "tanh"` with `METHOD = "wan"` writes this run
+as `bar_forward_wan_tanh`; without the learning rate decay, GELU ends at $2.7\cdot10^{-2}$
+and tanh at $4\cdot10^{-1}$), and the partial-data inverse $3.1\cdot10^{-2}$ against $1.3\cdot10^{-1}$. On the
+singular bar, tanh is better for both methods. The quadrature overfitting run also keeps
+tanh, as GELU does not overfit 20 Gauss points. ReLU fails entirely, since a ReLU network
+is piecewise linear and its second derivative vanishes. The error of the
+physics-informed neural network fluctuates strongly between epochs, as Adam overshoots;
+a learning rate decay lowers the fluctuation but ends at larger errors.
 - `elasticity2D.py` _needs `elasticity2D_reference.npz`_
   plane stress plate with a hole, pinn or dem, next to the reference and the coarse finite
   element solution with the same energy error
+- `elasticity2D_benchmark.py` _needs the Chapter 1 benchmark geometry and a GPU_
+  first geometry of the 2D benchmark (256^2, thresholded at 0.5), clamped on the left and pulled on the right;
+  voxel finite elements (p=1, one element per voxel) and the deep energy method with the clamp
+  as a hard constraint, both against a p=5 voxel reference
+  (u_y, eps_xx at the voxel centres and their pointwise errors)
 - `elasticity2D_geometry.py` _needs `elasticity2D_reference.npz`_
   deep energy method error over the number of holes and collocation points
 - `elasticity2D_nonlinear.py` _needs `elasticity2D_nonlinear_reference.npz`_
@@ -103,28 +137,32 @@ constant, which the Neumann residual $EA\,u'(1)-f$ fixes. Where $u'=0$ (here at
 $x=0,\tfrac{1}{2},1$), the stiffness drops out of the equation and is only interpolated
 by the network. With full-field data this is harmless, but with sparse data the ends
 $x=0$ and $x=1$ are where the identified $EA$ deviates. With sparse data, the residual
-(of order $p^2\sim10^2$ initially) outweighs the sensor misfit, and the optimizer first
-satisfies the physics with a large $EA$ and a flat $u$; `DATA_WEIGHT` lifts the misfit to
-a comparable scale. A softplus keeps $EA$ positive.
+(about $500$, the mean of $p^2$, initially) outweighs the sensor misfit, and the optimizer first
+satisfies the physics with a large $EA$ and a flat $u$; `DATA_WEIGHT` = 100 (calibrated
+manually) lifts the misfit to a comparable scale. Without it, the error in $EA$ is
+$1.8\cdot10^{-1}$; also weighting the Dirichlet term by 100 gives $3.3\cdot10^{-2}$ instead of
+$3.1\cdot10^{-2}$. A softplus keeps $EA$ positive.
 
 **Differentiable finite elements.** With `SOLVER = "fem"`, $u$ comes from linear elements
 (one per collocation cell) with the network stiffness at the element midpoints, a dense
-`torch.linalg.solve`, and linear interpolation at the sensors. Autograd differentiates
+`torch.linalg.solve` in double precision (in single precision, the round-off of the
+assembly and solve exceeds the discretization error beyond about 400 elements), and linear interpolation at the sensors. Autograd differentiates
 through the solve, which is the discrete adjoint method; the governing equation holds
 exactly on the mesh, so the cost is the sensor misfit alone and needs no weighting.
 
 **Weak singularity.** `PROBLEM = "singular"` uses $u=x^{0.65}-0.65x$, $EA=1$, the 1D
 variant of the corner benchmark below. The energy integrands $u'^2$ and $p\,u$ scale as
 $x^{-0.7}$ and are integrable, whereas the squared strong residual scales with
-$p^2\sim x^{-2.7}$. Neither method resolves the strain below the first midpoint; the
-physics-informed neural network ends up offset over the whole bar (relative $L^2$ error
-about 3 times that of the deep energy method on a uniform grid). The test points are
+$p^2\sim x^{-2.7}$. Neither network resolves the singular strain near $x=0$, where both
+deviate alike; away from it, the physics-informed neural network error is about 3 times
+that of the deep energy method. Graded Gauss points lower the deep energy method error
+there by another factor of 3, whereas the physics-informed neural network diverges on them. The test points are
 logarithmically spaced to resolve the singularity in the plots.
 
-**Overfitting the quadrature.** With `SAMPLES = 20` and `VALIDATION = True`, the deep energy
-method first approaches the exact energy $-3\pi^2/4$ and after about 3000 epochs turns
-into a staircase that is flat at the midpoints and steep between them: the training
-energy drops without bound, while the validation energy on 200 midpoints rises.
+**Overfitting the quadrature.** With `SAMPLES = 20` and `VALIDATION = True` (5 500 epochs, so that the overfitting
+fully develops), the deep energy method first approaches the exact energy $-3\pi^2/4$ and after about 4800 epochs turns
+into a staircase that is flat at the 20 Gauss points and steep between them: the training
+energy drops without bound, while the validation energy on 200 Gauss points rises.
 
 **Plate with a hole.** The perforated plate consists of $k\times k$ cells with a centered
 square hole of a fifth of the cell size. The holes lie on cell boundaries of both the
@@ -203,3 +241,17 @@ problems. Newton with five load steps fails on the refined reference beyond a tr
 single ratio such as error per second mixes quantities that do not trade off linearly. The
 dimension study instead compares at equal time: the best finite element error reached
 within the training time of the network, divided by the network error.
+
+**Benchmark comparison.** All finite element solutions of `elasticity2D_benchmark.py` come
+from `18_voxel_mlhp/voxel.py` (matrix-free multigrid CG on the GPU, elements preintegrated
+exactly from the voxel data), the same device the network trains on; their times exclude
+the first solve, which compiles the kernels. `VoxelMultigrid` is plane stress in 2D, so the
+plane strain benchmark enters as $E/(1-\nu^2)$ and $\nu/(1-\nu)$; its p=3 energy matches
+the mlhp plane strain solution to all printed digits. Tuned on the roller (uniaxial tension) variant of the setup, the plain tanh network
+stalls at about 45 % displacement error; random Fourier features ($\sigma = 4$) reach 10 % after 15 000
+epochs, larger $\sigma$ and L-BFGS overfit the one point per voxel quadrature (the energy on
+a 4 x 4 Gauss grid per voxel turns positive). Against p=8 (8.4M dofs, 2 s), the p=5 reference
+is off by 0.05 % in displacement, 0.2 % in strain and 2 % in energy (the clamp corners and the
+voxel-shaped phase boundaries are singular, so the energy converges slowly); elements spanning
+2^2 or 4^2 voxels never get there, even at p=8 (11-17 % energy error), since the phase
+boundaries then cut through the elements.

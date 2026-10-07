@@ -19,6 +19,7 @@ CSV_DIR = (RESULTS_DIR / "data").resolve()
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 device = torch.device("cpu")  # faster on cpu, because matrices are small
+torch.set_num_threads(1)  # threading overhead dominates for such small networks
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--book", action="store_true")
@@ -28,13 +29,14 @@ args = parser.parse_args()
 # hyperparameters
 DATA = "full"  # full or partial
 SOLVER = "pinn"  # partial only, pinn (network for u) or fem (finite elements for u)
-EPOCHS = 10000
+EPOCHS = 1000 if SOLVER == "fem" else 10000  # one solve per epoch converges faster
 LR = 1e-2
 DECAY = 0.9995  # learning rate factor per epoch
-SAMPLES = 100  # collocation points or finite elements
+SAMPLES = 100  # collocation points
+ELEMENTS = 150  # classical alternatives, finite elements or direct inversion points
 SENSORS = 10  # partial only
 NOISE = 0.0
-DATA_WEIGHT = 100  # partial only, lifts the sensor misfit to the scale of the residual
+DATA_WEIGHT = 100  # partial only, calibrated manually, lifts the sensor misfit
 
 # physics
 u_fun = lambda x: torch.cos(2 * torch.pi * x)
@@ -42,7 +44,8 @@ EA_fun = lambda x: (torch.cos(2 * torch.pi * x) + 3) / 4
 
 # model settings
 LAYERS = [1, 32, 32, 1]
-ACTIVATIONS = [nn.Tanh() for _ in range(len(LAYERS) - 2)]
+ACTIVATION = nn.GELU
+ACTIVATIONS = [ACTIVATION() for _ in range(len(LAYERS) - 2)]
 
 # ------------------------------------ prepare data -----------------------------------
 x, w = grid([0.0], [1.0], SAMPLES)
@@ -66,56 +69,62 @@ params = list(model_EA.parameters())
 if DATA == "full":
     u_hat = u_fun
 elif SOLVER == "fem":
-    u_hat = lambda x: interpolate(fem(EA_hat, p_fun, g, f, SAMPLES), x)
+    u_hat = lambda x: interpolate(fem(EA_hat, p_fun, g, f, ELEMENTS), x)
 else:
-    model_u = MLP(LAYERS, [nn.Tanh() for _ in range(len(LAYERS) - 2)])
+    model_u = MLP(LAYERS, [ACTIVATION() for _ in range(len(LAYERS) - 2)])
     model_u.to(device)
     init_weights(model_u, ACTIVATIONS[0])
     u_hat = lambda x: model_u(x)
     params += list(model_u.parameters())
 
 residual = lambda x: differentiate(EA_hat(x) * differentiate(u_hat(x), x), x) + p_fun(x)
-neumann = lambda: EA_hat(x1) * differentiate(u_hat(x1), x1) - f
-term_history = []
+neumann = lambda x: EA_hat(x) * differentiate(u_hat(x), x) - f
+
+if DATA == "full":  # the neumann residual vanishes for any EA, since u'(1)=0
+    cost_fun = lambda: pinn_cost([residual(x)])
+elif SOLVER == "fem":
+    cost_fun = lambda: pinn_cost([u_hat(x_m) - u_m])
+else:
+    cost_fun = lambda: pinn_cost(
+        [residual(x), neumann(x1), u_hat(x_m) - u_m, u_hat(x0) - g],
+        [1.0, 1.0, DATA_WEIGHT, 1.0],
+    )
+print(f"network parameters {sum(param.numel() for param in params)}")
+
+x_test = torch.linspace(0, 1, 200).unsqueeze(1)
+EA_test = EA_fun(x_test)
+relative_error = lambda EA: (torch.linalg.norm(EA - EA_test) / torch.linalg.norm(EA_test)).item()
+error_history = []
 
 
-def cost_fun():
-    if DATA == "full":  # the neumann residual vanishes for any EA, since u'(1)=0
-        terms = [pinn_cost([residual(x)])]
-    elif SOLVER == "fem":
-        terms = [pinn_cost([u_hat(x_m) - u_m])]
-    else:
-        terms = [
-            pinn_cost([residual(x)]),
-            pinn_cost([neumann(), u_hat(x0) - g], [1.0, DATA_WEIGHT]),
-            pinn_cost([u_hat(x_m) - u_m], [DATA_WEIGHT]),
-        ]
-    term_history.append([term.item() for term in terms])
-    return sum(terms)
+def track_error(epoch):
+    if epoch % 10 == 0:  # sparse, since the evaluation slows down training
+        with torch.no_grad():
+            error_history.append([epoch, relative_error(EA_hat(x_test))])
 
 
 # -------------------------------------- training -------------------------------------
 tic = time.time()
-cost_history = train(cost_fun, params, EPOCHS, LR, decay=DECAY)
+cost_history = train(cost_fun, params, EPOCHS, LR, decay=DECAY, callback=track_error)
 toc = time.time()
 print(f"elapsed time {toc - tic:.2f} s")
 
 if DATA == "full":  # direct inversion of the integrated equation, EA u' = f + int_x^1 p
+    x_d, w_d = grid([0.0], [1.0], ELEMENTS)
     tic = time.time()
-    p_w = w * p_fun(x)
+    p_w = w_d * p_fun(x_d)
     axial_force = f + torch.flip(torch.cumsum(torch.flip(p_w, [0]), 0), [0]) - p_w / 2
-    EA_direct = (axial_force / differentiate(u_fun(x), x)).detach()
+    EA_direct = (axial_force / differentiate(u_fun(x_d), x_d)).detach()
     toc = time.time()
-    error = torch.linalg.norm(EA_direct - EA_fun(x)) / torch.linalg.norm(EA_fun(x))
+    EA_direct_test = np.interp(x_test[:, 0], x_d.detach()[:, 0], EA_direct[:, 0])  # at midpoints
+    error = relative_error(torch.as_tensor(EA_direct_test, dtype=x_test.dtype).unsqueeze(1))
     print(f"direct inversion: {toc - tic:.2e} s, relative L2 error of EA {error:.2e}")
 
 # ----------------------------------- postprocessing ----------------------------------
-x_test = torch.linspace(0, 1, 200).unsqueeze(1)
-EA_test = EA_fun(x_test)
 EA_pred_test = EA_hat(x_test).detach()
 u_test = u_fun(x_test)
 u_pred_test = u_hat(x_test).detach()
-error = torch.linalg.norm(EA_pred_test - EA_test) / torch.linalg.norm(EA_test)
+error = relative_error(EA_pred_test)
 print(f"relative L2 error of EA {error:.2e}")
 
 if not args.book:
@@ -148,8 +157,6 @@ else:
         upred=u_pred_test[:, 0],
     )
     save_csv(CSV_DIR / f"{name}_sensors.csv", x=x_m[:, 0], u=u_m[:, 0])
-    history = {"cost": np.array(cost_history)}
-    if DATA == "partial" and SOLVER == "pinn":
-        terms = np.array(term_history)
-        history.update(Cr=terms[:, 0], Cb=terms[:, 1], Cm=terms[:, 2])
-    save_csv(CSV_DIR / f"{name}_cost_history.csv", **history)
+    save_csv(CSV_DIR / f"{name}_cost_history.csv", cost=np.array(cost_history))
+    errors = np.array(error_history)
+    save_csv(CSV_DIR / f"{name}_error_history.csv", epoch=errors[:, 0], error=errors[:, 1])

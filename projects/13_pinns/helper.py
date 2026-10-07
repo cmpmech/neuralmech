@@ -46,6 +46,26 @@ def sample(lower, upper, n, kind="uniform"):
     return x.requires_grad_(), w
 
 
+def gauss_grid(lower, upper, resolution, order):
+    """Gauss-Legendre points of the given order on every cell of a uniform grid in a box.
+
+    Returns x (N, D) with gradient tracking and w (N, 1), N = resolution^D * order^D.
+    """
+    points, weights = np.polynomial.legendre.leggauss(order)
+    resolution = (
+        resolution if isinstance(resolution, list) else [resolution] * len(lower)
+    )
+    axes, axis_weights = [], []
+    for a, b, n in zip(lower, upper, resolution):
+        h = (b - a) / n
+        cells = a + h * np.arange(n)[:, None]
+        axes.append(torch.tensor((cells + h * (points + 1) / 2).ravel()))
+        axis_weights.append(torch.tensor(np.tile(h * weights / 2, n)))
+    x = torch.stack(torch.meshgrid(*axes, indexing="ij"), dim=-1).reshape(-1, len(lower))
+    w = math.prod(torch.meshgrid(*axis_weights, indexing="ij")).reshape(-1, 1)
+    return x.float().requires_grad_(), w.float()
+
+
 def graded_quadrature(dimension, levels, order):
     """Gauss-Legendre points on cells of [0, 1]^D graded geometrically towards the origin.
 
@@ -215,15 +235,70 @@ def fem(EA, p, g, f, elements):
     """
     h = 1 / elements
     x_mid = torch.linspace(h / 2, 1 - h / 2, elements).unsqueeze(1)
-    k = EA(x_mid)[:, 0] / h  # element stiffness at the midpoints
-    zero = torch.zeros(1)
+    k = EA(x_mid)[:, 0].double() / h  # element stiffness at the midpoints
+    zero = torch.zeros(1, dtype=torch.float64)  # double, since cond(K) ~ elements^2
     K = torch.diag(torch.cat([k, zero]) + torch.cat([zero, k]))
     K = K - torch.diag(k, 1) - torch.diag(k, -1)
-    load = p(x_mid.requires_grad_())[:, 0] * h / 2
+    load = p(x_mid.requires_grad_())[:, 0].double() * h / 2
     F = torch.cat([load, zero]) + torch.cat([zero, load])
     F[-1] += f[0, 0]
     u_free = torch.linalg.solve(K[1:, 1:], F[1:] - K[1:, 0] * g[0, 0])
-    return torch.cat([g[0], u_free])
+    return torch.cat([g[0], u_free.float()])
+
+
+def fem_reference(EA, p, g, f, elements, degree):
+    """displacement of the bar on [0, 1] with lagrange elements of any degree.
+
+    Reference solver in double precision with a sparse system, not differentiable.
+    Returns a function that evaluates the solution at the points x (N, 1).
+    """
+    import scipy.sparse
+    import scipy.sparse.linalg
+
+    nodes = np.linspace(-1, 1, degree + 1)  # equidistant lagrange nodes on [-1, 1]
+    xi, wi = np.polynomial.legendre.leggauss(degree + 2)
+
+    def shape(xi):  # lagrange basis and its derivative, (points, degree + 1)
+        N = np.ones((len(xi), degree + 1))
+        dN = np.zeros((len(xi), degree + 1))
+        for a in range(degree + 1):
+            for b in range(degree + 1):
+                if b == a:
+                    continue
+                term = np.ones(len(xi)) / (nodes[a] - nodes[b])
+                for c in range(degree + 1):
+                    if c not in (a, b):
+                        term *= (xi - nodes[c]) / (nodes[a] - nodes[c])
+                dN[:, a] += term
+                N[:, a] *= (xi - nodes[b]) / (nodes[a] - nodes[b])
+        return N, dN
+
+    h = 1 / elements
+    N, dN = shape(xi)
+    left = np.arange(elements) * h
+    x_q = torch.tensor((left[:, None] + (xi + 1) * h / 2).reshape(-1, 1))
+    EA_q = EA(x_q)[:, 0].double().numpy().reshape(elements, -1)
+    p_q = p(x_q.requires_grad_())[:, 0].double().numpy().reshape(elements, -1)
+    k = np.einsum("eq,q,qa,qb->eab", EA_q, wi, dN, dN) * 2 / h
+    load = np.einsum("eq,q,qa->ea", p_q, wi, N) * h / 2
+    dofs = np.arange(elements)[:, None] * degree + np.arange(degree + 1)
+    rows = np.repeat(dofs, degree + 1, axis=1)
+    cols = np.tile(dofs, (1, degree + 1))
+    n = elements * degree + 1
+    K = scipy.sparse.csr_matrix((k.ravel(), (rows.ravel(), cols.ravel())), shape=(n, n))
+    F = np.bincount(dofs.ravel(), load.ravel(), n)
+    F[-1] += f[0, 0].item()
+    u = np.empty(n)
+    u[0] = g[0, 0].item()
+    u[1:] = scipy.sparse.linalg.spsolve(K[1:, 1:].tocsc(), F[1:] - K[1:, 0].toarray()[:, 0] * u[0])
+
+    def evaluate(x):
+        x = x[:, 0].double().numpy()
+        e = np.clip((x / h).astype(int), 0, elements - 1)
+        N_x, _ = shape(2 * (x - e * h) / h - 1)
+        return torch.tensor(np.sum(N_x * u[dofs[e]], axis=1)).unsqueeze(1)
+
+    return evaluate
 
 
 def interpolate(u_nodes, x):
