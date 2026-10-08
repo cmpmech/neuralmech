@@ -11,6 +11,7 @@ import numpy as np
 import torch
 from matplotlib.colors import LogNorm
 from torch import nn
+from torch.func import jvp
 
 from DL import init_weights
 from NN import MLP
@@ -43,7 +44,7 @@ with open(BENCHMARK_DIR / "settings.toml", "rb") as f:
 
 # -------------------------------------- settings -------------------------------------
 # hyperparameters
-EPOCHS = 15000
+EPOCHS = 3000  # after the extreme learning machine initialization
 LR = 1e-3
 DECAY = 0.9998
 
@@ -135,6 +136,48 @@ def tensor_norm(epsilon):
     return np.sqrt(epsilon[..., 0] ** 2 + epsilon[..., 1] ** 2 + 2 * epsilon[..., 2] ** 2)
 
 
+def last_layer_basis(x):
+    """g = x_0 [h, 1] with the hidden features h of the network and its x and y
+    derivatives, u = g W for the last layer W (with its bias)."""
+    ones, zeros = torch.ones(x.shape[0], 1, device=device), torch.zeros(x.shape[0], 1, device=device)
+    hidden = lambda x: model.model[:-1](embed(x))
+    h, h_x = jvp(hidden, (x,), (torch.cat([ones, zeros], 1),))
+    _, h_y = jvp(hidden, (x,), (torch.cat([zeros, ones], 1),))
+    h, h_x, h_y = torch.cat([h, ones], 1), torch.cat([h_x, zeros], 1), torch.cat([h_y, zeros], 1)
+    return x[:, 0:1] * h, h + x[:, 0:1] * h_x, x[:, 0:1] * h_y
+
+
+def initialize_last_layer(chunk=8192):
+    """extreme learning machine: with the hidden layers fixed, the potential energy is
+    quadratic in the last layer, so its minimizer solves K w = f."""
+    blocks = None
+    for x_chunk, w_chunk in zip(x.detach().split(chunk), w.reshape(-1).split(chunk)):
+        with torch.no_grad():
+            _, g_x, g_y = last_layer_basis(x_chunk)
+        pixel = torch.clamp((x_chunk * R).long(), 0, R - 1)
+        l, m = lam[pixel[:, 0], pixel[:, 1]], mu[pixel[:, 0], pixel[:, 1]]
+        g_x, g_y = g_x.double(), g_y.double()
+        a, b, c = [(w_chunk * k).double()[:, None] for k in (l + 2 * m, m, l)]
+        terms = [
+            (a * g_x).T @ g_x + (b * g_y).T @ g_y,  # u_x, u_x
+            (c * g_x).T @ g_y + (b * g_y).T @ g_x,  # u_x, u_y
+            (a * g_y).T @ g_y + (b * g_x).T @ g_x,  # u_y, u_y
+        ]
+        blocks = terms if blocks is None else [B + T for B, T in zip(blocks, terms)]
+    K = torch.cat([torch.cat(blocks[:2], 1), torch.cat([blocks[1].T, blocks[2]], 1)])
+    with torch.no_grad():
+        g, _, _ = last_layer_basis(x_right)
+    f = (w_right.reshape(-1, 1) * TRACTION * g).sum(0).double()
+    f = torch.cat([f, torch.zeros_like(f)])
+    # minimum-norm solution, the random features are nearly linearly dependent
+    eigenvalues, V = torch.linalg.eigh(K)
+    keep = eigenvalues > 1e-12 * eigenvalues.max()
+    solution = (V[:, keep] @ ((V[:, keep].T @ f) / eigenvalues[keep])).float().reshape(2, -1)
+    with torch.no_grad():
+        model.model[-1].weight.copy_(solution[:, :-1])
+        model.model[-1].bias.copy_(solution[:, -1])
+
+
 def errors(u, energy):
     """relative L2 and Linf errors of the displacement (both components) and the strain (all
     components), and the relative energy error."""
@@ -182,6 +225,7 @@ cost_fun = lambda: energy_cost(
 # -------------------------------------- training -------------------------------------
 torch.cuda.synchronize()
 tic = time.time()
+initialize_last_layer()
 cost_history = train(cost_fun, model.parameters(), EPOCHS, LR, decay=DECAY)
 torch.cuda.synchronize()
 time_dem = time.time() - tic

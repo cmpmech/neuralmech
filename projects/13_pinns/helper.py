@@ -1,3 +1,4 @@
+import functools
 import math
 
 import numpy as np
@@ -127,6 +128,78 @@ def in_holes(x, holes):
     """
     cell = (x * holes) % 1
     return ((cell > 0.4) & (cell < 0.6)).all(-1)
+
+
+GYROID_VOLUME = 0.7  # solid fraction, isolated pores (at 0.6 they merge into channels)
+GYROID_Z = 0.1  # height of the slice through the 3D gyroid, in unit cells
+SHEET = 0.025  # thickness of the solid face sheets on the left and right edge
+
+
+def gyroid_level(x, cells):
+    """level set of the gyroid slice with `cells` unit cells per side at the points (..., 2),
+    any positive real number of cells; numpy or torch."""
+    lib = torch if isinstance(x, torch.Tensor) else np
+    k, z = 2 * math.pi * cells, 2 * math.pi * GYROID_Z
+    X, Y = k * x[..., 0], k * x[..., 1]
+    return lib.sin(X) * lib.cos(Y) + lib.sin(Y) * math.cos(z) + math.sin(z) * lib.cos(X)
+
+
+@functools.lru_cache
+def gyroid_threshold(cells, resolution=2048):
+    """threshold of the level set at which the plate is `GYROID_VOLUME` solid, so that the
+    solid fraction does not vary with a fractional number of cells."""
+    axis = (np.arange(resolution) + 0.5) / resolution
+    inner = axis[(axis > SHEET) & (axis < 1 - SHEET)]
+    x = np.stack(np.meshgrid(inner, axis, indexing="ij"), -1)
+    interior = (GYROID_VOLUME - 2 * SHEET) / (1 - 2 * SHEET)
+    return float(np.quantile(gyroid_level(x, cells), interior))
+
+
+def gyroid_mask(x, cells):
+    """mask of the points (..., 2) in the solid of the gyroid plate [0, 1]^2.
+
+    The gyroid slice below its threshold, joined to face sheets on the clamped and the
+    loaded edge; numpy or torch.
+    """
+    solid = gyroid_level(x, cells) < gyroid_threshold(cells)
+    return solid | (x[..., 0] < SHEET) | (x[..., 0] > 1 - SHEET)
+
+
+def spacetree_quadrature(inside, resolution, depth, order, seeds=5):
+    """Gauss points of an implicit domain in [0, 1]^2, as the space-tree quadrature of the
+    finite cell method, but only the points inside.
+
+    Cells whose `seeds`^2 seed points are all inside get `order`^2 Gauss points, cut
+    cells split into four children up to `depth` levels, and the Gauss points of the cut
+    leaves are kept where `inside` (a mask function of points (..., 2)) holds.
+    Returns x (N, 2) with gradient tracking and w (N, 1).
+    """
+    points, weights = np.polynomial.legendre.leggauss(order)
+    gauss = (points + 1) / 2
+    gauss = torch.tensor(np.stack(np.meshgrid(gauss, gauss, indexing="ij"), -1)).reshape(-1, 2)
+    gauss_w = torch.tensor(np.outer(weights, weights).ravel() / 4)
+    s = torch.linspace(0.0, 1.0, seeds, dtype=torch.float64)
+    s = torch.stack(torch.meshgrid(s, s, indexing="ij"), -1).reshape(-1, 2)
+    children = torch.tensor([[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]], dtype=torch.float64)
+
+    h = 1.0 / resolution
+    axis = torch.arange(resolution, dtype=torch.float64) * h
+    cells = torch.stack(torch.meshgrid(axis, axis, indexing="ij"), -1).reshape(-1, 2)
+    x, w = [], []
+    for level in range(depth + 1):
+        flags = inside(cells[:, None] + h * s[None])
+        full, cut = flags.all(1), flags.any(1) & ~flags.all(1)
+        x.append((cells[full][:, None] + h * gauss[None]).reshape(-1, 2))
+        w.append((h**2 * gauss_w).repeat(int(full.sum())))
+        cells = cells[cut]
+        if level < depth:
+            h /= 2
+            cells = (cells[:, None] + h * children[None]).reshape(-1, 2)
+    leaves = (cells[:, None] + h * gauss[None]).reshape(-1, 2)
+    keep = inside(leaves)
+    x.append(leaves[keep])
+    w.append((h**2 * gauss_w).repeat(len(cells))[keep])
+    return torch.cat(x).float().requires_grad_(), torch.cat(w).float()[:, None]
 
 
 def plate_points(holes, resolution):

@@ -8,6 +8,12 @@ a differentiable linear finite element solver for the bar.
 
 ## Data generation
 
+- `elasticity2D_geometry_reference.py` -> `data/elasticity2D_geometry_reference.npz`
+  finite cell method (mlhp) on the gyroid plate (implicit, `helper.gyroid_mask`), 70 % solid, for 1 to 12
+  unit cells per side in steps of 0.5, clamped on the left and loaded downwards on the right,
+  with solid face sheets on both edges; p=5 reference on 320^2 cells (space-tree quadrature,
+  Pardiso), a study with p=1, 2 on coarser grids (time of assembly and solve, relative
+  displacement error on 256^2 points), and the u_y fields of 1, 2, 4, 8 unit cells for the figure
 - `elasticity2D_reference.py` -> `data/elasticity2D_reference.npz`
   conforming mlhp references for perforated plates with 1 to 8 holes per side, and a
   uniform finite element study
@@ -62,10 +68,15 @@ a learning rate decay lowers the fluctuation but ends at larger errors.
 - `elasticity2D_benchmark.py` _needs the Chapter 1 benchmark geometry and a GPU_
   first geometry of the 2D benchmark (256^2, thresholded at 0.5), clamped on the left and pulled on the right;
   voxel finite elements (p=1, one element per voxel) and the deep energy method with the clamp
-  as a hard constraint, both against a p=5 voxel reference
+  as a hard constraint (last layer initialized as an extreme learning machine, then Adam), both
+  against a p=5 voxel reference
   (u_y, eps_xx at the voxel centres and their pointwise errors)
-- `elasticity2D_geometry.py` _needs `elasticity2D_reference.npz`_
-  deep energy method error over the number of holes and collocation points
+- `elasticity2D_geometry.py` _needs `elasticity2D_geometry_reference.npz` and a GPU_
+  deep energy method on the gyroid plate, `CELLS` sets the geometric complexity (one value shows
+  the fields, several run the study); the energy is integrated with the same space-tree
+  quadrature as the finite cell method (`helper.spacetree_quadrature`, `RESOLUTIONS` cells per
+  side), random Fourier features and the last layer initialized as an extreme learning machine
+  as in `elasticity2D_benchmark.py`
 - `elasticity2D_nonlinear.py` _needs `elasticity2D_nonlinear_reference.npz`_
   deep energy method for the neo-Hookean plate over the degree of nonlinearity
 - `elasticity2D_data.py` _needs `elasticity2D_reference.npz`_
@@ -250,7 +261,11 @@ plane strain benchmark enters as $E/(1-\nu^2)$ and $\nu/(1-\nu)$; its p=3 energy
 the mlhp plane strain solution to all printed digits. Tuned on the roller (uniaxial tension) variant of the setup, the plain tanh network
 stalls at about 45 % displacement error; random Fourier features ($\sigma = 4$) reach 10 % after 15 000
 epochs, larger $\sigma$ and L-BFGS overfit the one point per voxel quadrature (the energy on
-a 4 x 4 Gauss grid per voxel turns positive). Against p=8 (8.4M dofs, 2 s), the p=5 reference
+a 4 x 4 Gauss grid per voxel turns positive). The extreme learning machine initialization
+(hidden layers fixed, the energy minimizer for the last layer from one linear solve) alone
+reaches only 59 % displacement error (48 % with 1024 random tanh units), but Adam from there
+reaches 9 % in 3 000 epochs, against 31 % from the random initialization after the same
+epochs and 11 % after 15 000. Against p=8 (8.4M dofs, 2 s), the p=5 reference
 is off by 0.05 % in displacement, 0.2 % in strain and 2 % in energy (the clamp corners and the
 voxel-shaped phase boundaries are singular, so the energy converges slowly); elements spanning
 2^2 or 4^2 voxels never get there, even at p=8 (11-17 % energy error), since the phase
