@@ -1,0 +1,1111 @@
+* 8e4be0c (HEAD -> thomas, origin/thomas, backup/thomas-before-comparison) update
+* 35a82bd decent reconstruction, but anomaly score not helpful yet
+* f432796 Remove committed .pyc and __pycache__ files; rely on .gitignore
+* acb9e7e update
+* 5c7e0a7 working!
+* 06d4126 just one anomaly
+* d1ea694 ignore pycache
+* 5b3a16e prevent latent dimension collapse and output mean+logvar plot
+* 6681cc5 circles only
+* 14925f5 predicts 4 and shows mean and logvar
+* 99c8328 working
+* 7a5df30 initial - based off fiber_ae_train
+* 37becba (main) restructured skills
+* 4cbda7e added prob
+* ca1db9d added chapter 5 probabilistic sine drivers
+* 21943be added sobolev training
+* 01daa53 neural operators
+* 16415df added neural operators
+* 7cea714 cleaned fd
+* 52e9e21 cleanup until chapter 4
+* 197c7d5 regularizttion
+* 056ee7d regularization
+* 1c09702 restructure
+* a2baca3 added landscape visualization
+* ff12c50 cleanup chapter 2
+* 93b5734 clean up
+* 7806adc add gradient-free optimizers (PSO, SA, BO) and refactor optimizer project
+* 7ed8162 gradientfree optimizers
+* 70f8122 test
+* dc24cef readme
+* 0893a9b Update license terms in README
+* 2d23d21 Update README with personal-use license details
+* b1f795b reorganization
+* d502f54 clean vae
+* 9307fb5 latent space study
+* 9235c56 highdimensional interpolation
+* 8c12dd0 added 32 latent dim
+* 64807e8 vae latent space
+* 8bed4ca tuned vae
+* bf111a9 added helpers
+* be40932 fixed visuals
+* 4714861 tuning vae
+* 194774c started vae
+* 4eedf71 cleaned data generation for signals
+* 056a7c7 cleaned up fiber anomaly gen
+* 6d9bc8c minor updates
+* e63afa9 postprocessing settings
+* e5a79c8 fixed bug in fiber_gen
+* b54b464 Fix capitalization of 'NeuralMech' in README
+* 4258451 logo update
+* ae5ce41 back to 2
+* 370f10f updated fiber generation: if still problematic: increase minimum size
+* 3f02961 Add files via upload
+* 54b2993 Enhance logo display in README
+* 6dc97b0 Update README.md
+* 3f1df8b Add logo images to README for theme support
+* 39e5346 added logo
+* 9d0c6ec Delete models/fiber_ae_256.pt2
+* 2720960 Delete models/shape_ae_128.pt2
+* 723d2f4 training
+* 34b477d minor update
+* 564fa63 tuned autoencoder
+* 68dbaf1 starting ae anomaly detector
+* 61a06b2 added ct data
+* 10baae9 clean up of ae
+* 079b268 relaxed triangle
+* 52295ba bug in triangle
+* 6490614 clean ae
+* 3af870c cleanup ae
+* 62d591c minor fix
+* 52f696f add BASE_DIR path convention across all project scripts
+* 24f4ea8 clean up shape_gen
+* 38d1eac tuned ae
+* 2ad9c47 ae works
+* 3af12d6 vae attempt 2
+* 0505111 updated gitignore
+* bd869a4 updated gitignore
+* 7e91a88 added gitkeep
+* 75620d1 packaging
+* 475ac82 started adding wave solver
+* 1b97703 anomaly detection
+* 429da58 added sota cnns
+* bd49054 cleaning
+* 62ecfb4 added chapter 3
+* b40f569 added helpers
+* 5d65f18 add show_image helper and update drivers to use it; add README links
+* e5d8fb2 cleaning
+* b8db5aa add CLAUDE.md project guide to .claude/
+* 389af5d started chapter 3
+* 583adc7 clean
+* 96e5271 email fix
+* f3979ac added contact
+* 0ea7519 updated contact
+* 80577b3 update contact
+* 2849bb6 updated readme
+* 06ae81e updated email
+* 1c9426d added book1
+* 07c0a2f added book1
+* c69fbb7 added book1
+* ecbcb23 minor reorganization
+* 33ce3c6 updated project names
+* f0234e7 optimizer not optimization
+* 475c790 cleaned optimizers
+* 9f10566 added optimizers
+* d9a92ea minor cleanup
+* c2587b2 added regressions
+* cd4916f added linear regression
+* f91f86b added requirements
+* b88b2e9 transparent figures
+* 4b51a77 added images
+* 353f06c cleanup
+* a79fcbc cleanup
+* c541be5 cleanup
+* a2abefd typo
+* 45dd772 added book
+* b4f0f5e Add requirements and installation details for mlhp
+* 950f28a Add chapters on neural network architectures and AI
+* 148a7d4 Adjust image width in README
+* 657c3e2 Update image syntax in README.md
+* f1bfce6 updated readme
+* c88018c initialization
+* 5f60f14 Initial commit
+
+
+
+git diff --stat main...thomas 
+ .gitignore                                         |   3 +
+ .vscode/launch.json                                |  16 ++
+ NN.py                                              |   2 +-
+ __pycache__/DL.cpython-312.pyc                     | Bin 9785 -> 0 bytes
+ __pycache__/ML.cpython-312.pyc                     | Bin 6278 -> 0 bytes
+ __pycache__/NN.cpython-312.pyc                     | Bin 38215 -> 0 bytes
+ __pycache__/postprocessing.cpython-312.pyc         | Bin 1940 -> 0 bytes
+ .../15_anomaly/__pycache__/bump.cpython-312.pyc    | Bin 576 -> 0 bytes
+ .../__pycache__/helper_signal.cpython-312.pyc      | Bin 1235 -> 0 bytes
+ .../__pycache__/signal_config.cpython-312.pyc      | Bin 1926 -> 0 bytes
+ .../__pycache__/signal_helper.cpython-312.pyc      | Bin 1937 -> 0 bytes
+ projects/15_anomaly/fiber_gen.py                   |  65 ++---
+ projects/15_anomaly/fiber_gen_1anom.py             | 130 ++++++++++
+ projects/15_anomaly/fiber_vae_reconstruct.py       | 124 +++++++++
+ projects/15_anomaly/fiber_vae_train.py             | 283 +++++++++++++++++++++
+ projects/15_anomaly/run_experiments.py             |  94 +++++++
+ projects/15_anomaly/run_experiments_freebits10.py  | 116 +++++++++
+ projects/15_anomaly/training_ex.txt                |  22 ++
+ .../__pycache__/ae_fibers.cpython-312.pyc          | Bin 7484 -> 0 bytes
+ .../16_fwi/__pycache__/numeric.cpython-312.pyc     | Bin 1079 -> 0 bytes
+ .../optimization_config.cpython-312.pyc            | Bin 3920 -> 0 bytes
+ .../__pycache__/patterns.cpython-312.pyc           | Bin 14417 -> 0 bytes
+ solvers/__pycache__/__init__.cpython-312.pyc       | Bin 138 -> 0 bytes
+ solvers/__pycache__/bouncing_balls.cpython-312.pyc | Bin 3803 -> 0 bytes
+ solvers/__pycache__/dynamic_mdof.cpython-312.pyc   | Bin 2828 -> 0 bytes
+ solvers/__pycache__/scalar_wave.cpython-312.pyc    | Bin 7471 -> 0 bytes
+ solvers/__pycache__/truss.cpython-312.pyc          | Bin 2826 -> 0 bytes
+ 27 files changed, 825 insertions(+), 30 deletions(-)
+
+
+git diff main...thomas
+diff --git a/.gitignore b/.gitignore
+index d710429..a03a7d1 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -18,3 +18,6 @@ tmp/*
+ /solvers/mlhp_build
+ /solvers/kenels_build
+ .logs/
++__pycache__/*
++*.pyc
++projects/15_anomaly/experiments/*
+diff --git a/.vscode/launch.json b/.vscode/launch.json
+new file mode 100644
+index 0000000..5ee8c3b
+--- /dev/null
++++ b/.vscode/launch.json
+@@ -0,0 +1,16 @@
++{
++  "version": "0.2.0",
++  "configurations": [
++    {
++      "name": "Python: Run current file",
++      "type": "python",
++      "request": "launch",
++      "program": "${file}",
++      "console": "integratedTerminal",
++      "cwd": "${workspaceFolder}",
++      "env": {
++        "PYTHONPATH": "${workspaceFolder}"
++      }
++    }
++  ]
++}
+\ No newline at end of file
+diff --git a/NN.py b/NN.py
+index f31f036..3a27ed4 100755
+--- a/NN.py
++++ b/NN.py
+@@ -4,7 +4,7 @@ from modulefinder import test
+ import torch
+ import torch.nn.functional as F
+ from efficient_kan import KAN
+-from neuralop.models import FNO
++# from neuralop.models import FNO
+ from torch import nn
+ from torch_geometric.nn import GATConv, GCNConv, GINConv, SAGEConv
+ from torch_geometric.nn.conv.message_passing import HookDict
+
+diff --git a/projects/15_anomaly/fiber_gen.py b/projects/15_anomaly/fiber_gen.py
+index a3c7e84..d45ac17 100644
+--- a/projects/15_anomaly/fiber_gen.py
++++ b/projects/15_anomaly/fiber_gen.py
+@@ -1,7 +1,7 @@
+ import matplotlib.pyplot as plt
+ import numpy as np
+ 
+-np.random.seed(45)
++seed = 45
+ 
+ 
+ # -------------------------------- helper --------------------------------
+@@ -46,21 +46,28 @@ def generate_squares(N, num_circles, num_squares, half_width=0.1, domain_length=
+         domain[mask] = 1
+     return domain
+ 
+-
++np.random.seed(seed)
+ # ------------------------------- settings -------------------------------
+-N = 256
+-
++N = 256     # image size N x N
++min_circles, max_circles = 1, 1
++min_size, max_size = 0.04, 0.11
+ # ------------------------- generate normal data -------------------------
+-samples = 500
++samples = 800
+ 
+ domains = np.zeros((samples, N, N))
+ for i in range(samples):
+-    num_circles = np.random.randint(5, 10)
+-    radius = np.random.uniform(0.05, 0.1)
+-    domains[i] = generate_circles(N, num_circles, radius)
++    if min_circles == max_circles:
++        num_total = max_circles
++    else:
++        num_total = np.random.randint(min_circles+1, max_circles + 1)
++    radius = np.random.uniform(min_size, max_size)
++    domains[i] = generate_circles(N, num_total, radius)
+ 
+ # -------------------------------- export --------------------------------
+-np.save(f"../../data/fibers_{N}.npy", domains)
++fpathstart = f"../../data/t"
++fpath = f"{fpathstart}_circ{min_circles}min_{max_circles}max_{samples}.npy"
++np.save(fpath, domains)
++print(f"saved {samples} samples of fibers to {fpath}")
+ 
+ # ---------------------------- postprocessing ----------------------------
+ fig, ax = plt.subplots(figsize=(1, 1), dpi=N)
+@@ -72,29 +79,29 @@ plt.savefig(f"../../results/fibers.pdf", bbox_inches="tight", pad_inches=0)
+ plt.show()
+ 
+ 
++np.random.seed(seed)
+ # -------------------------- generate anomalies --------------------------
+-samples = 50
+-num_circles = 10
++# samples = 50
++# num_circles = 10
++num_total=1
+ 
+-
+-for num_squares in range(num_circles + 1):
+-    domains = np.zeros((samples, N, N))
+-    for i in range(samples):
+-        # radius = np.random.uniform(0.02, 0.2)
+-        radius = np.random.uniform(0.05, 0.1)
+-        radius = 0.08
+-        domains[i] = generate_squares(N, num_circles - num_squares, num_squares, radius)
++# for num_squares in range(num_circles + 1):
++num_squares = 1
++domains = np.zeros((samples, N, N))
++for i in range(samples):
++    # radius = np.random.uniform(0.02, 0.2)
++    radius = np.random.uniform(min_size, max_size)
++    # radius = 0.08
++    domains[i] = generate_squares(N, num_total - num_squares, num_squares, radius)
+ 
+ # -------------------------------- export --------------------------------
+-    np.save(f"../../data/fibers_anomaly_{num_squares}_{N}.npy", domains)
++fpath = f"{fpathstart}_{num_squares}sq_{num_total}tot_{samples}.npy"
++np.save(fpath, domains)
+ 
++print(f"saved {samples} samples of fibers with {num_squares} squares to {fpath}")
+ # ---------------------------- postprocessing ----------------------------
+-    if num_squares == 1:
+-        fig, ax = plt.subplots(figsize=(1, 1), dpi=N)
+-        ax.imshow(domains[0], cmap="binary")
+-        ax.axis("off")
+-        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+-        plt.savefig(
+-            f"../../results/fibers_anomaly.pdf", bbox_inches="tight", pad_inches=0
+-        )
+-        plt.show()
++    # if num_squares == 1:
++fig, ax = plt.subplots(figsize=(1, 1), dpi=N)
++ax.imshow(domains[4], cmap="binary")
++ax.axis("off")
++plt.show()
+diff --git a/projects/15_anomaly/fiber_gen_1anom.py b/projects/15_anomaly/fiber_gen_1anom.py
+new file mode 100644
+index 0000000..655046f
+--- /dev/null
++++ b/projects/15_anomaly/fiber_gen_1anom.py
+@@ -0,0 +1,130 @@
++"""Generate two paired datasets of synthetic fiber images.
++
++The paired dataset has one circle per sample replaced by a square at the same location
++"""
++from pathlib import Path
++import numpy as np
++import matplotlib.pyplot as plt
++
++# -------------------------- configurable params -------------------------
++SEED = 33
++N = 256                # image size (N x N)
++SAMPLES = 500           # number of samples to generate
++MIN_CIRCLES = 2
++MAX_CIRCLES = 6
++RADIUS_RANGE = (0.065, 0.11)  # (min, max)
++DOMAIN_LENGTH = 1.0
++
++OUT_DIR = Path(__file__).parent / "../../data"
++OUT_DIR.mkdir(parents=True, exist_ok=True)
++
++
++def make_grid(N, domain_length=1.0):
++    xs = np.linspace(0, domain_length, N)
++    ys = np.linspace(0, domain_length, N)
++    return np.meshgrid(xs, ys, indexing="ij")
++
++
++def place_nonoverlapping(num, r, domain_length):
++    """Return list of (x,y) centers for `num` objects with radii `rads`.
++    Ensures center-to-center distance >= sum of radii.
++    """
++    centers = []
++    tries = 0
++    while len(centers) < num:
++        xc = np.random.uniform(r, domain_length - r)
++        yc = np.random.uniform(r, domain_length - r)
++
++        ok = True
++        for (xj, yj) in centers:
++            if np.hypot(xc - xj, yc - yj) < (r + r):
++                ok = False
++                break
++        if ok:
++            centers.append((xc, yc))
++
++        tries += 1
++        if tries > 2000:
++            raise RuntimeError("Could not place non-overlapping shapes; try smaller radii or fewer objects")
++
++    return centers
++
++
++def draw_circles(N, centers, rads, domain_length=1.0):
++    x, y = make_grid(N, domain_length)
++    img = np.zeros((N, N), dtype=np.uint8)
++    for (xc, yc), r in zip(centers, rads):
++        mask = (x - xc) ** 2 + (y - yc) ** 2 < r * r
++        img[mask] = 1
++    return img
++
++
++def draw_square_at_center(N, center, half_width, domain_length=1.0):
++    x, y = make_grid(N, domain_length)
++    xc, yc = center
++    mask = (np.abs(x - xc) <= half_width) & (np.abs(y - yc) <= half_width)
++    img = np.zeros((N, N), dtype=np.uint8)
++    img[mask] = 1
++    return img
++
++
++def main():
++    np.random.seed(SEED)
++
++    clean = np.zeros((SAMPLES, N, N), dtype=np.uint8)
++    anom = np.zeros((SAMPLES, N, N), dtype=np.uint8)
++
++    for i in range(SAMPLES):
++        num_circles = np.random.randint(MIN_CIRCLES, MAX_CIRCLES + 1)
++        # use a single radius for all circles in this sample (varies between samples)
++        radius = float(np.random.uniform(RADIUS_RANGE[0], RADIUS_RANGE[1]))
++        rads = np.full(num_circles, radius)
++
++        centers = place_nonoverlapping(num_circles, radius, DOMAIN_LENGTH)
++
++        # draw clean circles image
++        img_clean = draw_circles(N, centers, rads, DOMAIN_LENGTH)
++
++        # pick one index to replace by a square (deterministic per-seed)
++        anom_idx = np.random.randint(0, num_circles)
++
++        img_anom = img_clean.copy()
++        # remove the circle at anom_idx, then draw square at same center
++        (xc, yc) = centers[anom_idx]
++
++        # erase the circle region
++        xg, yg = make_grid(N, DOMAIN_LENGTH)
++        circle_mask = (xg - xc) ** 2 + (yg - yc) ** 2 < radius * radius
++        img_anom[circle_mask] = 0
++
++        half_w = radius  # square with side 2*r centered at same point
++        square_img = draw_square_at_center(N, (xc, yc), half_w, DOMAIN_LENGTH)
++        img_anom[square_img.astype(bool)] = 1
++
++        clean[i] = img_clean
++        anom[i] = img_anom
++
++    # save paired datasets (same sample order)
++    f_clean = OUT_DIR / f"fibers_{N}_{SAMPLES}.npy"
++    f_anom = OUT_DIR / f"fibers_{N}_{SAMPLES}_1anom.npy"
++    np.save(f_clean, clean)
++    np.save(f_anom, anom)
++    print(f"saved clean dataset to: {f_clean}")
++    print(f"saved 1-anom dataset to: {f_anom}")
++
++    # save a quick preview of first sample
++    fig, ax = plt.subplots(1, 2, figsize=(4, 2), dpi=128)
++    ax[0].imshow(clean[0], cmap="binary", vmin=0, vmax=1)
++    ax[0].set_title("clean")
++    ax[1].imshow(anom[0], cmap="binary", vmin=0, vmax=1)
++    ax[1].set_title("1-anom (square)")
++    for a in ax:
++        a.axis("off")
++    fig.tight_layout()
++    preview = Path(__file__).parent / "../../results/fibers_1anom_preview.png"
++    fig.savefig(preview, bbox_inches="tight", pad_inches=0)
++    print(f"saved preview to: {preview}")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/projects/15_anomaly/fiber_vae_reconstruct.py b/projects/15_anomaly/fiber_vae_reconstruct.py
+new file mode 100644
+index 0000000..f9b6d05
+--- /dev/null
++++ b/projects/15_anomaly/fiber_vae_reconstruct.py
+@@ -0,0 +1,124 @@
++# compute reconstructions from a trained fiber VAE and MSE
++# python projects/15_anomaly/fiber_vae_reconstruct.py --model models/fiber_vae_depth5_latent128_beta0.3_256.pt2
++
++from pathlib import Path
++import argparse
++import json
++
++import matplotlib.pyplot as plt
++import numpy as np
++import torch
++import torch.nn.functional as F
++from torch.utils.data import DataLoader, TensorDataset, random_split
++
++BASE_DIR = Path(__file__).parent
++device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
++torch.backends.cudnn.deterministic = True
++
++
++def evaluate_fiber_vae(
++    model_path: Path, 
++    data_path: Path,
++    beta: float,
++    num_samples: int = 4,
++    seed: int = None,
++) -> dict:
++    """Load a saved VAE, evaluate on fibers_256, and plot reconstructions."""
++    if seed is not None:
++        torch.manual_seed(seed)
++    print(device)
++    model = torch.load(model_path, weights_only=False, map_location=device)
++    model.eval()
++
++    data = torch.from_numpy(np.load(data_path)).to(torch.float32).unsqueeze(1).to(device)
++    sample_indices = torch.randperm(len(data))[:num_samples]
++    
++    fig, axes = plt.subplots(num_samples, 3, figsize=(6, 3 * num_samples), dpi=128)
++    if num_samples == 1:
++        axes = axes.reshape(1, 3)
++    
++    standardizex = model.standardizer
++    mse_list = []
++    with torch.no_grad():
++        x = standardizex(data)
++        x_pred, mean_pred, logvar_pred = model(x)
++        mse = F.mse_loss(x_pred, x, reduction="mean").item()
++        
++        for row, sample_idx in enumerate(sample_indices.tolist()):
++            orig = standardizex.inverse(x[sample_idx : sample_idx + 1])[0, 0]
++            recon = standardizex.inverse(x_pred[sample_idx : sample_idx + 1])[0, 0]
++
++            # per-sample latent stats
++            mean_i    = mean_pred[sample_idx]                          # (latent_dim,)
++            logvar_i  = logvar_pred[sample_idx]                        # (latent_dim,)
++            var_i     = torch.exp(logvar_i)
++
++            # KL per dimension — this is the meaningful quantity
++            kl_per_dim = 0.5 * (var_i + mean_i**2 - logvar_i - 1)  # (latent_dim,)
++
++            # per-sample anomaly score
++            recon_err     = F.mse_loss(x_pred[sample_idx], x[sample_idx], reduction="mean")
++            kl_per_sample = kl_per_dim.sum()
++            anomaly_score = (recon_err + beta * kl_per_sample).item()
++
++            mse = F.mse_loss(recon, orig, reduction="mean").item()
++            mse_list.append(mse)
++
++            axes[row, 0].imshow(orig.cpu(), cmap="binary", vmin=0, vmax=1)
++            axes[row, 0].set_title(f"mse={mse:.3f}")
++            axes[row, 1].imshow(recon.cpu(), cmap="binary", vmin=0, vmax=1)
++            axes[row, 1].set_title(f"as={anomaly_score:.2f}")
++
++            # --- better plot: KL per latent dim, sorted descending ---
++            kl_sorted, kl_sorted_inds = kl_per_dim.cpu().sort(descending=True)
++            axes[row, 2].bar(range(len(kl_sorted)), kl_sorted.numpy())
++            axes[row, 2].axhline(1.0, color="r", linestyle="--", linewidth=0.8, label="prior = 1")
++            axes[row, 2].set_title(f"KL/dim (total={kl_per_sample:.2f})")
++            axes[row, 2].set_xlabel("latent dim (sorted)")
++            axes[row, 2].legend(fontsize=7)
++
++            # print the 5 dimensions with maximum KL divergence
++            print("\nTop latent dimensions for KL divergence:")
++            for i in range(5):
++                dim_idx = kl_sorted_inds[i].item()
++                print(f"dim {dim_idx}: KL={kl_sorted[i].item():.3f}, mean={mean_i[i].item():.3f}, logvar={logvar_i[i]:.3f}")
++
++            for ax in axes[row, 0:2]:
++                ax.set_aspect("equal")
++                ax.axis("off")
++
++        fig.suptitle(f"Fiber VAE reconstruction (beta={beta})")
++        fig.tight_layout(pad=1)
++        plt.show()
++
++    return {"beta": beta, "mse": np.mean(mse_list).item()}
++
++
++def _main():
++    beta = "0.2"
++    # model = str(BASE_DIR / "../../models/fiber_vae_depth5_latent128_beta0.2_256.pt2")
++    model = str(BASE_DIR / f"../../models/fiber_vae_depth5_latent64_beta{beta}_256.pt2")
++    data = str(BASE_DIR / f"../../data/t_1sq_2tot_400.npy")
++    # data = str(BASE_DIR / f"../../data/t_circ1min_3max_400.npy")
++
++    # data = str(BASE_DIR / "../../data/fibers_anomaly_1_256_10.npy")
++    # data = str(BASE_DIR / "../../data/fibers_256.npy")
++    samples = 4
++    seed = 56
++
++    result = evaluate_fiber_vae(Path(model), Path(data), beta=float(beta), num_samples=samples, seed=seed)
++    print(json.dumps(result))
++
++
++if __name__ == "__main__":
++    _main()
++    # parser = argparse.ArgumentParser()
++    # parser.add_argument("--model", type=str, required=True)
++    # parser.add_argument("--data", type=str, default=str(BASE_DIR / "../../data/fibers_256.npy"))
++    # parser.add_argument("--beta", type=float, default=0.3)
++    # parser.add_argument("--samples", type=int, default=4)
++    # parser.add_argument("--seed", type=int, default=42)
++    # args = parser.parse_args()
++
++    # result = evaluate_fiber_vae(Path(args.model), Path(args.data), beta=args.beta, num_samples=args.samples, seed=args.seed)
++    # print(json.dumps(result))
+diff --git a/projects/15_anomaly/fiber_vae_train.py b/projects/15_anomaly/fiber_vae_train.py
+new file mode 100644
+index 0000000..a78c3ed
+--- /dev/null
++++ b/projects/15_anomaly/fiber_vae_train.py
+@@ -0,0 +1,283 @@
++# based off fiber_ae_train
++# 
++from functools import partial
++from pathlib import Path
++import os
++
++import matplotlib.pyplot as plt
++import numpy as np
++import torch
++import torch.nn as nn
++from torch.utils.data import DataLoader, TensorDataset, random_split
++from torchinfo import summary
++from tqdm import tqdm
++
++from DL import Standardizer, build_ae_cnn_config, init_weights
++from NN import DCN, MLP, VAE
++
++BASE_DIR = Path(__file__).parent
++device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
++torch.manual_seed(42)
++torch.backends.cudnn.deterministic = True
++
++# -------------------------- training settings ---------------------------
++# allow quick overrides via environment for experiment runs
++epochs = int(os.getenv("EPOCHS", "22"))
++lr = float(os.getenv("LR", "1e-2"))  # change over ae
++weight_decay = float(os.getenv("WEIGHT_DECAY", "3e-6"))
++batch_size = int(os.getenv("BATCH_SIZE", "128"))
++
++# beta = 0. # good reconstruction
++# allow override
++beta = float(os.getenv("BETA", str(0.05)))
++
++# define loss
++# recon_loss = nn.MSELoss(reduction="mean")
++recon_loss = nn.BCELoss()
++
++
++# prevent posterior collapsing for any latent dimension by enforcing a minimum KL divergence
++free_bits = float(os.getenv("FREE_BITS", str(1.0)))  # nats per latent dimension
++
++def kl_div(mean_pred, logvar_pred):
++    var_pred = torch.exp(logvar_pred)
++    kl_per_dim = 0.5 * (var_pred + mean_pred**2 - logvar_pred - 1)  # shape: (B, latent_dim)
++    kl_per_dim = torch.clamp(kl_per_dim, min=free_bits / latent_dim)
++    return kl_per_dim.mean()
++# def kl_div(mean_pred, logvar_pred):
++#     var_pred = torch.exp(logvar_pred)
++#     kl = 0.5 * torch.mean(var_pred + mean_pred**2 - logvar_pred - 1)
++#     return kl
++
++
++def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
++    mse = recon_loss(x_pred, x)
++    kl = kl_div(mean_pred, logvar_pred)
++    return mse + beta * kl
++
++
++# ---------------------------- model settings ----------------------------
++base, depth = 2, 5
++latent_dim = 64  # 2 8 32 128 512 # 2 as latent_dim for visualization
++conv_layers = 1
++channel_dim = 1
++kernel_size = 3
++act = partial(nn.PReLU, init=0.2)
++
++encoder_lr_factor = 0.3  # smaller lr for encoder to prevent posterior collapse
++
++# bottleneck_layers = 1  # controls compression ratio
++# compression = 2 ** (-depth - bottleneck_layers)
++# print(f"compression ratio {compression * 100:.2f} %")
++
++# ----------------------------- prepare data -----------------------------
++domain_size = 256
++data = []
++# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_anomaly_1_256_400.npy") ) )
++# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_2max_800.npy") ) )
++data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_1max_800.npy") ) )
++# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_1sq_2tot_400.np.npy") ) )
++
++## Add squares to dataset
++num_circles = 10
++# for num_squares in range(num_circles + 1):
++#         data.append(
++#         torch.from_numpy(
++#             np.load(BASE_DIR / f"../../data/fibers_anomaly_{num_circles}_{domain_size}.npy")
++#         )
++#     )
++data = torch.from_numpy(np.concatenate(data, axis=0))
++data = data.to(torch.float32).unsqueeze(1)
++
++dataset = TensorDataset(data)
++train_data, val_data = random_split(dataset, [0.9, 0.1])
++train_loader = DataLoader(
++    train_data, batch_size=batch_size, shuffle=True, drop_last=True
++)
++val_loader = DataLoader(val_data, batch_size=len(val_data), shuffle=True)  # full batch
++
++X_train = train_data.dataset.tensors[0][train_data.indices]
++standardizex = Standardizer(X_train, dim=(0, 2, 3))
++
++# -------------------------- instantiate model ---------------------------
++## details on this??
++channels, strides = build_ae_cnn_config(depth, conv_layers, channel_dim, base)
++channels[0] = 1  # true input size (in case channel_dim != 1)
++n_c = len(channels)
++
++## vae
++red_domain_size = domain_size // 2**depth
++layers = [red_domain_size**2 * channels[-1], latent_dim]
++
++########################
++print("layers\n", layers)
++print("channels\n", channels)
++
++Encoder = nn.Sequential()
++Encoder.append(
++    DCN(
++        channels,
++        [act() for _ in range(len(channels) - 1)],
++        kernel_size,
++        stride=strides,
++        padding=kernel_size // 2,
++        dim=2,
++        normalizations=[nn.GroupNorm(1, channel) for channel in channels[1:]],
++    )
++)
++Encoder.append(nn.Flatten())             # flatten output of CNN
++Encoder.append(MLP(layers[:-1] + [layers[-1] * 2], [act()]))     # *2 for mean and SD in AE
++
++upsamplings = [
++    # nn.Upsample(scale_factor=2, mode="nearest") if s == 2 else None
++    nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
++    if s == 2
++    else None
++    for s in strides[::-1]
++]
++
++
++Decoder = nn.Sequential()
++Decoder.append(MLP(layers[::-1], [act()] * (len(layers) - 1)))      # not times 2
++Decoder.append(nn.Unflatten(1, (channels[-1], red_domain_size, red_domain_size)))  
++
++Decoder.append(
++    DCN(
++        channels[::-1],
++        [act() for _ in range(len(channels) - 2)],
++        kernel_size,
++        stride=1,
++        padding=kernel_size // 2,
++        dim=2,
++        resamplings=upsamplings,
++        normalizations=[nn.GroupNorm(1, channel) for channel in channels[-2:0:-1]],
++    )
++)
++Decoder.append(nn.Sigmoid())  # output in [0,1] for BCE loss
++
++model = VAE(Encoder, Decoder).to(device)
++init_weights(model, act())
++
++# write summary to file
++s=summary(model, (1, 1, domain_size, domain_size), depth=4)
++summary_file = Path.resolve( BASE_DIR / f"../../tmp/fiber_vae_summary.txt" )
++with open(summary_file, "w") as f:
++    f.write(str(s))
++print("wrote summary to:\n", summary_file)
++
++# ------------------------ instantiate optimizer -------------------------
++
++optimizer = torch.optim.AdamW([
++    {"params": model.encode.parameters(), "lr": lr * encoder_lr_factor},
++    {"params": model.decode.parameters(), "lr": lr},
++], weight_decay=weight_decay)
++scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
++    optimizer, T_max=epochs, eta_min=lr * 1e-2
++)
++# optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
++# scheduler = None
++
++# ------------------------------- training -------------------------------
++print_every = 5
++train_cost = [0] * epochs
++val_cost = [0] * epochs
++pbar = tqdm(range(epochs), desc="Training: ", ncols=90)
++for epoch in pbar:
++    model.train()
++    for x in train_loader:
++        x = standardizex(x[0]).to(device)  # unwrap & standardize
++        optimizer.zero_grad()
++        x_pred, mean_pred, logvar_pred = model(x)
++        cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta)
++        cost.backward()
++        optimizer.step()
++        train_cost[epoch] += cost.item()
++    train_cost[epoch] /= len(train_loader)  # avg per batch
++    if scheduler is not None:
++        scheduler.step()
++
++    model.eval()
++    with torch.no_grad():
++        for x in val_loader:
++            x = standardizex(x[0]).to(device)  # unwrap & standardize
++            x_pred, mean_pred, logvar_pred = model(x)
++            cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta)
++            val_cost[epoch] += cost.item()
++        val_cost[epoch] /= len(val_loader)  # avg per batch
++
++    if epoch % print_every == 0:
++        pbar.set_postfix(
++            {"train": f"{train_cost[epoch]:.2e}", "val": f"{val_cost[epoch]:.2e}"}
++        )
++
++# ----------------------------- export model -----------------------------
++model.standardizer = standardizex  # just for saving
++save_path =  BASE_DIR / f"../../models/fiber_vae_depth{depth}_latent{latent_dim}_beta{beta}_{domain_size}.pt2"
++torch.save(model, save_path)
++
++# ---------------------------- postprocessing ----------------------------
++fig, ax = plt.subplots()
++
++ax.plot(train_cost, "k", label="train")
++ax.plot(val_cost, "r", label="val")
++ax.set_yscale("log")
++ax.set_title(f"training history beta={beta}, latent_dim={latent_dim}")
++ax.legend()
++plt.savefig(BASE_DIR / f"../../tmp/b{beta}_l{latent_dim}_history.png")
++plt.show()
++
++
++## compare prediction and input
++sample_ind = 0
++model.eval()
++with torch.no_grad():
++    x = next(iter(val_loader))
++    x = standardizex(x[0]).to(device)  # unwrap & standardize
++    x_pred, mean_pred, logvar_pred = model(x)
++    x_orig = standardizex.inverse(x.cpu())[sample_ind, 0]
++    x_recon = standardizex.inverse(x_pred.detach().cpu())[sample_ind, 0]
++
++fig2, ax2 = plt.subplots(2, 2, figsize=(6, 6), dpi=domain_size)
++ax2[0, 0].imshow(x_orig, cmap="binary", vmin=0, vmax=1)
++ax2[0, 0].set_title("original (val)")
++ax2[0, 1].imshow(x_recon, cmap="binary", vmin=0, vmax=1)
++ax2[0, 1].set_title(f"reconstruction (latent {latent_dim})")
++
++# repeat for training data
++with torch.no_grad():
++    x = next(iter(train_loader))
++    x = standardizex(x[0]).to(device)  # unwrap & standardize
++    x_pred, mean_pred, logvar_pred = model(x)
++    x_orig = standardizex.inverse(x.cpu())[sample_ind, 0]
++    x_recon = standardizex.inverse(x_pred.detach().cpu())[sample_ind, 0]
++
++ax2[1, 0].imshow(x_orig, cmap="binary", vmin=0, vmax=1)
++ax2[1, 0].set_title("original (train)")
++ax2[1, 1].imshow(x_recon, cmap="binary", vmin=0, vmax=1)
++ax2[1, 1].set_title(f"reconstruction (latent {latent_dim})")
++
++for a in ax2.flatten():
++    a.set_aspect("equal")
++    a.axis("off")
++    a.set_rasterized(True)
++
++fig2.tight_layout(pad=1)
++plt.savefig(BASE_DIR / f"../../tmp/b{beta}_l{latent_dim}_vae_pred.png")
++
++plt.show()
++# print("Mean:\n", mean_pred[sample_ind])
++# print("LogVar:\n", logvar_pred[sample_ind])
++
++plt.plot( mean_pred[sample_ind].cpu(), 'o', label="mean")
++plt.plot( logvar_pred[sample_ind].cpu(), 'o', label="logvar")
++plt.legend()
++plt.title(f"VAE latent_dim = {latent_dim}")
++
++# print the 5 dimensions with maximum KL divergence
++var_pred = torch.exp(logvar_pred)
++kl_per_dim = 0.5 * (var_pred + mean_pred**2 - logvar_pred - 1)  # shape: (B, latent_dim)
++sorted_kl, sorted_idx_kl = kl_per_dim[sample_ind].cpu().sort(descending=True)
++print("Top latent dimensions for KL divergence:")
++for i in range(5):
++    idx = sorted_idx_kl[i].item()
++    print(f"dim {idx}: KL={kl_per_dim[sample_ind, idx]:.3f}, mean={mean_pred[sample_ind, idx]:.3f}, logvar={logvar_pred[sample_ind, idx]:.3f}")
+\ No newline at end of file
+diff --git a/projects/15_anomaly/run_experiments.py b/projects/15_anomaly/run_experiments.py
+new file mode 100644
+index 0000000..cd257ed
+--- /dev/null
++++ b/projects/15_anomaly/run_experiments.py
+@@ -0,0 +1,94 @@
++"""Run a small grid of quick experiments by launching the existing train script
++with environment overrides. Saves a CSV of results and prints a summary.
++
++This intentionally keeps code changes to the train script minimal by using
++env variables to override hyperparameters.
++"""
++from pathlib import Path
++import subprocess
++import sys
++import os
++import json
++import csv
++
++BASE_DIR = Path(__file__).parent
++TRAIN_SCRIPT = BASE_DIR / "fiber_vae_train.py"
++RECON_SCRIPT = BASE_DIR / "fiber_vae_reconstruct.py"
++RESULTS_CSV = BASE_DIR / "experiment_results.csv"
++
++# quick experiment settings (keep dataset and architecture the same)
++# We'll run ~10 runs selected from the parameter grid
++grid = [
++    {"LR": 1e-2, "WEIGHT_DECAY": 1e-4, "BETA": 0.05, "FREE_BITS": 0.0},
++    {"LR": 1e-2, "WEIGHT_DECAY": 1e-4, "BETA": 0.2, "FREE_BITS": 5.0},
++    {"LR": 5e-3, "WEIGHT_DECAY": 1e-4, "BETA": 0.05, "FREE_BITS": 5.0},
++    {"LR": 5e-3, "WEIGHT_DECAY": 1e-3, "BETA": 0.2, "FREE_BITS": 0.0},
++    {"LR": 2e-2, "WEIGHT_DECAY": 1e-4, "BETA": 0.1, "FREE_BITS": 2.0},
++    {"LR": 1e-3, "WEIGHT_DECAY": 1e-4, "BETA": 0.05, "FREE_BITS": 5.0},
++    {"LR": 1e-3, "WEIGHT_DECAY": 1e-3, "BETA": 0.2, "FREE_BITS": 5.0},
++    {"LR": 1e-2, "WEIGHT_DECAY": 5e-4, "BETA": 0.05, "FREE_BITS": 1.0},
++    {"LR": 5e-3, "WEIGHT_DECAY": 5e-4, "BETA": 0.13, "FREE_BITS": 5.0},
++    {"LR": 2e-2, "WEIGHT_DECAY": 1e-5, "BETA": 0.2, "FREE_BITS": 10.0},
++]
++
++# runtime overrides to speed up experiments
++EPOCHS = 8
++BATCH_SIZE = 64
++LATENT_DIM = 32
++DEPTH = 5
++DOMAIN_SIZE = 256
++
++results = []
++
++for i, params in enumerate(grid, 1):
++    env = os.environ.copy()
++    env["PYTHONUNBUFFERED"] = "1"
++    env["MPLBACKEND"] = "Agg"  # avoid interactive backends
++    env["EPOCHS"] = str(EPOCHS)
++    env["BATCH_SIZE"] = str(BATCH_SIZE)
++    env["LATENT_DIM"] = str(LATENT_DIM)
++    env["LR"] = str(params["LR"])
++    env["WEIGHT_DECAY"] = str(params["WEIGHT_DECAY"])
++    env["BETA"] = str(params["BETA"])
++    env["FREE_BITS"] = str(params["FREE_BITS"])
++
++    print(f"\n=== Run {i}/{len(grid)}: LR={env['LR']} WD={env['WEIGHT_DECAY']} BETA={env['BETA']} FREE_BITS={env['FREE_BITS']} ===")
++
++    # run training
++    try:
++        subprocess.run([sys.executable, str(TRAIN_SCRIPT)], check=True, env=env)
++    except subprocess.CalledProcessError as e:
++        print("Train failed:", e)
++        continue
++
++    # model filename convention used by train script
++    model_file = BASE_DIR / f"../../models/fiber_vae_depth{DEPTH}_latent{LATENT_DIM}_beta{params['BETA']}_{DOMAIN_SIZE}.pt2"
++
++    # run reconstruction eval to get mse
++    try:
++        cp = subprocess.run(
++            [sys.executable, str(RECON_SCRIPT), "--model", str(model_file), "--beta", str(params["BETA"]), "--samples", "4", "--seed", "42"],
++            check=True,
++            capture_output=True,
++            text=True,
++        )
++        # reconstruct prints JSON on stdout
++        out = cp.stdout.strip().splitlines()[-1]
++        res = json.loads(out)
++        res.update({"LR": params["LR"], "WEIGHT_DECAY": params["WEIGHT_DECAY"], "FREE_BITS": params["FREE_BITS"]})
++        results.append(res)
++        print("Result:", res)
++    except subprocess.CalledProcessError as e:
++        print("Eval failed:", e)
++        print(e.stdout)
++        print(e.stderr)
++
++# write CSV
++with open(RESULTS_CSV, "w", newline="") as f:
++    writer = csv.DictWriter(f, fieldnames=["beta", "mse", "LR", "WEIGHT_DECAY", "FREE_BITS"])
++    writer.writeheader()
++    for r in results:
++        writer.writerow({k: r.get(k, "") for k in writer.fieldnames})
++
++print("\nDone. Results saved to:", RESULTS_CSV)
++print(results)
+diff --git a/projects/15_anomaly/run_experiments_freebits10.py b/projects/15_anomaly/run_experiments_freebits10.py
+new file mode 100644
+index 0000000..f66b6b0
+--- /dev/null
++++ b/projects/15_anomaly/run_experiments_freebits10.py
+@@ -0,0 +1,116 @@
++"""Run a small grid of experiments with FREE_BITS pinned at 10 and EPOCHS=44.
++Saves train/val MSE for each run to `experiments_freebits10_results.csv`.
++
++Usage: run directly with the repo Python (we use `sys.executable`).
++"""
++from pathlib import Path
++import subprocess
++import sys
++import os
++import csv
++import json
++
++import torch
++import torch.nn.functional as F
++import numpy as np
++
++BASE_DIR = Path(__file__).parent
++TRAIN_SCRIPT = BASE_DIR / "fiber_vae_train.py"
++RESULTS_CSV = BASE_DIR / "experiments_freebits10_results.csv"
++
++# Hand-picked 10 experiments (LR, WEIGHT_DECAY, BETA)
++experiments = [
++    {"LR": 0.01, "WEIGHT_DECAY": 1e-4, "BETA": 0.2},
++    {"LR": 0.02, "WEIGHT_DECAY": 1e-4, "BETA": 0.2},
++    {"LR": 0.005, "WEIGHT_DECAY": 1e-4, "BETA": 0.2},
++    {"LR": 0.01, "WEIGHT_DECAY": 1e-5, "BETA": 0.2},
++    {"LR": 0.01, "WEIGHT_DECAY": 1e-6, "BETA": 0.2},
++    {"LR": 0.01, "WEIGHT_DECAY": 1e-4, "BETA": 0.1},
++    {"LR": 0.01, "WEIGHT_DECAY": 1e-4, "BETA": 0.05},
++    {"LR": 0.02, "WEIGHT_DECAY": 1e-5, "BETA": 0.1},
++    {"LR": 0.005, "WEIGHT_DECAY": 1e-5, "BETA": 0.1},
++    {"LR": 0.02, "WEIGHT_DECAY": 1e-4, "BETA": 0.05},
++]
++
++# Fixed settings
++FREE_BITS = 10.0
++EPOCHS = 44
++BATCH_SIZE = 64
++LATENT_DIM = 32
++DEPTH = 5
++DOMAIN_SIZE = 256
++
++results = []
++
++for exp in experiments:
++    lr = exp["LR"]
++    wd = exp["WEIGHT_DECAY"]
++    beta = exp["BETA"]
++
++    env = os.environ.copy()
++    env["PYTHONUNBUFFERED"] = "1"
++    env["MPLBACKEND"] = "Agg"
++    env["EPOCHS"] = str(EPOCHS)
++    env["BATCH_SIZE"] = str(BATCH_SIZE)
++    env["LATENT_DIM"] = str(LATENT_DIM)
++    env["LR"] = str(lr)
++    env["WEIGHT_DECAY"] = str(wd)
++    env["BETA"] = str(beta)
++    env["FREE_BITS"] = str(FREE_BITS)
++
++    print(f"\n--- Running LR={lr} WD={wd} BETA={beta} (FREE_BITS={FREE_BITS}) ---")
++    try:
++        subprocess.run([sys.executable, str(TRAIN_SCRIPT)], check=True, env=env)
++    except subprocess.CalledProcessError as e:
++        print("Training failed for experiment:", exp, e)
++        continue
++
++    # load saved model (train script uses the same naming pattern)
++    model_file = BASE_DIR / f"../../models/fiber_vae_depth{DEPTH}_latent{LATENT_DIM}_beta{beta}_{DOMAIN_SIZE}.pt2"
++    if not model_file.exists():
++        print("Model file not found:", model_file)
++        continue
++
++    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
++    model = torch.load(model_file, weights_only=False, map_location=device)
++    model.eval()
++
++    # load data and reproduce train/val split deterministically
++    data = torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_{DOMAIN_SIZE}.npy")).to(torch.float32).unsqueeze(1)
++
++    torch.manual_seed(42)
++    n = len(data)
++    n_train = int(0.9 * n)
++    indices = torch.randperm(n).tolist()
++    train_idx = indices[:n_train]
++    val_idx = indices[n_train:]
++
++    standardizer = model.standardizer
++
++    # compute train/val MSE (on standardized data as model expects)
++    with torch.no_grad():
++        x_train = torch.stack([data[i] for i in train_idx]).to(device)
++        x_val = torch.stack([data[i] for i in val_idx]).to(device)
++
++        x_train_s = standardizer(x_train)
++        x_train_pred, _, _ = model(x_train_s.to(device))
++        train_mse = F.mse_loss(x_train_pred, x_train_s, reduction="mean").item()
++
++        x_val_s = standardizer(x_val)
++        x_val_pred, _, _ = model(x_val_s.to(device))
++        val_mse = F.mse_loss(x_val_pred, x_val_s, reduction="mean").item()
++
++    row = {"LR": lr, "WEIGHT_DECAY": wd, "BETA": beta, "FREE_BITS": FREE_BITS, "train_mse": train_mse, "val_mse": val_mse}
++    results.append(row)
++    print(f"LR={lr} WD={wd} BETA={beta} train_mse={train_mse:.6f} val_mse={val_mse:.6f}")
++
++# write CSV
++with open(RESULTS_CSV, "w", newline="") as f:
++    fieldnames = ["LR", "WEIGHT_DECAY", "BETA", "FREE_BITS", "train_mse", "val_mse"]
++    writer = csv.DictWriter(f, fieldnames=fieldnames)
++    writer.writeheader()
++    for r in results:
++        writer.writerow(r)
++
++print("Experiments complete. Results saved to:", RESULTS_CSV)
++print(json.dumps(results, indent=2))
+diff --git a/projects/15_anomaly/training_ex.txt b/projects/15_anomaly/training_ex.txt
+new file mode 100644
+index 0000000..005428f
+--- /dev/null
++++ b/projects/15_anomaly/training_ex.txt
+@@ -0,0 +1,22 @@
++beta    latent  train       val
++.1      32      3.33e-01    4.24e-01
++.2      32      9.52e-01    9.58e-01
++
++# just circles
++# 32 seems not big enough. Higher beta gives giant cloud as guess. Beta needs tuning
++.003    32      1.53e-01    6.82e-01
++.01     32      1.81e-01    6.65e-01
++.05     32      4.19e-01    6.53e-01
++                (3.11e-01, val=7.33e-01)
++                .32         .73
++.1      32      2.98e-01    8.71e-01
++.11     32      .3          .43
++.13     32      6.01e-01    7.31e-01
++.2      32      .97         1       
++
++# 64 latent (epochs = 66, lr = 2e-2, weight_decay = 1e-4 )
++beta    train       val
++.01     1.30e-01, val=3.80e-01
++.05     2.12e-01, val=4.04e-01
++.1      3.01e-01, val=4.50e-01
++.2      3.90e-01, val=4.00e-01
