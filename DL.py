@@ -52,7 +52,7 @@ class Normalizer(nn.Module):
         super().__init__()
         self.x_max = X.max(dim=dim, keepdim=True)
         self.x_min = X.min(dim=dim, keepdim=True)
-        self.span = (self.x_max - self.x_in).clamp_min(1e-8)
+        self.span = (self.x_max - self.x_min).clamp_min(1e-8)
 
     def __call__(self, x):
         return (x - self.x_min) / self.span
@@ -62,15 +62,21 @@ class Normalizer(nn.Module):
 
 
 class Standardizer(nn.Module):
-    def __init__(self, X, dim=0):  # default is to have sample dim at 0
+    def __init__(self, X, dim=0, active=True):  # default is to have sample dim at 0
         super().__init__()
-        self.x_mean = X.mean(dim=dim, keepdim=True)
-        self.x_std = X.std(dim=dim, keepdim=True).clamp_min(1e-8)
+        self.active = active
+        if self.active:
+            self.x_mean = X.mean(dim=dim, keepdim=True)
+            self.x_std = X.std(dim=dim, keepdim=True).clamp_min(1e-8)
 
     def __call__(self, x):
+        if not self.active:
+            return x
         return (x - self.x_mean) / self.x_std
 
     def inverse(self, x):
+        if not self.active:
+            return x
         return x * self.x_std + self.x_mean
 
 
