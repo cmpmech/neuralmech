@@ -17,25 +17,24 @@ from NN import DCN, MLP, VAE
 
 BASE_DIR = Path(__file__).parent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-torch.manual_seed(42)
+torch.manual_seed(11)
 torch.backends.cudnn.deterministic = True
 
 # -------------------------- training settings ---------------------------
 # allow quick overrides via environment for experiment runs
-epochs = int(os.getenv("EPOCHS", "22"))
+epochs = int(os.getenv("EPOCHS", "35"))
 lr = float(os.getenv("LR", "1e-2"))  # change over ae
-weight_decay = float(os.getenv("WEIGHT_DECAY", "3e-6"))
+weight_decay = float(os.getenv("WEIGHT_DECAY", "1e-6"))
 batch_size = int(os.getenv("BATCH_SIZE", "128"))
 
 # beta = 0. # good reconstruction
 # allow override
-beta = float(os.getenv("BETA", str(0.05)))
+beta = float(os.getenv("BETA", str(0.0001)))
 
 # define loss
 # recon_loss = nn.MSELoss(reduction="mean")
-recon_loss = nn.BCELoss()
-
-
+recon_loss = nn.BCEWithLogitsLoss(reduction="mean")  # or "sum" per-sample, common for VAEs
+nn.BCELoss
 # prevent posterior collapsing for any latent dimension by enforcing a minimum KL divergence
 free_bits = float(os.getenv("FREE_BITS", str(1.0)))  # nats per latent dimension
 
@@ -53,12 +52,13 @@ def kl_div(mean_pred, logvar_pred):
 def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
     mse = recon_loss(x_pred, x)
     kl = kl_div(mean_pred, logvar_pred)
+    print(f"reconstruction loss: {mse:.4f}, KL divergence: {kl:.4f}")
     return mse + beta * kl
 
 
 # ---------------------------- model settings ----------------------------
 base, depth = 2, 5
-latent_dim = 64  # 2 8 32 128 512 # 2 as latent_dim for visualization
+latent_dim = 40  # 2 8 32 128 512 # 2 as latent_dim for visualization
 conv_layers = 1
 channel_dim = 1
 kernel_size = 3
@@ -74,9 +74,10 @@ encoder_lr_factor = 0.3  # smaller lr for encoder to prevent posterior collapse
 domain_size = 256
 data = []
 # data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_anomaly_1_256_400.npy") ) )
+# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_anomaly_0_256_400.npy") ) )
 # data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_2max_800.npy") ) )
-data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_1max_800.npy") ) )
-# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_1sq_2tot_400.np.npy") ) )
+# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_1max_800.npy") ) )
+data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_1sq_2tot_400.npy") ) )
 
 ## Add squares to dataset
 num_circles = 10
@@ -97,7 +98,7 @@ train_loader = DataLoader(
 val_loader = DataLoader(val_data, batch_size=len(val_data), shuffle=True)  # full batch
 
 X_train = train_data.dataset.tensors[0][train_data.indices]
-standardizex = Standardizer(X_train, dim=(0, 2, 3))
+standardizex = Standardizer(X_train, dim=(0, 2, 3), active=False)
 
 # -------------------------- instantiate model ---------------------------
 ## details on this??
@@ -153,7 +154,9 @@ Decoder.append(
         normalizations=[nn.GroupNorm(1, channel) for channel in channels[-2:0:-1]],
     )
 )
-Decoder.append(nn.Sigmoid())  # output in [0,1] for BCE loss
+#### removed for BCELoss
+# Decoder.append(nn.Sigmoid())  # output in [0,1] for BCE loss
+
 
 model = VAE(Encoder, Decoder).to(device)
 init_weights(model, act())
@@ -228,43 +231,45 @@ plt.show()
 
 
 ## compare prediction and input
-sample_ind = 0
 model.eval()
-with torch.no_grad():
-    x = next(iter(val_loader))
-    x = standardizex(x[0]).to(device)  # unwrap & standardize
-    x_pred, mean_pred, logvar_pred = model(x)
-    x_orig = standardizex.inverse(x.cpu())[sample_ind, 0]
-    x_recon = standardizex.inverse(x_pred.detach().cpu())[sample_ind, 0]
+for sample_ind in range(2):   #sample_ind = 0
+    with torch.no_grad():
+        x = next(iter(val_loader))
+        x = standardizex(x[0]).to(device)  # unwrap & standardize
+        x_pred, mean_pred, logvar_pred = model(x)
+        x_orig = standardizex.inverse(x.cpu())[sample_ind, 0]
+        x_recon = standardizex.inverse(x_pred.detach().cpu())[sample_ind, 0]
+        x_recon = torch.sigmoid(x_pred).cpu()[sample_ind, 0] 
 
-fig2, ax2 = plt.subplots(2, 2, figsize=(6, 6), dpi=domain_size)
-ax2[0, 0].imshow(x_orig, cmap="binary", vmin=0, vmax=1)
-ax2[0, 0].set_title("original (val)")
-ax2[0, 1].imshow(x_recon, cmap="binary", vmin=0, vmax=1)
-ax2[0, 1].set_title(f"reconstruction (latent {latent_dim})")
+    fig2, ax2 = plt.subplots(2, 2, figsize=(6, 6), dpi=domain_size)
+    ax2[0, 0].imshow(x_orig, cmap="binary", vmin=0, vmax=1)
+    ax2[0, 0].set_title("original (val)")
+    ax2[0, 1].imshow(x_recon, cmap="binary", vmin=0, vmax=1)
+    ax2[0, 1].set_title(f"reconstruction (latent {latent_dim})")
 
-# repeat for training data
-with torch.no_grad():
-    x = next(iter(train_loader))
-    x = standardizex(x[0]).to(device)  # unwrap & standardize
-    x_pred, mean_pred, logvar_pred = model(x)
-    x_orig = standardizex.inverse(x.cpu())[sample_ind, 0]
-    x_recon = standardizex.inverse(x_pred.detach().cpu())[sample_ind, 0]
+    # repeat for training data
+    with torch.no_grad():
+        x = next(iter(train_loader))
+        x = standardizex(x[0]).to(device)  # unwrap & standardize
+        x_pred, mean_pred, logvar_pred = model(x)
+        x_orig = standardizex.inverse(x.cpu())[sample_ind, 0]
+        x_recon = standardizex.inverse(x_pred.detach().cpu())[sample_ind, 0]
+        x_recon = torch.sigmoid(x_pred).cpu()[sample_ind, 0]
 
-ax2[1, 0].imshow(x_orig, cmap="binary", vmin=0, vmax=1)
-ax2[1, 0].set_title("original (train)")
-ax2[1, 1].imshow(x_recon, cmap="binary", vmin=0, vmax=1)
-ax2[1, 1].set_title(f"reconstruction (latent {latent_dim})")
+    ax2[1, 0].imshow(x_orig, cmap="binary", vmin=0, vmax=1)
+    ax2[1, 0].set_title("original (train)")
+    ax2[1, 1].imshow(x_recon, cmap="binary", vmin=0, vmax=1)
+    ax2[1, 1].set_title(f"reconstruction (latent {latent_dim})")
 
-for a in ax2.flatten():
-    a.set_aspect("equal")
-    a.axis("off")
-    a.set_rasterized(True)
+    for a in ax2.flatten():
+        a.set_aspect("equal")
+        a.axis("off")
+        a.set_rasterized(True)
 
-fig2.tight_layout(pad=1)
-plt.savefig(BASE_DIR / f"../../tmp/b{beta}_l{latent_dim}_vae_pred.png")
+    fig2.tight_layout(pad=1)
+    plt.savefig(BASE_DIR / f"../../tmp/b{beta}_l{latent_dim}_vae_pred{sample_ind}.png")
 
-plt.show()
+    plt.show()
 # print("Mean:\n", mean_pred[sample_ind])
 # print("LogVar:\n", logvar_pred[sample_ind])
 
