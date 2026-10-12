@@ -83,15 +83,15 @@ np.random.seed(seed)
 # -------------------------- generate anomalies --------------------------
 # samples = 50
 # num_circles = 10
-num_total=1
+num_total=2
 
 # for num_squares in range(num_circles + 1):
 num_squares = 1
 domains = np.zeros((samples, N, N))
 for i in range(samples):
     # radius = np.random.uniform(0.02, 0.2)
-    radius = np.random.uniform(min_size, max_size)
-    # radius = 0.08
+    # radius = np.random.uniform(min_size, max_size)
+    radius = 0.08
     domains[i] = generate_squares(N, num_total - num_squares, num_squares, radius)
 
 # -------------------------------- export --------------------------------
