@@ -22,19 +22,20 @@ torch.backends.cudnn.deterministic = True
 
 # -------------------------- training settings ---------------------------
 # allow quick overrides via environment for experiment runs
-epochs = int(os.getenv("EPOCHS", "35"))
-lr = float(os.getenv("LR", "1e-2"))  # change over ae
+epochs = int(os.getenv("EPOCHS", "100"))
+lr = float(os.getenv("LR", "1e-3"))  # change over ae
 weight_decay = float(os.getenv("WEIGHT_DECAY", "1e-6"))
-batch_size = int(os.getenv("BATCH_SIZE", "128"))
+batch_size = int(os.getenv("BATCH_SIZE", "32"))
 
 # beta = 0. # good reconstruction
 # allow override
-beta = float(os.getenv("BETA", str(0.0001)))
+beta = float(os.getenv("BETA", str(0.001)))
 
 # define loss
 # recon_loss = nn.MSELoss(reduction="mean")
-recon_loss = nn.BCEWithLogitsLoss(reduction="mean")  # or "sum" per-sample, common for VAEs
-nn.BCELoss
+# recon_loss = nn.BCEWithLogitsLoss(reduction="mean")  # or "sum" per-sample, common for VAEs
+recon_loss = nn.BCELoss(reduction="sum") 
+
 # prevent posterior collapsing for any latent dimension by enforcing a minimum KL divergence
 free_bits = float(os.getenv("FREE_BITS", str(1.0)))  # nats per latent dimension
 
@@ -50,9 +51,9 @@ def kl_div(mean_pred, logvar_pred):
 
 
 def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
-    mse = recon_loss(x_pred, x)
+    mse = recon_loss(x_pred, x)  / x.size(0)        # average over batcha  
     kl = kl_div(mean_pred, logvar_pred)
-    print(f"reconstruction loss: {mse:.4f}, KL divergence: {kl:.4f}")
+    # print(f"reconstruction loss: {mse:.4f}, KL divergence: {kl:.4f}")
     return mse + beta * kl
 
 
@@ -101,7 +102,6 @@ X_train = train_data.dataset.tensors[0][train_data.indices]
 standardizex = Standardizer(X_train, dim=(0, 2, 3), active=False)
 
 # -------------------------- instantiate model ---------------------------
-## details on this??
 channels, strides = build_ae_cnn_config(depth, conv_layers, channel_dim, base)
 channels[0] = 1  # true input size (in case channel_dim != 1)
 n_c = len(channels)
@@ -155,7 +155,7 @@ Decoder.append(
     )
 )
 #### removed for BCELoss
-# Decoder.append(nn.Sigmoid())  # output in [0,1] for BCE loss
+Decoder.append(nn.Sigmoid())  # output in [0,1] for BCE loss
 
 
 model = VAE(Encoder, Decoder).to(device)
@@ -239,7 +239,7 @@ for sample_ind in range(2):   #sample_ind = 0
         x_pred, mean_pred, logvar_pred = model(x)
         x_orig = standardizex.inverse(x.cpu())[sample_ind, 0]
         x_recon = standardizex.inverse(x_pred.detach().cpu())[sample_ind, 0]
-        x_recon = torch.sigmoid(x_pred).cpu()[sample_ind, 0] 
+        # x_recon = torch.sigmoid(x_pred).cpu()[sample_ind, 0] 
 
     fig2, ax2 = plt.subplots(2, 2, figsize=(6, 6), dpi=domain_size)
     ax2[0, 0].imshow(x_orig, cmap="binary", vmin=0, vmax=1)
@@ -254,7 +254,7 @@ for sample_ind in range(2):   #sample_ind = 0
         x_pred, mean_pred, logvar_pred = model(x)
         x_orig = standardizex.inverse(x.cpu())[sample_ind, 0]
         x_recon = standardizex.inverse(x_pred.detach().cpu())[sample_ind, 0]
-        x_recon = torch.sigmoid(x_pred).cpu()[sample_ind, 0]
+        # x_recon = torch.sigmoid(x_pred).cpu()[sample_ind, 0]
 
     ax2[1, 0].imshow(x_orig, cmap="binary", vmin=0, vmax=1)
     ax2[1, 0].set_title("original (train)")
