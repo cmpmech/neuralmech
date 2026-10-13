@@ -49,8 +49,8 @@ def generate_squares(N, num_circles, num_squares, half_width=0.1, domain_length=
 np.random.seed(seed)
 # ------------------------------- settings -------------------------------
 N = 256     # image size N x N
-min_circles, max_circles = 1, 1
-min_size, max_size = 0.04, 0.11
+min_circles, max_circles = 1, 2
+min_size, max_size = 0.09, 0.09
 # ------------------------- generate normal data -------------------------
 samples = 800
 
@@ -90,8 +90,8 @@ num_squares = 1
 domains = np.zeros((samples, N, N))
 for i in range(samples):
     # radius = np.random.uniform(0.02, 0.2)
-    # radius = np.random.uniform(min_size, max_size)
-    radius = 0.08
+    radius = np.random.uniform(min_size, max_size)
+    # radius = 0.08
     domains[i] = generate_squares(N, num_total - num_squares, num_squares, radius)
 
 # -------------------------------- export --------------------------------

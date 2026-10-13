@@ -17,24 +17,24 @@ from NN import DCN, MLP, VAE
 
 BASE_DIR = Path(__file__).parent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-torch.manual_seed(11)
-torch.backends.cudnn.deterministic = True
+torch.manual_seed(111)
+# torch.backends.cudnn.deterministic = True
 
 # -------------------------- training settings ---------------------------
 # allow quick overrides via environment for experiment runs
-epochs = int(os.getenv("EPOCHS", "100"))
-lr = float(os.getenv("LR", "1e-3"))  # change over ae
+epochs = int(os.getenv("EPOCHS", "111"))
+lr = float(os.getenv("LR", "7e-4"))  # change over ae
 weight_decay = float(os.getenv("WEIGHT_DECAY", "1e-6"))
 batch_size = int(os.getenv("BATCH_SIZE", "32"))
 
 # beta = 0. # good reconstruction
 # allow override
-beta = float(os.getenv("BETA", str(0.001)))
+beta = float(os.getenv("BETA", str(1)))
 
 # define loss
 # recon_loss = nn.MSELoss(reduction="mean")
 # recon_loss = nn.BCEWithLogitsLoss(reduction="mean")  # or "sum" per-sample, common for VAEs
-recon_loss = nn.BCELoss(reduction="sum") 
+recon_loss = nn.BCELoss(reduction="mean") 
 
 # prevent posterior collapsing for any latent dimension by enforcing a minimum KL divergence
 free_bits = float(os.getenv("FREE_BITS", str(1.0)))  # nats per latent dimension
@@ -49,12 +49,21 @@ def kl_div(mean_pred, logvar_pred):
 #     kl = 0.5 * torch.mean(var_pred + mean_pred**2 - logvar_pred - 1)
 #     return kl
 
+def dice_loss(x_pred, x, eps=1.0):
+    """dice loss helps when background dominates the image. 
+    1 - 2·overlap / (pred_mass + target_mass)"""
+    dims = (1, 2, 3)                                   # per-sample over C,H,W
+    intersect = (x_pred * x).sum(dims)
+    denom = x_pred.sum(dims) + x.sum(dims)
+    return (1 - (2 * intersect + eps) / (denom + eps)).mean()
 
 def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
     mse = recon_loss(x_pred, x)  / x.size(0)        # average over batcha  
     kl = kl_div(mean_pred, logvar_pred)
-    # print(f"reconstruction loss: {mse:.4f}, KL divergence: {kl:.4f}")
-    return mse + beta * kl
+    # print beta randomly
+    if np.random.rand() < 0.02:
+        print(f"reconstruction loss: {mse:.4f},   KL_div*beta: {kl*beta:.4f},   dice loss: {dice_loss(x_pred, x):.4f},   total cost: {mse + beta * kl + dice_loss(x_pred, x):.4f}")
+    return mse + beta * kl  + dice_loss(x_pred, x)  
 
 
 # ---------------------------- model settings ----------------------------
@@ -78,7 +87,8 @@ data = []
 # data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_anomaly_0_256_400.npy") ) )
 # data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_2max_800.npy") ) )
 # data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_1max_800.npy") ) )
-data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_1sq_2tot_400.npy") ) )
+# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_1sq_2tot_400.npy") ) )
+data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_0sq_2tot_800.npy") ) )
 
 ## Add squares to dataset
 num_circles = 10
@@ -175,7 +185,7 @@ optimizer = torch.optim.AdamW([
     {"params": model.decode.parameters(), "lr": lr},
 ], weight_decay=weight_decay)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    optimizer, T_max=epochs, eta_min=lr * 1e-2
+    optimizer, T_max=epochs, eta_min=lr * 0.1
 )
 # optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 # scheduler = None
@@ -217,6 +227,7 @@ for epoch in pbar:
 model.standardizer = standardizex  # just for saving
 save_path =  BASE_DIR / f"../../models/fiber_vae_depth{depth}_latent{latent_dim}_beta{beta}_{domain_size}.pt2"
 torch.save(model, save_path)
+print(f"saved model to {save_path}")
 
 # ---------------------------- postprocessing ----------------------------
 fig, ax = plt.subplots()
