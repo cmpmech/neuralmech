@@ -22,8 +22,8 @@ torch.manual_seed(111)
 
 # -------------------------- training settings ---------------------------
 # allow quick overrides via environment for experiment runs
-epochs = int(os.getenv("EPOCHS", "20"))
-lr = float(os.getenv("LR", "5e-3"))  # change over ae
+epochs = int(os.getenv("EPOCHS", "500"))
+lr = float(os.getenv("LR", "2e-3"))  # change over ae
 weight_decay = float(os.getenv("WEIGHT_DECAY", "1e-6"))
 batch_size = int(os.getenv("BATCH_SIZE", "16"))
 
@@ -86,9 +86,9 @@ domain_size = 256
 data = []
 # data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_anomaly_1_256_400.npy") ) )
 # data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_anomaly_0_256_400.npy") ) )
-# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_2max_800.npy") ) )
-# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_1max_800.npy") ) )
-# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_1sq_2tot_400.npy") ) )
+data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_2max_800.npy") ) )
+data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_1max_800.npy") ) )
+data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_1sq_2tot_400.npy") ) )
 data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_0sq_2tot_800.npy") ) )
 
 ## Add squares to dataset
