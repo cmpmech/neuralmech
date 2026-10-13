@@ -22,15 +22,15 @@ torch.manual_seed(111)
 
 # -------------------------- training settings ---------------------------
 # allow quick overrides via environment for experiment runs
-epochs = int(os.getenv("EPOCHS", "500"))
-lr = float(os.getenv("LR", "2e-3"))  # change over ae
+epochs = int(os.getenv("EPOCHS", "150"))
+lr = float(os.getenv("LR", "9e-3"))  # change over ae
 weight_decay = float(os.getenv("WEIGHT_DECAY", "1e-6"))
 batch_size = int(os.getenv("BATCH_SIZE", "16"))
 
 # beta = 0. # good reconstruction
 # allow override
-beta = float(os.getenv("BETA", str(.08)))
-beta_dice = beta / 2
+beta = float(os.getenv("BETA", str(.03)))
+beta_dice = .03
 
 # define loss
 # recon_loss = nn.MSELoss(reduction="mean")
@@ -61,15 +61,17 @@ def dice_loss(x_pred, x, eps=1.0):
 def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
     mse = recon_loss(x_pred, x)  / x.size(0)        # average over batcha  
     kl = kl_div(mean_pred, logvar_pred)
+    cost = mse + beta * kl  + beta_dice*dice_loss(x_pred, x) 
     # print beta randomly
     if np.random.rand() < 0.003:
-        print(f"reconstruction loss: {mse:.4f},   KL_div*beta: {kl*beta:.4f},   dice loss*beta_d: {beta_dice*dice_loss(x_pred, x):.4f},   total cost: {mse + beta * kl + beta_dice*dice_loss(x_pred, x):.4f}")
-    return mse + beta * kl  + beta_dice*dice_loss(x_pred, x)  
+        factor = 1.0/cost
+        print(f"reconstruction loss: {mse*factor:.2f},   KL_div*beta: {kl*beta*factor:.2f},   dice loss*beta_d: {beta_dice*dice_loss(x_pred, x)*factor:.2f},   total cost: {cost*factor:.4f}")
+    return cost
 
 
 # ---------------------------- model settings ----------------------------
 base, depth = 2, 5
-latent_dim = 40  # 2 8 32 128 512 # 2 as latent_dim for visualization
+latent_dim = 20  # 2 8 32 128 512 # 2 as latent_dim for visualization
 conv_layers = 1
 channel_dim = 1
 kernel_size = 3
@@ -86,9 +88,9 @@ domain_size = 256
 data = []
 # data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_anomaly_1_256_400.npy") ) )
 # data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_anomaly_0_256_400.npy") ) )
-data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_2max_800.npy") ) )
-data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_1max_800.npy") ) )
-data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_1sq_2tot_400.npy") ) )
+# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_2max_800.npy") ) )
+# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_1max_800.npy") ) )
+# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_1sq_2tot_400.npy") ) )
 data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_0sq_2tot_800.npy") ) )
 
 ## Add squares to dataset
@@ -195,7 +197,6 @@ optimizer = torch.optim.AdamW([
 # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
 #     optimizer, T_max=epochs, eta_min=lr * 0.1
 # )
-steps_per_epoch = len(train_loader)
 
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
     optimizer,
@@ -207,6 +208,7 @@ scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
     cooldown=5,        # epochs to wait after a reduction
     min_lr=[lr * encoder_lr_factor * 1e-2, lr * 1e-2],  # per group
 )
+
 # optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 # scheduler = None
 

@@ -111,13 +111,13 @@ def _main():
     # model = "../../models/bce_works.pt2"
     # model = "../../models/fiber_vae_depth5_latent40_beta1.0_256.pt2"
     # model = "../../models/bce_dice__latent40_beta1.0.pt2"
-    model = "../../models/bce_dice__latent40_betaBoth0.04_256.pt2"
+    # model = "models/bce_dice__latent40_betaBoth0.04_256.pt2"                  # "mse": 0.00320, "dice": 0.073}
+    # model = "models/_fullyTrained_plateausched__latent40_beta0.08_256.pt2"  # "mse": 0.00573, "dice": 0.118} as: 9
+    model = "models/_latent20_beta0.03_256.pt2"                             # "mse": 0.00452, "dice": 0.111} as: 8.8
 
-    data = str(BASE_DIR / f"../../data/t_1sq_2tot_800.npy")
-    # data = str(BASE_DIR / f"../../data/t_circ1min_3max_400.npy")
+    # data = str(BASE_DIR / f"../../data/t_1sq_2tot_800.npy")
+    data = str(BASE_DIR / f"../../data/t_0sq_2tot_800.npy")
 
-    # data = str(BASE_DIR / "../../data/fibers_anomaly_1_256_10.npy")
-    # data = str(BASE_DIR / "../../data/fibers_256.npy")
     samples = 4
     seed = 56
 
