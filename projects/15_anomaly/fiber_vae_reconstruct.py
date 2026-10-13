@@ -16,6 +16,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.backends.cudnn.deterministic = True
 
 
+def dice_loss(x_pred, x, eps=1.0):
+    dims = (0, 1)                                   # per-sample over C,H,W
+    intersect = (x_pred * x).sum(dims)
+    denom = x_pred.sum(dims) + x.sum(dims)
+    return (1 - (2 * intersect + eps) / (denom + eps)).mean()
+
 def evaluate_fiber_vae(
     model_path: Path, 
     data_path: Path,
@@ -39,6 +45,7 @@ def evaluate_fiber_vae(
     
     standardizex = model.standardizer
     mse_list = []
+    dice_list = []
     with torch.no_grad():
         x = standardizex(data)
         x_pred, mean_pred, logvar_pred = model(x)
@@ -64,8 +71,11 @@ def evaluate_fiber_vae(
             mse = F.mse_loss(recon, orig, reduction="mean").item()
             mse_list.append(mse)
 
+            dice = dice_loss(recon, orig).item()
+            dice_list.append(dice)
+
             axes[row, 0].imshow(orig.cpu(), cmap="binary", vmin=0, vmax=1)
-            axes[row, 0].set_title(f"mse={mse:.3f}")
+            axes[row, 0].set_title(f"mse={mse:.3f} | dice={dice:.3f}")
             axes[row, 1].imshow(recon.cpu(), cmap="binary", vmin=0, vmax=1)
             axes[row, 1].set_title(f"as={anomaly_score:.2f}")
 
@@ -91,14 +101,19 @@ def evaluate_fiber_vae(
         fig.tight_layout(pad=1)
         plt.show()
 
-    return {"beta": beta, "mse": np.mean(mse_list).item()}
+    return {"beta": beta, "mse": np.mean(mse_list).item(), "dice": np.mean(dice_list).item()}
 
 
 def _main():
-    beta = "0.2"
+    beta = "1.0"
     # model = str(BASE_DIR / "../../models/fiber_vae_depth5_latent128_beta0.2_256.pt2")
-    model = str(BASE_DIR / f"../../models/fiber_vae_depth5_latent64_beta{beta}_256.pt2")
-    data = str(BASE_DIR / f"../../data/t_1sq_2tot_400.npy")
+    # model = str(BASE_DIR / f"../../models/fiber_vae_depth5_latent64_beta{beta}_256.pt2")
+    # model = "../../models/bce_works.pt2"
+    # model = "../../models/fiber_vae_depth5_latent40_beta1.0_256.pt2"
+    # model = "../../models/bce_dice__latent40_beta1.0.pt2"
+    model = "../../models/bce_dice__latent40_betaBoth0.04_256.pt2"
+
+    data = str(BASE_DIR / f"../../data/t_1sq_2tot_800.npy")
     # data = str(BASE_DIR / f"../../data/t_circ1min_3max_400.npy")
 
     # data = str(BASE_DIR / "../../data/fibers_anomaly_1_256_10.npy")

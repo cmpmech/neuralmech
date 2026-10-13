@@ -22,14 +22,15 @@ torch.manual_seed(111)
 
 # -------------------------- training settings ---------------------------
 # allow quick overrides via environment for experiment runs
-epochs = int(os.getenv("EPOCHS", "111"))
-lr = float(os.getenv("LR", "7e-4"))  # change over ae
+epochs = int(os.getenv("EPOCHS", "20"))
+lr = float(os.getenv("LR", "5e-3"))  # change over ae
 weight_decay = float(os.getenv("WEIGHT_DECAY", "1e-6"))
-batch_size = int(os.getenv("BATCH_SIZE", "32"))
+batch_size = int(os.getenv("BATCH_SIZE", "16"))
 
 # beta = 0. # good reconstruction
 # allow override
-beta = float(os.getenv("BETA", str(1)))
+beta = float(os.getenv("BETA", str(.08)))
+beta_dice = beta / 2
 
 # define loss
 # recon_loss = nn.MSELoss(reduction="mean")
@@ -39,15 +40,15 @@ recon_loss = nn.BCELoss(reduction="mean")
 # prevent posterior collapsing for any latent dimension by enforcing a minimum KL divergence
 free_bits = float(os.getenv("FREE_BITS", str(1.0)))  # nats per latent dimension
 
-def kl_div(mean_pred, logvar_pred):
-    var_pred = torch.exp(logvar_pred)
-    kl_per_dim = 0.5 * (var_pred + mean_pred**2 - logvar_pred - 1)  # shape: (B, latent_dim)
-    kl_per_dim = torch.clamp(kl_per_dim, min=free_bits / latent_dim)
-    return kl_per_dim.mean()
 # def kl_div(mean_pred, logvar_pred):
 #     var_pred = torch.exp(logvar_pred)
-#     kl = 0.5 * torch.mean(var_pred + mean_pred**2 - logvar_pred - 1)
-#     return kl
+#     kl_per_dim = 0.5 * (var_pred + mean_pred**2 - logvar_pred - 1)  # shape: (B, latent_dim)
+#     kl_per_dim = torch.clamp(kl_per_dim, min=free_bits / latent_dim)
+#     return kl_per_dim.mean()
+def kl_div(mean_pred, logvar_pred):
+    var_pred = torch.exp(logvar_pred)
+    kl = 0.5 * torch.mean(var_pred + mean_pred**2 - logvar_pred - 1)
+    return kl
 
 def dice_loss(x_pred, x, eps=1.0):
     """dice loss helps when background dominates the image. 
@@ -61,9 +62,9 @@ def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
     mse = recon_loss(x_pred, x)  / x.size(0)        # average over batcha  
     kl = kl_div(mean_pred, logvar_pred)
     # print beta randomly
-    if np.random.rand() < 0.02:
-        print(f"reconstruction loss: {mse:.4f},   KL_div*beta: {kl*beta:.4f},   dice loss: {dice_loss(x_pred, x):.4f},   total cost: {mse + beta * kl + dice_loss(x_pred, x):.4f}")
-    return mse + beta * kl  + dice_loss(x_pred, x)  
+    if np.random.rand() < 0.003:
+        print(f"reconstruction loss: {mse:.4f},   KL_div*beta: {kl*beta:.4f},   dice loss*beta_d: {beta_dice*dice_loss(x_pred, x):.4f},   total cost: {mse + beta * kl + beta_dice*dice_loss(x_pred, x):.4f}")
+    return mse + beta * kl  + beta_dice*dice_loss(x_pred, x)  
 
 
 # ---------------------------- model settings ----------------------------
@@ -162,6 +163,7 @@ Decoder.append(
         dim=2,
         resamplings=upsamplings,
         normalizations=[nn.GroupNorm(1, channel) for channel in channels[-2:0:-1]],
+        bias=[False] * (len(channels) - 2) + [True],    # last layer has bias for average
     )
 )
 #### removed for BCELoss
@@ -171,8 +173,14 @@ Decoder.append(nn.Sigmoid())  # output in [0,1] for BCE loss
 model = VAE(Encoder, Decoder).to(device)
 init_weights(model, act())
 
+# start training with good guess for final bias layer
+p = X_train.mean().item()
+last_conv = [m for m in Decoder.modules() if isinstance(m, nn.Conv2d)][-1]
+with torch.no_grad():
+    last_conv.bias.fill_(np.log(p / (1 - p)))
+
 # write summary to file
-s=summary(model, (1, 1, domain_size, domain_size), depth=4)
+s=summary(model, (1, 1, domain_size, domain_size), depth=4, col_names=["output_size", "mult_adds"])
 summary_file = Path.resolve( BASE_DIR / f"../../tmp/fiber_vae_summary.txt" )
 with open(summary_file, "w") as f:
     f.write(str(s))
@@ -184,14 +192,26 @@ optimizer = torch.optim.AdamW([
     {"params": model.encode.parameters(), "lr": lr * encoder_lr_factor},
     {"params": model.decode.parameters(), "lr": lr},
 ], weight_decay=weight_decay)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    optimizer, T_max=epochs, eta_min=lr * 0.1
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+#     optimizer, T_max=epochs, eta_min=lr * 0.1
+# )
+steps_per_epoch = len(train_loader)
+
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer,
+    mode="min",
+    factor=0.5,        # multiply lr by this on a plateau
+    patience=15,       # epochs without improvement before reducing
+    threshold=1e-3,    # relative improvement that counts as "better"
+    threshold_mode="rel",
+    cooldown=5,        # epochs to wait after a reduction
+    min_lr=[lr * encoder_lr_factor * 1e-2, lr * 1e-2],  # per group
 )
 # optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 # scheduler = None
 
 # ------------------------------- training -------------------------------
-print_every = 5
+print_every = 10
 train_cost = [0] * epochs
 val_cost = [0] * epochs
 pbar = tqdm(range(epochs), desc="Training: ", ncols=90)
@@ -206,8 +226,6 @@ for epoch in pbar:
         optimizer.step()
         train_cost[epoch] += cost.item()
     train_cost[epoch] /= len(train_loader)  # avg per batch
-    if scheduler is not None:
-        scheduler.step()
 
     model.eval()
     with torch.no_grad():
@@ -217,17 +235,27 @@ for epoch in pbar:
             cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta)
             val_cost[epoch] += cost.item()
         val_cost[epoch] /= len(val_loader)  # avg per batch
+    if scheduler is not None:
+        # scheduler.step()
+        scheduler.step(val_cost[epoch])
 
     if epoch % print_every == 0:
         pbar.set_postfix(
-            {"train": f"{train_cost[epoch]:.2e}", "val": f"{val_cost[epoch]:.2e}"}
+            {"train": f"{train_cost[epoch]:.2e}", "val": f"{val_cost[epoch]:.2e}, lr={optimizer.param_groups[0]['lr']:.1e}"}
         )
 
 # ----------------------------- export model -----------------------------
 model.standardizer = standardizex  # just for saving
 save_path =  BASE_DIR / f"../../models/fiber_vae_depth{depth}_latent{latent_dim}_beta{beta}_{domain_size}.pt2"
 torch.save(model, save_path)
-print(f"saved model to {save_path}")
+print(f"\nsaved model to {save_path}")
+
+# Append wall runtime to summary file
+with open(summary_file, "a") as f:
+    mult_add_GB = len(dataset) * epochs * s.total_mult_adds / 2**30
+    msg = f"\n\nTraining completed. {mult_add_GB:.2f} GB-MACs / {pbar.format_dict['elapsed']:.2f} seconds = {mult_add_GB/pbar.format_dict['elapsed']:.2f} GB/s"
+    f.write(msg)
+    print("\n", msg, "\nsee: ", summary_file)
 
 # ---------------------------- postprocessing ----------------------------
 fig, ax = plt.subplots()
