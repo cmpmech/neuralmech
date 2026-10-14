@@ -20,16 +20,20 @@ BASE_DIR = Path(__file__).parent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ------------------------------ config (edit) ------------------------------
-MODEL = (BASE_DIR / "../../models/_latent20_beta0.03_256.pt2").resolve()
-MODEL = (BASE_DIR / "../../models/_fullyTrained_plateausched__latent40_beta0.08_256.pt2").resolve()
+# MODEL = (BASE_DIR / "../../models/_latent20_beta0.03_256.pt2").resolve()
+# MODEL = (BASE_DIR / "../../models/_fullyTrained_plateausched__latent40_beta0.08_256.pt2").resolve()
+# MODEL = (BASE_DIR / "../../models/bce_dice__latent40_betaBoth0.04_256.pt2").resolve()
+# MODEL = (BASE_DIR / "../../models/fiber_vae_depth5_latent20_beta0.03_256.pt2").resolve()
+MODEL = (BASE_DIR / "../../models/fiber_vae_depth5_latent20_beta0.001_256.pt2").resolve()
 DATA = (BASE_DIR / "../../data").resolve()
 FIT = DATA / "t_0sq_2tot_800.npy"                  # normals the model trained on (fits latent stats)
 SETS = {                                           # name: (file, label) label 0 = normal, 1 = anomaly
-    "normal": (DATA / "t_0sq_2tot_800.npy", 0),    # must be disjoint from FIT (kNN would match itself)
-    # "square": (DATA / "t_1sq_2tot_800.npy", 1),
-    "squares2": (DATA / "fibers_anomaly_2_256.npy", 1),
+    "normal_paired": (DATA / "fibers_paired_700_r0.09_0.09_seed33.npy", 0),    # must be disjoint from FIT (kNN would match itself)
+    "square": (DATA / "t_1sq_2tot_800.npy", 1),
+    "square_paired": (DATA / "fibers_paired_700_r0.09_0.09_seed33_1anom.npy", 1),
+    # "squares2": (DATA / "fibers_anomaly_2_256.npy", 1),
 }
-SCORES = ["bce_mean", "mse_mean", "maha", "knn"]
+SCORES = ["bce_mean", "mse_mean", "maha", "knn", "reenc"]
 K       = 5                     # kNN neighbors for knn score
 RIDGE   = 1e-2                  # covariance ridge for mahalanobis score
 FPR     = 0.1                  # False Positive Rate (FPR) for True Positive Rate(TPR) column
@@ -42,13 +46,13 @@ def load(path):
 
 @torch.no_grad()
 def encode_decode(model, x, bs=256):
-    """Deterministic pass: latent means and reconstructions decode(mu)."""
-    mus, recs = [], []
+    mus, recs, mus2 = [], [], []
     for xb in x.split(bs):
-        _, mu, _ = model(xb.to(device))        
-        mus.append(mu.cpu())
-        recs.append(model.decode(mu).cpu())
-    return torch.cat(mus), torch.cat(recs)
+        _, mu, _ = model(xb.to(device))
+        rec = model.decode(mu)
+        _, mu2, _ = model(rec)                    # re-encode the reconstruction
+        mus.append(mu.cpu()); recs.append(rec.cpu()); mus2.append(mu2.cpu())
+    return torch.cat(mus), torch.cat(recs), torch.cat(mus2)
 
 
 class LatentScorer:
@@ -80,8 +84,8 @@ def score_sets(model, scorer, sets):
     frames = []
     for name, (path, label) in sets.items():
         x = load(path)
-        mu, rec = encode_decode(model, x)
-        s = {**image_scores(x, rec), "maha": scorer.maha(mu), "knn": scorer.knn(mu)}
+        mu, rec, mu2 = encode_decode(model, x)
+        s = {**image_scores(x, rec), "maha": scorer.maha(mu), "knn": scorer.knn(mu), "reenc": (mu - mu2).norm(dim=1)}
         frames.append(pd.DataFrame({k: v.numpy() for k, v in s.items()}).assign(set=name, label=label))
     return pd.concat(frames, ignore_index=True)
 
