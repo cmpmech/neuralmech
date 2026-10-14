@@ -70,12 +70,12 @@ class Standardizer(nn.Module):
             self.x_std = X.std(dim=dim, keepdim=True).clamp_min(1e-8)
 
     def __call__(self, x):
-        if not self.active:
+        if not getattr(self, "active", True):
             return x
         return (x - self.x_mean) / self.x_std
 
     def inverse(self, x):
-        if not self.active:
+        if not getattr(self, "active", True):
             return x
         return x * self.x_std + self.x_mean
 
