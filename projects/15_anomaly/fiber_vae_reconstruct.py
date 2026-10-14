@@ -39,9 +39,9 @@ def evaluate_fiber_vae(
     data = torch.from_numpy(np.load(data_path)).to(torch.float32).unsqueeze(1).to(device)
     sample_indices = torch.randperm(len(data))[:num_samples]
     
-    fig, axes = plt.subplots(num_samples, 3, figsize=(6, 3 * num_samples), dpi=128)
+    fig, axes = plt.subplots(num_samples, 4, figsize=(8, 3 * num_samples), dpi=128)
     if num_samples == 1:
-        axes = axes.reshape(1, 3)
+        axes = axes.reshape(1, 4)
     
     standardizex = model.standardizer
     mse_list = []
@@ -78,14 +78,16 @@ def evaluate_fiber_vae(
             axes[row, 0].set_title(f"mse={mse:.3f} | dice={dice:.3f}")
             axes[row, 1].imshow(recon.cpu(), cmap="binary", vmin=0, vmax=1)
             axes[row, 1].set_title(f"as={anomaly_score:.2f}")
+            axes[row, 2].imshow((orig - recon).cpu(), cmap="bwr", vmin=-1, vmax=1)
+            axes[row, 2].set_title("data - prediction")
 
             # --- better plot: KL per latent dim, sorted descending ---
             kl_sorted, kl_sorted_inds = kl_per_dim.cpu().sort(descending=True)
-            axes[row, 2].bar(range(len(kl_sorted)), kl_sorted.numpy())
-            axes[row, 2].axhline(1.0, color="r", linestyle="--", linewidth=0.8, label="prior = 1")
-            axes[row, 2].set_title(f"KL/dim (total={kl_per_sample:.2f})")
-            axes[row, 2].set_xlabel("latent dim (sorted)")
-            axes[row, 2].legend(fontsize=7)
+            axes[row, 3].bar(range(len(kl_sorted)), kl_sorted.numpy())
+            axes[row, 3].axhline(1.0, color="r", linestyle="--", linewidth=0.8, label="prior = 1")
+            axes[row, 3].set_title(f"KL/dim (total={kl_per_sample:.2f})")
+            axes[row, 3].set_xlabel("latent dim (sorted)")
+            axes[row, 3].legend(fontsize=7)
 
             # print the 5 dimensions with maximum KL divergence
             print("\nTop latent dimensions for KL divergence:")
@@ -93,7 +95,7 @@ def evaluate_fiber_vae(
                 dim_idx = kl_sorted_inds[i].item()
                 print(f"dim {dim_idx}: KL={kl_sorted[i].item():.3f}, mean={mean_i[i].item():.3f}, logvar={logvar_i[i]:.3f}")
 
-            for ax in axes[row, 0:2]:
+            for ax in axes[row, 0:3]:
                 ax.set_aspect("equal")
                 ax.axis("off")
 
@@ -113,10 +115,10 @@ def _main():
     # model = "../../models/bce_dice__latent40_beta1.0.pt2"
     # model = "models/bce_dice__latent40_betaBoth0.04_256.pt2"                  # "mse": 0.00320, "dice": 0.073}
     # model = "models/_fullyTrained_plateausched__latent40_beta0.08_256.pt2"  # "mse": 0.00573, "dice": 0.118} as: 9
-    model = "models/_latent20_beta0.03_256.pt2"                             # "mse": 0.00452, "dice": 0.111} as: 8.8
+    model = (BASE_DIR / "../../models/_latent20_beta0.03_256.pt2").resolve()                             # "mse": 0.00452, "dice": 0.111} as: 8.8
 
-    # data = str(BASE_DIR / f"../../data/t_1sq_2tot_800.npy")
-    data = str(BASE_DIR / f"../../data/t_0sq_2tot_800.npy")
+    data = (BASE_DIR / f"../../data/t_1sq_2tot_800.npy").resolve()
+    # data = (BASE_DIR / f"../../data/t_0sq_2tot_800.npy").resolve()
 
     samples = 4
     seed = 56
