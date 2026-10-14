@@ -17,20 +17,20 @@ from NN import DCN, MLP, VAE
 
 BASE_DIR = Path(__file__).parent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-torch.manual_seed(111)
+torch.manual_seed(11)
 # torch.backends.cudnn.deterministic = True
 
 # -------------------------- training settings ---------------------------
 # allow quick overrides via environment for experiment runs
-epochs = int(os.getenv("EPOCHS", "150"))
-lr = float(os.getenv("LR", "9e-3"))  # change over ae
+epochs = int(os.getenv("EPOCHS", "170"))
+lr = float(os.getenv("LR", "4e-3"))  # change over ae
 weight_decay = float(os.getenv("WEIGHT_DECAY", "1e-6"))
 batch_size = int(os.getenv("BATCH_SIZE", "16"))
 
 # beta = 0. # good reconstruction
 # allow override
-beta = float(os.getenv("BETA", str(.03)))
-beta_dice = .03
+beta = float(os.getenv("BETA", str(.001)))
+beta_dice = .003
 
 # define loss
 # recon_loss = nn.MSELoss(reduction="mean")
@@ -58,7 +58,7 @@ def dice_loss(x_pred, x, eps=1.0):
     denom = x_pred.sum(dims) + x.sum(dims)
     return (1 - (2 * intersect + eps) / (denom + eps)).mean()
 
-def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
+def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0, beta_dice=1.0):
     recon = recon_loss(x_pred, x)  / x.size(0)        # average over batcha  
     kl = kl_div(mean_pred, logvar_pred)
     cost = recon + beta * kl  + beta_dice*dice_loss(x_pred, x) 
@@ -67,6 +67,19 @@ def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
         factor = 1.0/cost
         print(f"reconstruction loss: {recon*factor:.2f},   KL_div*beta: {kl*beta*factor:.2f},   dice loss*beta_d: {beta_dice*dice_loss(x_pred, x)*factor:.2f},   total cost: {cost*factor:.4f}")
     return cost
+
+def scale_beta(epoch, beta, warm=30, cycle=None):
+    """Linear ramp 0 -> beta over `warm` epochs; cycle=N restarts the ramp every N epochs."""
+    e = epoch % cycle if cycle else epoch
+    return beta * min(1.0, e / max(warm, 1))
+
+def augment(x):
+    """Random x-flip, y-flip and transpose per image (the 8 symmetries of the square)."""
+    def coin():
+        return (torch.rand(len(x), device=x.device) < 0.5)[:, None, None, None]
+    x = torch.where(coin(), x.flip(-1), x)
+    x = torch.where(coin(), x.flip(-2), x)
+    return torch.where(coin(), x.transpose(-1, -2), x)
 
 
 # ---------------------------- model settings ----------------------------
@@ -91,7 +104,9 @@ data = []
 # data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_2max_800.npy") ) )
 # data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_circ1min_1max_800.npy") ) )
 # data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_1sq_2tot_400.npy") ) )
-data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_0sq_2tot_800.npy") ) )
+# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/t_0sq_2tot_800.npy") ) )
+data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_paired_700_r0.09_0.09_seed33.npy") ) )
+# data.append(torch.from_numpy(np.load(BASE_DIR / f"../../data/fibers_paired_700_r0.09_0.09_seed33_1anom.npy") ) )
 
 ## Add squares to dataset
 num_circles = 10
@@ -195,14 +210,21 @@ optimizer = torch.optim.AdamW([
     {"params": model.decode.parameters(), "lr": lr},
 ], weight_decay=weight_decay)
 # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-#     optimizer, T_max=epochs, eta_min=lr * 0.1
+#     optimizer, T_max=epochs, eta_min=[lr * 0.03, lr * 0.1]
+# )
+# warm=5
+# scheduler = torch.optim.lr_scheduler.SequentialLR(
+#     optimizer,
+#     [torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, total_iters=warm),
+#     torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs - warm, eta_min=lr * 0.1)],
+#     milestones=[warm],
 # )
 
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
     optimizer,
     mode="min",
     factor=0.5,        # multiply lr by this on a plateau
-    patience=15,       # epochs without improvement before reducing
+    patience=20,       # epochs without improvement before reducing
     threshold=1e-3,    # relative improvement that counts as "better"
     threshold_mode="rel",
     cooldown=5,        # epochs to wait after a reduction
@@ -221,9 +243,12 @@ for epoch in pbar:
     model.train()
     for x in train_loader:
         x = standardizex(x[0]).to(device)  # unwrap & standardize
+        x = augment(x)                  # random flip for train only
         optimizer.zero_grad()
         x_pred, mean_pred, logvar_pred = model(x)
-        cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta)
+        beta_t =      scale_beta(epoch, beta,      warm=int(0.3 * epochs))
+        beta_dice_t = scale_beta(epoch, beta_dice, warm=int(0.3 * epochs))
+        cost = cost_fun(x_pred, mean_pred, logvar_pred, x, beta_t, beta_dice_t)
         cost.backward()
         optimizer.step()
         train_cost[epoch] += cost.item()
@@ -238,17 +263,19 @@ for epoch in pbar:
             val_cost[epoch] += cost.item()
         val_cost[epoch] /= len(val_loader)  # avg per batch
     if scheduler is not None:
-        # scheduler.step()
-        scheduler.step(val_cost[epoch])
+        if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            scheduler.step(val_cost[epoch])
+        else:
+            scheduler.step()
 
     if epoch % print_every == 0:
         pbar.set_postfix(
-            {"train": f"{train_cost[epoch]:.2e}", "val": f"{val_cost[epoch]:.2e}, lr={optimizer.param_groups[0]['lr']:.1e}"}
+            {"train": f"{train_cost[epoch]:.2e}", "val": f"{val_cost[epoch]:.2e}, lr={optimizer.param_groups[1]['lr']:.1e}   "}
         )
 
 # ----------------------------- export model -----------------------------
 model.standardizer = standardizex  # just for saving
-save_path =  BASE_DIR / f"../../models/fiber_vae_depth{depth}_latent{latent_dim}_beta{beta}_{domain_size}.pt2"
+save_path =  (BASE_DIR / f"../../models/fiber_vae_depth{depth}_latent{latent_dim}_beta{beta}_{domain_size}.pt2").resolve()
 torch.save(model, save_path)
 print(f"\nsaved model to {save_path}")
 
