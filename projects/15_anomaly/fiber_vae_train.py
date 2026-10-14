@@ -59,13 +59,13 @@ def dice_loss(x_pred, x, eps=1.0):
     return (1 - (2 * intersect + eps) / (denom + eps)).mean()
 
 def cost_fun(x_pred, mean_pred, logvar_pred, x, beta=1.0):
-    mse = recon_loss(x_pred, x)  / x.size(0)        # average over batcha  
+    recon = recon_loss(x_pred, x)  / x.size(0)        # average over batcha  
     kl = kl_div(mean_pred, logvar_pred)
-    cost = mse + beta * kl  + beta_dice*dice_loss(x_pred, x) 
+    cost = recon + beta * kl  + beta_dice*dice_loss(x_pred, x) 
     # print beta randomly
     if np.random.rand() < 0.003:
         factor = 1.0/cost
-        print(f"reconstruction loss: {mse*factor:.2f},   KL_div*beta: {kl*beta*factor:.2f},   dice loss*beta_d: {beta_dice*dice_loss(x_pred, x)*factor:.2f},   total cost: {cost*factor:.4f}")
+        print(f"reconstruction loss: {recon*factor:.2f},   KL_div*beta: {kl*beta*factor:.2f},   dice loss*beta_d: {beta_dice*dice_loss(x_pred, x)*factor:.2f},   total cost: {cost*factor:.4f}")
     return cost
 
 
