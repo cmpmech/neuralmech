@@ -13,6 +13,7 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 BASE_DIR = Path(__file__).parent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -73,6 +74,7 @@ def sample_metrics(out, beta=1.0):
     kl = kl_dim.sum(1)
     return {
         "mse": (out["recon"] - out["orig"]).pow(2).flatten(1).mean(1),
+        "bce": F.binary_cross_entropy(out["recon"], out["orig"], reduction="none").flatten(1).mean(1),
         "dice": dice_loss(out["recon"], out["orig"]).flatten(1).mean(1),
         "kl": kl,
         "as": out["err"] + beta * kl,
@@ -87,7 +89,7 @@ def plot_row(axes, out, m, i=0, label=""):
     Pass only 2 axes to skip the KL panel. `label` is prepended to the first title
     (e.g. the dataset name).
     """
-    left = f"mse={m['mse'][i]:.3f} | dice={m['dice'][i]:.3f}"
+    left = f"mse={m['mse'][i]:.3f} | dice={m['dice'][i]:.3f} | bce={m['bce'][i]:.3f}"
     if label:
         left = f"{label}\n{left}"
     for ax, img, title in zip(axes[:2], (out["orig"][i, 0], out["recon"][i, 0]),
@@ -177,8 +179,8 @@ def _main():
     # model = "models/_fullyTrained_plateausched__latent40_beta0.08_256.pt2"  # "mse": 0.00573, "dice": 0.118} as: 9
     model = (BASE_DIR / "../../models/_latent20_beta0.03_256.pt2").resolve()                             # "mse": 0.00452, "dice": 0.111} as: 8.8
 
-    # data = str(BASE_DIR / f"../../data/t_1sq_2tot_800.npy")
-    data = (BASE_DIR / f"../../data/t_0sq_2tot_800.npy").resolve()
+    data = str(BASE_DIR / f"../../data/t_1sq_2tot_800.npy")
+    # data = (BASE_DIR / f"../../data/t_0sq_2tot_800.npy").resolve()
 
     samples = 4
     seed = 56

@@ -9,10 +9,10 @@ import matplotlib.pyplot as plt
 # -------------------------- configurable params -------------------------
 SEED = 33
 N = 256                # image size (N x N)
-SAMPLES = 500           # number of samples to generate
+SAMPLES = 700           # number of samples to generate
 MIN_CIRCLES = 2
-MAX_CIRCLES = 6
-RADIUS_RANGE = (0.065, 0.11)  # (min, max)
+MAX_CIRCLES = 2
+RADIUS_RANGE = (0.09, 0.09)  # (min, max)
 DOMAIN_LENGTH = 1.0
 
 OUT_DIR = Path(__file__).parent / "../../data"
@@ -25,7 +25,7 @@ def make_grid(N, domain_length=1.0):
     return np.meshgrid(xs, ys, indexing="ij")
 
 
-def place_nonoverlapping(num, r, domain_length):
+def place_nonoverlapping(num, r, domain_length, fac=1.5):
     """Return list of (x,y) centers for `num` objects with radii `rads`.
     Ensures center-to-center distance >= sum of radii.
     """
@@ -37,7 +37,7 @@ def place_nonoverlapping(num, r, domain_length):
 
         ok = True
         for (xj, yj) in centers:
-            if np.hypot(xc - xj, yc - yj) < (r + r):
+            if np.hypot(xc - xj, yc - yj) < fac*(r + r):
                 ok = False
                 break
         if ok:
@@ -105,8 +105,8 @@ def main():
         anom[i] = img_anom
 
     # save paired datasets (same sample order)
-    f_clean = OUT_DIR / f"fibers_{N}_{SAMPLES}.npy"
-    f_anom = OUT_DIR / f"fibers_{N}_{SAMPLES}_1anom.npy"
+    f_clean = OUT_DIR / f"fibers_paired_{SAMPLES}_r{RADIUS_RANGE[0]}_{RADIUS_RANGE[1]}_seed{SEED}.npy"
+    f_anom = OUT_DIR / f"fibers_paired_{SAMPLES}_r{RADIUS_RANGE[0]}_{RADIUS_RANGE[1]}_seed{SEED}_1anom.npy"
     np.save(f_clean, clean)
     np.save(f_anom, anom)
     print(f"saved clean dataset to: {f_clean}")
