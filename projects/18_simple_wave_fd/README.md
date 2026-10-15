@@ -38,3 +38,9 @@ source at startup.
   frames of the propagating pulse
 
 `forward_scaling.jl` is the julia counterpart of the scaling sweeps.
+
+## Roofline
+
+- `2D_wave_roofline.py` -> `results/data/wave_roofline.csv`, `wave_roofline_ceilings.csv`
+  measures the memory-bandwidth and the single-precision compute ceiling of the device,
+  then the achieved Gflop/s and the arithmetic intensity of `fd_kernelV1` to `V5`
