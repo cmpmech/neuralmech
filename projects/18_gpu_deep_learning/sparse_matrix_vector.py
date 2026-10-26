@@ -44,7 +44,7 @@ def timed(fun, sync=False):
 
 # ---------------------------------- parametric study ---------------------------------
 for s in SPARSITIES:
-    sizes = np.logspace(2, 4.5 if s <= 0.9 else 4.8, 100).astype(np.int32)  # N
+    sizes = np.logspace(2, 4.7 if s <= 0.9 else 5.0, 100).astype(np.int32)  # N
     gpu_times, cpu_times = [], []
     for N in sizes:
         nnz_per_row = max(1, int((1 - s) * N))

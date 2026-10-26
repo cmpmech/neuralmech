@@ -49,6 +49,9 @@ def pdf_to_cmyk(source, target):
         "gs", "-dNOPAUSE", "-dBATCH", "-dSAFER", "-sDEVICE=pdfwrite",
         "-dProcessColorModel=/DeviceCMYK", "-sColorConversionStrategy=CMYK",
         "-dOverrideICC=true", f"-sOutputICCProfile={ICC_CMYK}",
+        "-dAutoFilterColorImages=false", "-dColorImageFilter=/FlateEncode",  # lossless, no jpeg
+        "-dAutoFilterGrayImages=false", "-dGrayImageFilter=/FlateEncode",
+        "-dDownsampleColorImages=false", "-dDownsampleGrayImages=false",
         "-o", str(target), str(source),
     ])
 

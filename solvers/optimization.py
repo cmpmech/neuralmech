@@ -17,20 +17,22 @@ class MMA:
     """method of moving asymptotes for one constraint, with a dual root-find subsolve.
 
     `step(xval, f0val, df0dx, fval, dfdx)` returns the next (n, 1) design in [0, 1].
+    Pass `xp=cupy` to keep the design on the GPU.
 
     Reference: https://doi.org/10.1002/nme.1620240207
     """
 
-    def __init__(self, n, move=0.2):
-        self.move = move
+    def __init__(self, n, move=0.2, xp=np):
+        self.move, self.xp = move, xp
         self.low = self.upp = self.xold1 = self.xold2 = None
         self.iter = 0
 
     def step(self, xval, f0val, df0dx, fval, dfdx):
         # f0val is unused (the dual subsolve only needs gradients), kept so the call
         # site reads like a standard objective/constraint MMA step
-        x = np.asarray(xval, dtype=float).ravel()
-        fval = float(np.ravel(fval)[0])
+        xp = self.xp
+        x = xp.asarray(xval, dtype=float).ravel()
+        fval = float(xp.ravel(xp.asarray(fval))[0])
         if self.xold1 is None:
             self.xold1 = self.xold2 = x
         self.iter += 1
@@ -41,34 +43,34 @@ class MMA:
             low, upp = x - ASYINIT, x + ASYINIT
         else:
             sign = (x - self.xold1) * (self.xold1 - self.xold2)
-            factor = np.where(sign > 0, ASYINCR, np.where(sign < 0, ASYDECR, 1.0))
-            low = np.clip(x - factor * (self.xold1 - self.low), x - ASYMAX, x - ASYMIN)
-            upp = np.clip(x + factor * (self.upp - self.xold1), x + ASYMIN, x + ASYMAX)
+            factor = xp.where(sign > 0, ASYINCR, xp.where(sign < 0, ASYDECR, 1.0))
+            low = xp.clip(x - factor * (self.xold1 - self.low), x - ASYMAX, x - ASYMIN)
+            upp = xp.clip(x + factor * (self.upp - self.xold1), x + ASYMIN, x + ASYMAX)
 
         # trust region inside the asymptotes and the move limit
-        alfa = np.maximum(np.maximum(low + ALBEFA * (x - low), x - self.move), 0.0)
-        beta = np.minimum(np.minimum(upp - ALBEFA * (upp - x), x + self.move), 1.0)
+        alfa = xp.maximum(xp.maximum(low + ALBEFA * (x - low), x - self.move), 0.0)
+        beta = xp.minimum(xp.minimum(upp - ALBEFA * (upp - x), x + self.move), 1.0)
 
         # convex separable approximation coefficients (Svanberg eq. 3.2-3.4)
         ux2, xl2 = (upp - x) ** 2, (x - low) ** 2
 
         def pq(df):
-            df = np.asarray(df, dtype=float).ravel()
-            eps = 0.001 * np.abs(df) + RAA0
-            return (np.maximum(df, 0.0) + eps) * ux2, (np.maximum(-df, 0.0) + eps) * xl2
+            df = xp.asarray(df, dtype=float).ravel()
+            eps = 0.001 * xp.abs(df) + RAA0
+            return (xp.maximum(df, 0.0) + eps) * ux2, (xp.maximum(-df, 0.0) + eps) * xl2
 
         (p0, q0), (P, Q) = pq(df0dx), pq(dfdx)
-        b = np.sum(P / (upp - x)) + np.sum(Q / (x - low)) - fval
+        b = float(xp.sum(P / (upp - x)) + xp.sum(Q / (x - low))) - fval
 
         # dual: x(lam) is closed-form, root-find the multiplier lam >= 0 of g <= 0
         # (g decreases monotonically in lam)
         def x_of(lam):
-            sp, sq = np.sqrt(p0 + lam * P), np.sqrt(q0 + lam * Q)
-            return np.clip((sp * low + sq * upp) / (sp + sq), alfa, beta)
+            sp, sq = xp.sqrt(p0 + lam * P), xp.sqrt(q0 + lam * Q)
+            return xp.clip((sp * low + sq * upp) / (sp + sq), alfa, beta)
 
         def g(lam):
             x_lam = x_of(lam)
-            return np.sum(P / (upp - x_lam) + Q / (x_lam - low)) - b
+            return float(xp.sum(P / (upp - x_lam) + Q / (x_lam - low)) - b)
 
         lam = 0.0
         if g(0.0) > 0.0:

@@ -36,11 +36,11 @@ STEPS = 2000
 FLOPS_PER_DOF = 18
 # name: (kernel, bytes per entry, padded row stride, launch swaps the thread axes)
 KERNELS = {
-    "V1 basic": ("fd_kernelV1", 4, False, True),
-    "V2 coalesced": ("fd_kernelV2", 4, False, False),
-    "V3 padding": ("fd_kernelV3", 4, True, False),
-    "V4 shared": ("fd_kernelV4", 4, True, False),
-    "V5 mixed": ("fd_kernelV5", 2, True, False),
+    "basic": ("basic_step", 4, False, True),
+    "coalesced": ("coalesced_step", 4, False, False),
+    "padded": ("padded_step", 4, True, False),
+    "shared": ("shared_step", 4, True, False),
+    "mixed": ("mixed_step", 2, True, False),
 }
 
 # ---------------------------------- ceilings -----------------------------------------
@@ -93,7 +93,8 @@ for name, (kernel, nbytes, padded, swapped) in KERNELS.items():
     u0[:] = cp.random.rand(NX, stride).astype(dtype)
     u1[:] = u0[:]
 
-    blocks_j = (NY + THREADS_J - 1) // THREADS_J
+    points = 2 if kernel == "mixed_step" else 1  # mixed_step updates a pair per thread
+    blocks_j = (NY // points + THREADS_J - 1) // THREADS_J
     blocks_i = (NX + THREADS_I - 1) // THREADS_I
     grid, block = ((blocks_i, blocks_j), (THREADS_I, THREADS_J)) if swapped else (
         (blocks_j, blocks_i), (THREADS_J, THREADS_I))
@@ -117,7 +118,7 @@ for name, (kernel, nbytes, padded, swapped) in KERNELS.items():
 
 # --------------------------------------- export --------------------------------------
 if args.book:
-    save_csv(CSV_DIR / "wave_roofline.csv", kernel=[n.replace(" ", "_") for n in names],
+    save_csv(CSV_DIR / "wave_roofline.csv", kernel=[n.split()[0] for n in names],
              intensity=intensities, gflops=gflops)
     save_csv(CSV_DIR / "wave_roofline_ceilings.csv", bandwidth=[bandwidth / 1e9],
              peak=[peak / 1e9])  # GB/s and Gflop/s

@@ -6,7 +6,6 @@ import cmasher as cmr
 import cupy as cp
 import numpy as np
 from PIL import Image
-from tqdm import tqdm
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
@@ -17,7 +16,6 @@ ANIMATION_DIR = (RESULTS_DIR / "animations/simple_wave").resolve()
 DTYPE = cp.float32
 THREADS_J, THREADS_I = 128, 4
 COMPILER_OPTIONS = ("--use_fast_math",)
-PRECOMPILED = False
 
 # physics
 LENGTHS = [1.0, 2.0]
@@ -58,12 +56,8 @@ u0[:NX, :NY] = cp.asarray(gaussian)
 u1[:] = u0[:]
 
 # --------------------------------------- setup ---------------------------------------
-if PRECOMPILED:
-    module = cp.RawModule(path=str(BASE_DIR / "step2D_wave.ptx"))
-    fd_kernel = module.get_function("fd_kernelV3")
-else:
-    source = (BASE_DIR / "step2D_wave.cu").read_text()
-    fd_kernel = cp.RawKernel(source, "fd_kernelV3", COMPILER_OPTIONS)
+source = (BASE_DIR / "step2D_wave.cu").read_text()
+fd_kernel = cp.RawKernel(source, "padded_step", COMPILER_OPTIONS)
 
 blocks_j = (NY_PADDED + THREADS_J - 1) // THREADS_J
 blocks_i = (NX_PADDED + THREADS_I - 1) // THREADS_I
@@ -87,7 +81,7 @@ ANIMATION_DIR.mkdir(parents=True, exist_ok=True)
 
 cp.cuda.Stream.null.synchronize()
 tic = time.time()
-for t in tqdm(range(N)):
+for t in range(N):
     u0 = fd_step(u0, u1, u0)
     u1, u0 = u0, u1
 

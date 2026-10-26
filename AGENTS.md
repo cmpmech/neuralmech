@@ -6,7 +6,7 @@ Central question: *When and where is deep learning useful in numerical simulatio
 
 ## Where the rules live
 
-The detailed conventions live in skills under `.agents/skills/` (`.claude/skills` is a symlink to it). Invoke them by task:
+The detailed conventions live in user-level skills in `~/.claude/skills/` (shared by all projects, linked into both Claude setups). Invoke them by task:
 
 | Skill | When |
 |---|---|
@@ -14,7 +14,6 @@ The detailed conventions live in skills under `.agents/skills/` (`.claude/skills
 | `mlhp-overview` | Any mlhp work, C++ or Python; it routes on to `mlhp` (full Python API + the `projects/18_mlhp/` voxel-FEM recipes), `mlhp-immersed-methods`, `mlhp-visualize`, `mlhp-cpp-style`, `mlhp-cpp-utilities`. |
 | `pvpython` | pvpython/ParaView render scripts in `projects/0_pvpython/`. |
 | `sweep-dump` | Sweeping a driver over a few constants and dumping samples for the user to judge. |
-| `optimize_code` | Iterative improvement against a metric (wall clock, error, memory). |
 
 ## Setup
 

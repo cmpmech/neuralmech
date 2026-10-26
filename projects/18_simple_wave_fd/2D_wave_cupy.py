@@ -7,7 +7,6 @@ import cmasher as cmr
 import cupy as cp
 import matplotlib.pyplot as plt
 import numpy as np
-from tqdm import tqdm
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
@@ -64,9 +63,10 @@ def fd_step(u0, u1, u2):
 
 
 # --------------------------------------- solve ---------------------------------------
+fd_step(u0, u1, cp.empty_like(u0))  # warm-up: the first launch compiles the kernel
 cp.cuda.Stream.null.synchronize()
 tic = time.time()
-for t in tqdm(range(N)):
+for t in range(N):
     u0 = fd_step(u0, u1, u0)
     u1, u0 = u0, u1
 cp.cuda.Stream.null.synchronize()

@@ -136,8 +136,8 @@ dv = density_filter.adjoint(cp.ones(nvoxels, cp.float32))  # d mean(rho) / dx * 
 u = None
 cg_history = []
 
-tic = time.time()
 pbar = tqdm(range(MAX_ITER))
+tic = time.time()
 for it in pbar:
     rho = density_filter(x) if args.filter == "density" else x
     solver.update(simp(rho, PENAL, EMIN, E0))

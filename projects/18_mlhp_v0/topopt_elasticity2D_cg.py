@@ -124,8 +124,8 @@ history = []
 
 if args.animate:
     ANIMATION_DIR.mkdir(parents=True, exist_ok=True)
-tic = time.time()
 pbar = tqdm(range(MAX_ITER))
+tic = time.time()
 for it in pbar:
     u = np.zeros(ndof)
     u[free] = fem.solve(simp(rho), force_free)

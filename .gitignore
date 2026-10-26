@@ -29,3 +29,4 @@ projects/*/outputs/
 *.pt2
 projects/*/*.stl
 projects/0_website/
+projects/18_simple_elastic_fem/

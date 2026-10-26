@@ -21,10 +21,10 @@ torch.manual_seed(2)
 torch.backends.cudnn.deterministic = True
 WIDTHS = [32, 128, 512, 2048]  # N
 MIN_RUN_TIME = 0.1  # in s
-MAX_BATCH_POWER = {"cpu": 16, "cuda": 20}  # largest batch size B = 2**power
+MAX_BATCH_POWER = {"cpu": 20, "cuda": 20}  # batch sizes B = 2**power below this power
 
 # ---------------------------------- parametric study ---------------------------------
-# GPU first, so that the CPU sweep can be truncated to its shorter batch range
+# GPU first; the export keeps the batch range that both devices share
 times = {}
 for device in ["cuda", "cpu"]:
     batches = [2**i for i in range(MAX_BATCH_POWER[device])]

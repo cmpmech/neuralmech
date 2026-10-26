@@ -92,8 +92,8 @@ u = None
 history = []
 cg_history = []
 
-tic = time.time()
 pbar = tqdm(range(MAX_ITER))
+tic = time.time()
 for it in pbar:
     solver.update(simp(rho, PENAL, EMIN, E0))
     u, cg_iters = solver.solve(force, x0=u, rtol=CG_TOL)

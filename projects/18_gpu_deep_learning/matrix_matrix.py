@@ -20,7 +20,7 @@ args = parser.parse_args()
 cp.random.seed(2)
 DTYPE = np.float32
 RUNS = 10
-SIZES = np.logspace(0, 4.4, 100).astype(np.int32)  # N
+SIZES = np.logspace(0, 4.6, 100).astype(np.int32)  # N
 
 # ---------------------------------- parametric study ---------------------------------
 gpu_times, cpu_times = [], []
@@ -40,9 +40,12 @@ for N in SIZES:
     # numpy dispatches to the BLAS it was built with, see np.show_config()
     A_cpu, B_cpu = cp.asnumpy(A_gpu), cp.asnumpy(B_gpu)
     tic = time.time()
-    for _ in range(RUNS):
+    _ = np.matmul(A_cpu, B_cpu)
+    runs = 1
+    while runs < RUNS and time.time() - tic < 1:  # the large products are timed once
         _ = np.matmul(A_cpu, B_cpu)
-    cpu_times.append((time.time() - tic) / RUNS)
+        runs += 1
+    cpu_times.append((time.time() - tic) / runs)
     print(f"N={N}: gpu {gpu_times[-1]:.2e} s, cpu {cpu_times[-1]:.2e} s")
 
 # --------------------------------------- export --------------------------------------

@@ -3,10 +3,8 @@ import time
 from pathlib import Path
 
 import cupy as cp
-import cupyx.scipy.ndimage as cp_ndimage
 import matplotlib.pyplot as plt
 import numpy as np
-import scipy.ndimage as ndimage
 
 from postprocessing import save_csv
 
@@ -20,11 +18,22 @@ args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
 cp.random.seed(2)
-np.random.seed(2)
+rng = np.random.default_rng(2)
 DTYPE = np.float32
 RUNS = 5
-KERNEL_SIZES = [1, 3, 5, 7]  # k
-SIZES = np.logspace(1.5, 3.7, 50).astype(np.int32)  # image is N x N
+KERNEL_SIZES = [1, 3, 5, 7]  # K
+CHANNELS = [1, 64]  # C, input and output channels of the layer
+MAX_SIZE = {1: 8192, 64: 1024}  # largest image side N
+
+
+# --------------------------------------- setup ---------------------------------------
+def conv2d(xp, image, weight):
+    C, N, _ = image.shape
+    k = weight.shape[-1]
+    padded = xp.pad(image, ((0, 0), (k // 2, k // 2), (k // 2, k // 2)))
+    windows = xp.lib.stride_tricks.sliding_window_view(padded, (k, k), axis=(1, 2))
+    columns = windows.transpose(1, 2, 0, 3, 4).reshape(N * N, C * k * k)
+    return columns @ weight.reshape(weight.shape[0], C * k * k).T
 
 
 def timed(fun, sync=False):
@@ -40,25 +49,33 @@ def timed(fun, sync=False):
 
 
 # ---------------------------------- parametric study ---------------------------------
-for k in KERNEL_SIZES:
-    gpu_times, cpu_times = [], []
-    for N in SIZES:
-        image_cpu = np.random.rand(N, N).astype(DTYPE)
-        kernel_cpu = np.random.rand(k, k).astype(DTYPE)
-        image_gpu, kernel_gpu = cp.asarray(image_cpu), cp.asarray(kernel_cpu)
-
-        gpu_times.append(timed(lambda: cp_ndimage.correlate(image_gpu, kernel_gpu), sync=True))
-        cpu_times.append(timed(lambda: ndimage.correlate(image_cpu, kernel_cpu)))
-        print(f"k={k} N={N}: gpu {gpu_times[-1]:.2e} s, cpu {cpu_times[-1]:.2e} s")
+times = {}
+sizes = {}
+for C in CHANNELS:
+    sizes[C] = np.unique(np.logspace(1, np.log10(MAX_SIZE[C]), 15).astype(int))
+    for k in KERNEL_SIZES:
+        gpu_times, cpu_times = [], []
+        weight_cpu = rng.standard_normal((C, C, k, k)).astype(DTYPE)
+        weight_gpu = cp.asarray(weight_cpu)
+        for N in sizes[C]:
+            image_cpu = rng.standard_normal((C, N, N)).astype(DTYPE)
+            image_gpu = cp.asarray(image_cpu)
+            gpu_times.append(timed(lambda: conv2d(cp, image_gpu, weight_gpu), sync=True))
+            cpu_times.append(timed(lambda: conv2d(np, image_cpu, weight_cpu)))
+        times[C, k] = gpu_times, cpu_times
+        print(f"C={C} k={k}: speed-up {cpu_times[-1] / gpu_times[-1]:.2f} at N={N}")
 
 # --------------------------------------- export --------------------------------------
-    if args.book:
-        save_csv(CSV_DIR / f"conv_{k}.csv", x=SIZES, y1=gpu_times, y2=cpu_times)
+if args.book:
+    for C, k in times:
+        save_csv(CSV_DIR / f"conv_{C}_{k}.csv", x=sizes[C], y1=times[C, k][0], y2=times[C, k][1])
 
 # ----------------------------------- postprocessing ----------------------------------
-    plt.loglog(SIZES, gpu_times, label=f"GPU k={k}")
-    plt.loglog(SIZES, cpu_times, "--", label=f"CPU k={k}")
-plt.xlabel("N")
-plt.ylabel("wall-clock time in s")
-plt.legend()
+fig, axes = plt.subplots(1, 2, sharey=True)
+for ax, C in zip(axes, CHANNELS):
+    for k in KERNEL_SIZES:
+        gpu_times, cpu_times = times[C, k]
+        ax.loglog(sizes[C], np.array(cpu_times) / np.array(gpu_times))
+    ax.set_xlabel("N")
+axes[0].set_ylabel("speed-up")
 plt.show()
