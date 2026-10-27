@@ -13,16 +13,18 @@ __global__ void basic_step(const float* __restrict__ u0,
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     const int j = blockIdx.y * blockDim.y + threadIdx.y;
 
+    const size_t c = (size_t)i * M + j; // 64-bit once: grids beyond 2^31 points
+
     if(i > 0 && j > 0 && j < (M - 1) && i < (N - 1))
     {
-        float u1_center = u1[i * M + j]; // load once
-        float laplacian_x = (u1[(i - 1) * M + j] - 2.f * u1_center +
-                             u1[(i + 1) * M + j]) / (dx * dx);
-        float laplacian_y = (u1[i * M + (j - 1)] - 2.f * u1_center +
-                             u1[i * M + (j + 1)]) / (dy * dy);
-        u2[i * M + j] = (-u0[i * M + j] + 2.f * u1_center +
-                         dt * dt * wavespeed * wavespeed * (laplacian_x +
-                                                            laplacian_y));
+        float u1_center = u1[c]; // load once
+        float laplacian_x = (u1[c - M] - 2.f * u1_center +
+                             u1[c + M]) / (dx * dx);
+        float laplacian_y = (u1[c - 1] - 2.f * u1_center +
+                             u1[c + 1]) / (dy * dy);
+        u2[c] = (-u0[c] + 2.f * u1_center +
+                 dt * dt * wavespeed * wavespeed * (laplacian_x +
+                                                    laplacian_y));
     }
 }
 
@@ -37,16 +39,18 @@ __global__ void coalesced_step(const float* __restrict__ u0,
     const int j = blockIdx.x * blockDim.x + threadIdx.x;
     const int i = blockIdx.y * blockDim.y + threadIdx.y;
 
+    const size_t c = (size_t)i * M + j; // 64-bit once: grids beyond 2^31 points
+
     if(i > 0 && j > 0 && j < (M - 1) && i < (N - 1))
     {
-        float u1_center = u1[i * M + j]; // load once
-        float laplacian_x = (u1[(i - 1) * M + j] - 2.f * u1_center +
-                             u1[(i + 1) * M + j]) / (dx * dx);
-        float laplacian_y = (u1[i * M + (j - 1)] - 2.f * u1_center +
-                             u1[i * M + (j + 1)]) / (dy * dy);
-        u2[i * M + j] = (-u0[i * M + j] + 2.f * u1_center +
-                         dt * dt * wavespeed * wavespeed * (laplacian_x +
-                                                            laplacian_y));
+        float u1_center = u1[c]; // load once
+        float laplacian_x = (u1[c - M] - 2.f * u1_center +
+                             u1[c + M]) / (dx * dx);
+        float laplacian_y = (u1[c - 1] - 2.f * u1_center +
+                             u1[c + 1]) / (dy * dy);
+        u2[c] = (-u0[c] + 2.f * u1_center +
+                 dt * dt * wavespeed * wavespeed * (laplacian_x +
+                                                    laplacian_y));
     }
 }
 
