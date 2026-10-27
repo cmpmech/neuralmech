@@ -35,7 +35,7 @@ random initial field and the diagnostics in `lbm.py`.
 ## Extra (not in the book)
 
 - `extra/2D_lbm_packing.py` -> `results/animations/animation_frames/lbm_packing/`
-  flow through a random packing of cylinders, 16384 x 4096 nodes; `temporal_walls_step` and
+  flow through a random packing of cylinders, 16384 x 4096 nodes, 307200 steps; `temporal_walls_step` and
   `sponge` from `extra/walls.cu` add bounce-back and an outflow sponge to the periodic grid.
   Run from `extra/` with `PYTHONPATH=..`
 

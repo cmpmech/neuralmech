@@ -16,8 +16,6 @@ copy them to `book/plottingdata/`.
 - `convolutions.py` -> `conv_<C>_<K>.csv` (`conv_gpu.tex`)
   `K x K` convolution of an `N x N` image with `C` = 1 or 64 channels as an im2col matrix
   product, cupy against numpy, for `K` = 1, 3, 5, 7
-- `matmul.cu`
-  naive matrix-matrix kernel, one thread per entry of the result (listing in the chapter)
 - `conv2D.cu`
   direct `k x k` correlation, one thread per output pixel
 - `sine_data_parallel.py`
