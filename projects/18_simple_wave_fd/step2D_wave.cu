@@ -82,63 +82,6 @@ __global__ void padded_step(const float* __restrict__ u0,
 
 // -----------------------------------------------------------------------
 
-__global__ void shared_step(const float* __restrict__ u0,
-                            const float* __restrict__ u1,
-                            float* __restrict__ u2,
-                            const float wavespeed, const float dt,
-                            const float dx, const float dy,
-                            const int N, const int M, const int M_padded){
-    constexpr int BLOCK_DIM_X = 128;
-    constexpr int BLOCK_DIM_Y = 4;
-    constexpr int HALO = 1;
-
-    const int j = blockIdx.x * blockDim.x + threadIdx.x;
-    const int i = blockIdx.y * blockDim.y + threadIdx.y;
-    int tj = threadIdx.x;
-    int ti = threadIdx.y;
-
-    __shared__ float u1_s[BLOCK_DIM_Y + HALO * 2][BLOCK_DIM_X + HALO * 2];
-    // load interior data
-    if(i < N && j < M){
-        u1_s[ti + HALO][tj + HALO] = u1[i * M_padded + j];
-    }
-    // load left HALO (first two x threads)
-    if(tj < HALO && j >= HALO){
-        u1_s[ti + HALO][tj] = u1[i * M_padded + (j - HALO)];
-    }
-    // load right HALO (last two x threads)
-    if(tj >= BLOCK_DIM_X - HALO && j + HALO < M){
-        u1_s[ti + HALO][tj + 2 * HALO] = u1[i * M_padded + (j + HALO)];
-    }
-    // load top HALO (first two y threads)
-    if(ti < HALO && i >= HALO){
-        u1_s[ti][tj + HALO] = u1[(i - HALO) * M_padded + j];
-    }
-    // load bot HALO (last two y threads)
-    if(ti >= BLOCK_DIM_Y - HALO && i + HALO < N){
-        u1_s[ti + 2 * HALO][tj + HALO] = u1[(i + HALO) * M_padded + j];
-    }
-    // corners are not needed
-
-    __syncthreads();
-
-    if(i > 0 && j > 0 && j < (M - 1) && i < (N - 1))
-    {
-        int sj = tj + HALO; // shifted index
-        int si = ti + HALO; // shifted index
-        float u1_center = u1_s[si][sj]; // load once
-        float laplacian_x = (u1_s[si - 1][sj] - 2.f * u1_center +
-                             u1_s[si + 1][sj]) / (dx * dx);
-        float laplacian_y = (u1_s[si][sj - 1] - 2.f * u1_center +
-                             u1_s[si][sj + 1]) / (dy * dy);
-        u2[i * M_padded + j] = (-u0[i * M_padded + j] + 2.f * u1_center +
-                         dt * dt * wavespeed * wavespeed * (laplacian_x +
-                                                            laplacian_y));
-    }
-}
-
-// -----------------------------------------------------------------------
-
 __global__ void mixed_step(const __half* __restrict__ u0,
                             const __half* __restrict__ u1,
                             __half* __restrict__ u2,
@@ -237,6 +180,63 @@ __global__ void scaled_step(const short* __restrict__ q0,
     *(short2*)&q2[c] = make_short2(__float2int_rn(u2_x * inverse),
                                    __float2int_rn(u2_y * inverse));
     if(lane % 16 == 0) s2[b] = m / 32767.f;
+}
+
+// -----------------------------------------------------------------------
+
+__global__ void shared_step(const float* __restrict__ u0,
+                            const float* __restrict__ u1,
+                            float* __restrict__ u2,
+                            const float wavespeed, const float dt,
+                            const float dx, const float dy,
+                            const int N, const int M, const int M_padded){
+    constexpr int BLOCK_DIM_X = 128;
+    constexpr int BLOCK_DIM_Y = 4;
+    constexpr int HALO = 1;
+
+    const int j = blockIdx.x * blockDim.x + threadIdx.x;
+    const int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int tj = threadIdx.x;
+    int ti = threadIdx.y;
+
+    __shared__ float u1_s[BLOCK_DIM_Y + HALO * 2][BLOCK_DIM_X + HALO * 2];
+    // load interior data
+    if(i < N && j < M){
+        u1_s[ti + HALO][tj + HALO] = u1[i * M_padded + j];
+    }
+    // load left HALO (first two x threads)
+    if(tj < HALO && j >= HALO){
+        u1_s[ti + HALO][tj] = u1[i * M_padded + (j - HALO)];
+    }
+    // load right HALO (last two x threads)
+    if(tj >= BLOCK_DIM_X - HALO && j + HALO < M){
+        u1_s[ti + HALO][tj + 2 * HALO] = u1[i * M_padded + (j + HALO)];
+    }
+    // load top HALO (first two y threads)
+    if(ti < HALO && i >= HALO){
+        u1_s[ti][tj + HALO] = u1[(i - HALO) * M_padded + j];
+    }
+    // load bot HALO (last two y threads)
+    if(ti >= BLOCK_DIM_Y - HALO && i + HALO < N){
+        u1_s[ti + 2 * HALO][tj + HALO] = u1[(i + HALO) * M_padded + j];
+    }
+    // corners are not needed
+
+    __syncthreads();
+
+    if(i > 0 && j > 0 && j < (M - 1) && i < (N - 1))
+    {
+        int sj = tj + HALO; // shifted index
+        int si = ti + HALO; // shifted index
+        float u1_center = u1_s[si][sj]; // load once
+        float laplacian_x = (u1_s[si - 1][sj] - 2.f * u1_center +
+                             u1_s[si + 1][sj]) / (dx * dx);
+        float laplacian_y = (u1_s[si][sj - 1] - 2.f * u1_center +
+                             u1_s[si][sj + 1]) / (dy * dy);
+        u2[i * M_padded + j] = (-u0[i * M_padded + j] + 2.f * u1_center +
+                         dt * dt * wavespeed * wavespeed * (laplacian_x +
+                                                            laplacian_y));
+    }
 }
 
 // -----------------------------------------------------------------------

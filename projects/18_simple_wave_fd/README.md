@@ -23,18 +23,18 @@ startup with `--use_fast_math`.
 - `2D_wave_cuda_padding.py`
   `padded_step`, row stride padded to a multiple of the warp size so every row starts
   on an aligned address
-- `2D_wave_cuda_shared.py`
-  `shared_step`, the block's stencil loaded into shared memory once instead of read
-  from global memory five times
+- `2D_wave_cuda_graph.py`
+  `padded_step` on a small grid, with 20 steps captured in a CUDA graph and replayed,
+  so the launch overhead is paid once per graph instead of once per step (also timed without the graph)
 - `2D_wave_cuda_mixed.py`
   `mixed_step`, the field stored in half precision while the arithmetic stays single;
   each thread updates a pair of neighbouring points with 4-byte loads and stores
 - `2D_wave_cuda_scaled.py` -> `results/rgb_pdf/wave_{scaled,naive}*.pdf`
   `scaled_step`, 16-bit integers with one single-precision scale per block of 32 points
   instead of half precision; fields and errors against single precision at t = 1 and 3
-- `2D_wave_cuda_graph.py`
-  `padded_step` on a small grid, with 20 steps captured in a CUDA graph and replayed,
-  so the launch overhead is paid once per graph instead of once per step (also timed without the graph)
+- `2D_wave_cuda_shared.py`
+  `shared_step`, the block's stencil loaded into shared memory once instead of read
+  from global memory five times
 - `2D_wave_cuda_temporal.py`
   `temporal_step` on an 8000 x 16000 grid beyond the L2 cache; each block advances a tile
   in shared memory by eight steps per launch, bit-identical to `padded_step`
