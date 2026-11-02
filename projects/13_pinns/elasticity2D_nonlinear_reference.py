@@ -1,149 +1,197 @@
 import time
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import mlhp
 import numpy as np
-
-from helper import in_holes
+import scipy.sparse as sp
+from scipy.sparse.linalg import eigsh, spsolve
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = (BASE_DIR / "../../data").resolve()
 
 # -------------------------------------- settings -------------------------------------
 DIM = 2
-TRACTIONS = [
-    0.01,
-    0.05,
-    0.1,
-    0.2,
-    0.3,
-    0.4,
-]  # sets the nonlinearity, newton fails at 0.5
+PROBLEMS = {  # direction of the traction on the right edge
+    "cantilever": [0.0, -1.0],
+    "column": [-1.0, -1e-3],  # axial compression with a lateral imperfection
+}
+BUCKLING = ["column"]  # problems whose newton steps are checked for stability
+TARGETS = (10.0 ** np.arange(-4, 2.01, 0.5)).tolist()  # nonlinearities of the study, where reachable
+SCAN = np.geomspace(1e-7, 0.3, 80).tolist()  # tractions that locate the targets
 
 # discretization
-DEGREE = 4  # reference
-NELEMENTS = 40
-DEPTH = 6
-COARSE_ELEMENTS = 5  # finite elements with the error of the network in the linear case
-COARSE_DEGREE = 2
-STEPS = 5  # load steps
-RESOLUTION = 160  # evaluation grid
+REFERENCE = [[80, 8], 5, 4]  # elements, degree and refinement depth towards the clamped corners
+CHECK = [[80, 8], 4, 3]  # coarser reference, its difference bounds the reference error
+NELEMENTS = [40, 4]
+DEGREES = [1, 2]  # finite element study on NELEMENTS, no refinement
+RESOLUTION = [160, 16]  # evaluation grid
+INCREMENT = 1 / 20  # largest load increment of the reference, the study starts at the full load
+NEWTON_ITERS = 25
+NEWTON_TOL = 1e-9  # residual relative to the larger of the first residual and the load
 
-# physics
+# physics, plane strain neo-hookean beam, clamped on the left; its strains stay small, the nonlinearity is geometric
+LENGTHS = [1.0, 0.1]
 E = 1.0
 NU = 0.3
-HOLES = 1
 
 
 # --------------------------------------- helper --------------------------------------
-def solve(traction, nelements, degree, depth, nonlinear=True):
+def to_scipy(matrix):
+    data = np.asarray(matrix.data_array)
+    indices = np.asarray(matrix.indices_array)
+    indptr = np.asarray(matrix.indptr_array)
+    return sp.csr_matrix((data, indices, indptr), shape=tuple(matrix.shape))
+
+
+def newton(basis, dirichlet, right, kinematics, law, dofs, load, stability):
+    """newton iterations from dofs at the traction vector load; a converged state with a
+    negative tangent eigenvalue (unstable, e.g. the straight column beyond buckling) is
+    rejected. Returns dofs, converged, iterations."""
+    dofs = mlhp.DoubleVector(np.array(dofs).tolist())
+    integrand = mlhp.staticDomainIntegrand(kinematics, law, dofs=dofs)
+    traction = mlhp.neumannIntegrand(mlhp.vectorField(DIM, load))
+    scale = np.linalg.norm(load) * LENGTHS[1]
+    for iteration in range(NEWTON_ITERS):
+        matrix = mlhp.allocateSparseMatrix(basis, dirichlet[0])
+        vector = mlhp.allocateRhsVector(matrix)
+        mlhp.integrateOnDomain(basis, integrand, [matrix, vector], dirichletDofs=dirichlet)
+        mlhp.integrateOnSurface(basis, traction, [vector], right, dirichletDofs=dirichlet)
+        residual = np.asarray(vector)
+        norm = np.linalg.norm(residual)
+        norm0 = norm if iteration == 0 else norm0
+        if not np.isfinite(norm) or norm > 1e6 * max(norm0, scale):
+            break
+        K = to_scipy(matrix).tocsc()
+        if norm <= max(NEWTON_TOL * max(norm0, scale), 1e-15) and iteration > 0:  # round-off floor at tiny loads
+            stable = not stability or eigsh(K, k=1, sigma=-1e-12, return_eigenvectors=False)[0] > 0
+            return dofs, stable, iteration
+        mlhp.add(dofs, mlhp.inflateDofs(mlhp.DoubleVector(spsolve(K, residual)), dirichlet), out=dofs)
+    return dofs, False, iteration
+
+
+def solve(problem, traction, nelements, degree, depth, increment=1.0, linear=False):
+    """incremental loading with steps of at most increment, halved when newton fails or
+    ends unstable and doubled (up to increment) when it succeeds; returns the
+    displacement on the evaluation grid, time, dofs, load steps and newton iterations."""
     tic = time.time()
-    centers = (np.arange(nelements) + 0.5) / nelements
-    centers = np.stack(np.meshgrid(centers, centers, indexing="ij"), axis=-1)
-    base_grid = mlhp.makeGrid([nelements] * DIM, [1.0] * DIM, [0.0] * DIM)
-    mask = (~in_holes(centers, HOLES)).ravel("C").tolist()
-    grid = mlhp.makeRefinedGrid(mlhp.makeFilteredGrid(base_grid, mask=mask))
+    grid = mlhp.makeRefinedGrid(nelements, LENGTHS)
     if depth:
-        corners = [
-            [0.0, 0.0],
-            [0.0, 1.0],
-            [0.4, 0.4],
-            [0.4, 0.6],
-            [0.6, 0.4],
-            [0.6, 0.6],
-        ]
+        corners = [[0.0, 0.0], [0.0, LENGTHS[1]]]
         spheres = [mlhp.implicitSphere(c, 1e-9) for c in corners]
-        grid.refine(
-            mlhp.refinementOr([mlhp.refineTowardsBoundary(s, depth) for s in spheres])
-        )
+        grid.refine(mlhp.refinementOr([mlhp.refineTowardsBoundary(s, depth) for s in spheres]))
     basis = mlhp.makeHpTrunkSpace(grid, degree=degree, nfields=DIM)
-
-    dirichlet = mlhp.integrateDirichletDofs(
-        mlhp.vectorField(DIM, [0.0] * DIM), basis, [0]
-    )
-    youngs_modulus, poissons_ratio = mlhp.scalarField(DIM, E), mlhp.scalarField(DIM, NU)
-    if nonlinear:
-        kinematics = mlhp.greenLagrangeStrain(DIM)
-        material = mlhp.neoHookeanMaterial(youngs_modulus, poissons_ratio)
-    else:
-        kinematics = mlhp.smallStrainKinematics(DIM)
-        material = mlhp.planeStrainMaterial(youngs_modulus, poissons_ratio)
-    dofs = mlhp.DoubleVector(basis.ndof(), 0.0)
-    integrand = mlhp.staticDomainIntegrand(kinematics, material, dofs=dofs)
+    dirichlet = mlhp.integrateDirichletDofs(mlhp.vectorField(DIM, [0.0] * DIM), basis, [0])
     right = mlhp.quadratureOnMeshFaces(grid, [1])
+    youngs_modulus, poissons_ratio = mlhp.scalarField(DIM, E), mlhp.scalarField(DIM, NU)
+    if linear:
+        kinematics, material = mlhp.smallStrainKinematics(DIM), mlhp.planeStrainMaterial(youngs_modulus, poissons_ratio)
+    else:
+        kinematics, material = mlhp.greenLagrangeStrain(DIM), mlhp.neoHookeanMaterial(youngs_modulus, poissons_ratio)
 
-    steps = STEPS if nonlinear else 1
-    for step in range(steps):
-        load = mlhp.vectorField(DIM, [traction * (step + 1) / steps, 0.0])
-        for iteration in range(50):
-            matrix = mlhp.allocateSparseMatrix(basis, dirichlet[0])
-            vector = mlhp.allocateRhsVector(matrix)
-            mlhp.integrateOnDomain(
-                basis, integrand, [matrix, vector], dirichletDofs=dirichlet
-            )
-            mlhp.integrateOnSurface(
-                basis,
-                mlhp.neumannIntegrand(load),
-                [vector],
-                right,
-                dirichletDofs=dirichlet,
-            )
-            norm = mlhp.norm(vector)
-            if iteration == 0:
-                norm0 = norm
-            if norm <= max(1e-9 * norm0, 1e-12):
-                break
-            P = mlhp.diagonalPreconditioner(matrix)
-            increment = mlhp.cg(matrix, vector, rtol=1e-12, M=P, maxiter=100000)
-            mlhp.add(dofs, mlhp.inflateDofs(increment, dirichlet), out=dofs)
+    dofs = mlhp.DoubleVector(basis.ndof(), 0.0)
+    done, step, steps, iterations = 0.0, increment, 0, 0
+    while done < 1.0:
+        trial = min(done + step, 1.0)
+        load = [trial * traction * d for d in PROBLEMS[problem]]
+        stability = problem in BUCKLING and not linear
+        trial_dofs, converged, count = newton(basis, dirichlet, right, kinematics, material, dofs, load, stability)
+        iterations += count
+        if converged:
+            dofs, done, step, steps = trial_dofs, trial, min(2 * step, increment), steps + 1
         else:
-            raise RuntimeError(f"newton did not converge for traction {traction}")
+            step /= 2
+            if step < 1e-5:
+                raise RuntimeError(f"{problem}: newton does not converge at traction {traction}")
     toc = time.time()
 
     displacement = mlhp.vectorEvaluator(basis, dofs)
-    coordinates = [x_eval[..., 0].ravel().tolist(), x_eval[..., 1].ravel().tolist()]
     u = np.array(displacement(*coordinates)).reshape(*x_eval.shape)
-    u[in_holes(x_eval, HOLES)] = np.nan
-    return u, toc - tic
+    return u, toc - tic, basis.ndof(), steps, iterations
+
+
+def mirror(u):
+    """mirror image about the beam axis, the other buckling direction."""
+    return np.stack([u[:, ::-1, 0], -u[:, ::-1, 1]], axis=-1)
+
+
+def difference(u, v):
+    return np.sqrt(np.sum((u - v) ** 2) / np.sum(v**2))
+
+
+def nonlinearity(u, u_linear):
+    """relative difference to the linear solution, normalized by the smaller norm so
+    that it grows without bound for stiffening and softening responses alike."""
+    return np.sqrt(np.sum((u - u_linear) ** 2) / min(np.sum(u**2), np.sum(u_linear**2)))
 
 
 # ---------------------------------------- solve --------------------------------------
-centers = (np.arange(RESOLUTION) + 0.5) / RESOLUTION
-x_eval = np.stack(np.meshgrid(centers, centers, indexing="ij"), axis=-1)
+axes = [(np.arange(n) + 0.5) / n * length for n, length in zip(RESOLUTION, LENGTHS)]
+x_eval = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1)
+coordinates = [x_eval[..., 0].ravel().tolist(), x_eval[..., 1].ravel().tolist()]
 
-results = {"traction": np.array(TRACTIONS), "x": x_eval[..., 0], "y": x_eval[..., 1]}
-for key in ["nonlinearity", "error", "time"]:
-    results[key] = []
-for traction in TRACTIONS:
-    u, _ = solve(traction, NELEMENTS, DEGREE, DEPTH)
-    u_linear, _ = solve(traction, NELEMENTS, DEGREE, DEPTH, nonlinear=False)
-    u_coarse, elapsed = solve(traction, COARSE_ELEMENTS, COARSE_DEGREE, 0)
+for problem in PROBLEMS:
+    # quadratic elements locate the tractions of the target nonlinearities by bisection
+    def scan_nonlinearity(traction):
+        u, *_ = solve(problem, traction, NELEMENTS, 2, 0)
+        u_linear, *_ = solve(problem, traction, NELEMENTS, 2, 0, linear=True)
+        return nonlinearity(u, u_linear)
 
-    norm = np.sqrt(np.nansum(u**2))
-    nonlinearity = np.sqrt(np.nansum((u - u_linear) ** 2)) / norm
-    error = np.sqrt(np.nansum((u - u_coarse) ** 2)) / norm
-    print(
-        f"traction {traction} nonlinearity {nonlinearity:.2e} "
-        f"coarse error {error:.2e} time {elapsed:.2f} s"
-    )
-    results["nonlinearity"].append(nonlinearity)
-    results["error"].append(error)
-    results["time"].append(elapsed)
-    results[f"ux_{traction}"], results[f"uy_{traction}"] = u[..., 0], u[..., 1]
+    scan = []
+    for traction in SCAN:
+        try:
+            scan.append(scan_nonlinearity(traction))
+        except RuntimeError:
+            break
+        # the column passes its largest nonlinearity; below the smallest target it is round-off
+        if len(scan) > 1 and scan[-2] > TARGETS[0] and scan[-1] < scan[-2]:
+            scan.pop()
+            break
+    targets, tractions = [target for target in TARGETS if scan[0] < target <= scan[-1]], []
+    for target in targets:
+        i = np.searchsorted(scan, target)
+        lower, upper = np.log(SCAN[i - 1]), np.log(SCAN[i])
+        for _ in range(12):
+            middle = 0.5 * (lower + upper)
+            lower, upper = (middle, upper) if scan_nonlinearity(np.exp(middle)) < target else (lower, middle)
+        tractions.append(float(np.exp(0.5 * (lower + upper))))
+    print(f"{problem}: scan up to nonlinearity {scan[-1]:.2e}, tractions {[f'{t:.4e}' for t in tractions]}")
+
+    results = {"traction": [], "target": [], "x": x_eval[..., 0], "y": x_eval[..., 1]}
+    for key in ["nonlinearity", "reference_error", "reference_time", "reference_steps", "reference_iterations"]:
+        results[key] = []
+    for degree in DEGREES:
+        for key in ["error", "time", "ndof", "steps", "iterations"]:
+            results[f"p{degree}_{key}"] = []
+
+    for target, traction in zip(targets, tractions):
+        try:
+            u, elapsed, ndof, steps, iterations = solve(problem, traction, *REFERENCE, INCREMENT)
+            u_check, *_ = solve(problem, traction, *CHECK, INCREMENT)
+        except RuntimeError as error:
+            print(f"{error}, the study ends here")
+            break
+        results["traction"].append(traction)
+        results["target"].append(target)
+        u_linear, *_ = solve(problem, traction, *REFERENCE, linear=True)
+        values = [nonlinearity(u, u_linear), min(difference(u_check, u), difference(mirror(u_check), u)), elapsed, steps, iterations]
+        for key, value in zip(["nonlinearity", "reference_error", "reference_time", "reference_steps", "reference_iterations"], values):
+            results[key].append(value)
+        results[f"ux_{traction}"], results[f"uy_{traction}"] = u[..., 0], u[..., 1]
+        print(
+            f"{problem} traction {traction:.3e}: nonlinearity {values[0]:.3e}, reference {ndof} dofs, "
+            f"{steps} steps, {iterations} newton iterations, {elapsed:.1f} s, "
+            f"difference to p={CHECK[1]} depth {CHECK[2]} {values[1]:.2e}"
+        )
+        for degree in DEGREES:
+            u_fem, elapsed, ndof, steps, iterations = solve(problem, traction, NELEMENTS, degree, 0)
+            values = [min(difference(u_fem, u), difference(mirror(u_fem), u)), elapsed, ndof, steps, iterations]
+            for key, value in zip(["error", "time", "ndof", "steps", "iterations"], values):
+                results[f"p{degree}_{key}"].append(value)
+            print(
+                f"    p={degree}: error {values[0]:.2e}, {ndof} dofs, {steps} steps, "
+                f"{iterations} newton iterations, {elapsed:.2f} s"
+            )
 
 # -------------------------------------- export ---------------------------------------
-np.savez(DATA_DIR / "elasticity2D_nonlinear_reference.npz", **results)
-print(f"saved {DATA_DIR / 'elasticity2D_nonlinear_reference.npz'}")
-
-# ----------------------------------- postprocessing ----------------------------------
-fig, ax = plt.subplots()
-traction = TRACTIONS[-1]
-ax.pcolormesh(
-    results["x"] + np.nan_to_num(results[f"ux_{traction}"]),
-    results["y"] + np.nan_to_num(results[f"uy_{traction}"]),
-    results[f"ux_{traction}"],
-    cmap="turbo",
-)
-ax.set_aspect("equal")
-plt.show()
+    np.savez(DATA_DIR / f"elasticity2D_nonlinear_{problem}_reference.npz", **results)
+    print(f"saved {DATA_DIR / f'elasticity2D_nonlinear_{problem}_reference.npz'}")

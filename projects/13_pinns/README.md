@@ -17,8 +17,10 @@ a differentiable linear finite element solver for the bar.
 - `elasticity2D_reference.py` -> `data/elasticity2D_reference.npz`
   conforming mlhp references for perforated plates with 1 to 8 holes per side, and a
   uniform finite element study
-- `elasticity2D_nonlinear_reference.py` -> `data/elasticity2D_nonlinear_reference.npz`
-  neo-Hookean plate under increasing traction, reference, linear, and coarse solutions
+- `elasticity2D_nonlinear_reference.py` -> `data/elasticity2D_nonlinear_{cantilever,column}_reference.npz`
+  neo-Hookean 10:1 beam as a cantilever under a tip load and as a column under axial compression,
+  tractions at prescribed nonlinearities, p=5 references with a p=4 check, linear solutions, and a
+  p=1 and p=2 finite element study with adaptive load stepping
 - `poisson_corner_reference.py` -> `data/poisson_corner_reference.npz`
   mlhp multi-level hp refinement study of the corner singularity in 1 to 6 dimensions
 
@@ -77,8 +79,9 @@ a learning rate decay lowers the fluctuation but ends at larger errors.
   quadrature as the finite cell method (`helper.spacetree_quadrature`, `RESOLUTIONS` cells per
   side), random Fourier features and the last layer initialized as an extreme learning machine
   as in `elasticity2D_benchmark.py`
-- `elasticity2D_nonlinear.py` _needs `elasticity2D_nonlinear_reference.npz`_
-  deep energy method for the neo-Hookean plate over the degree of nonlinearity
+- `elasticity2D_nonlinear.py` _needs `elasticity2D_nonlinear_{cantilever,column}_reference.npz` and a GPU_
+  deep energy method for the cantilever and the column over the degree of nonlinearity,
+  random Fourier features and the last layer initialized on the linear-elastic energy
 - `elasticity2D_data.py` _needs `elasticity2D_reference.npz`_
   displacement measurements added to the forward problem, for the deep energy method and
   as a penalty for finite elements
@@ -240,13 +243,24 @@ $(\mathbf{K}+\lambda\mathbf{N}^\intercal\mathbf{N})\mathbf{u}=\mathbf{f}+\lambda
 \mathbf{N}^\intercal\tilde{\mathbf{u}}$ for the finite elements, where the rows of
 $\mathbf{N}$ hold the shape functions at the sensors, evaluated one unit vector at a time.
 
-**Degree of nonlinearity.** The neo-Hookean energy
-$W=\frac{\mu}{2}(\operatorname{tr}\mathbf{C}-2-2\ln J)+\frac{\lambda}{2}(\ln J)^2$ is mlhp's
-two-dimensional form, which linearizes to plane strain. The traction sets how nonlinear
-the response is, measured by $\|u-u_{\text{lin}}\|_{L^2}/\|u\|_{L^2}$ against the plane strain
-solution under the same load. This normalized measure makes the x-axis comparable across
-problems. Newton with five load steps fails on the refined reference beyond a traction of
-0.4.
+**Degree of nonlinearity.** A slender (10:1) neo-Hookean beam, clamped on the left, with
+$W=\frac{\mu}{2}(\operatorname{tr}\mathbf{C}-2-2\ln J)+\frac{\lambda}{2}(\ln J)^2$ (mlhp's
+two-dimensional form, linearizing to plane strain). Its strains stay small, so the
+nonlinearity is geometric; St. Venant-Kirchhoff was tried first and finds spurious
+equilibria under the compression at the clamped corners. The cantilever carries a downward
+traction on its right edge, the column an axial compression with a lateral imperfection of
+$10^{-3}$. The nonlinearity is
+$\|u-u_{\text{lin}}\|_{L^2}/\min(\|u\|_{L^2},\|u_{\text{lin}}\|_{L^2})$ against the plane
+strain solution under the same load, unbounded for stiffening and softening responses.
+Quadratic elements locate the tractions of prescribed nonlinearities ($10^{-4}$ to $10^2$ in
+half decades) by bisection. Newton accepts a converged load step only if the tangent has no
+negative eigenvalue, otherwise it halves the step; without this check the column ends on
+the unstable straight equilibrium beyond buckling. The finite element study starts at the
+full load, the reference takes increments of at most a twentieth of the load, so both
+follow the stable branch with different load paths. The column may buckle to either side,
+errors are taken against the nearer of the reference and its mirror image. The network
+output is scaled by the beam-theory tip deflection and the cost by the linear energy,
+otherwise the gradients at small loads fall below the epsilon of Adam.
 
 **Scores at equal cost.** Error and time are two axes of a work-precision diagram, and a
 single ratio such as error per second mixes quantities that do not trade off linearly. The

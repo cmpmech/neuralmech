@@ -17,7 +17,7 @@ from cuwave.utils import Sensors, line, measure, shots
 from cuwave.wave import grid_coords, stable_dt
 
 # -------------------------------------- settings -------------------------------------
-RESOLUTION = (256, 256)
+RESOLUTION = (512, 512)
 LENGTHS = (1.0, 1.0)
 SAFETY = 0.9
 

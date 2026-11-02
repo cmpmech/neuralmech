@@ -18,3 +18,6 @@ vectors or taking their dot product on several.
 - `dot_multi_gpu.py`
   the dot product on several GPUs, each summing its own chunk with `cp.dot` before
   the host adds the partial sums
+- `triangular_solve.py`
+  multiplies with and solves a lower bidiagonal matrix on the CPU and the GPU; the
+  multiplication parallelizes, the forward substitution does not
