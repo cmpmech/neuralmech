@@ -1,0 +1,9 @@
+vllm
+smolagents[openai]
+build123d
+trimesh
+scikit-image
+cupy-cuda13x
+rtree
+matplotlib
+pandas

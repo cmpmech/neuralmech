@@ -9,14 +9,14 @@ import torch
 from torch import nn
 from tqdm import tqdm
 
-from DL import sinusoidal_embedding
-from NN import DRNN
+from NN import DRNN, TransformerDecoder
 from postprocessing import save_csv
-from transformer_from_scratch import EfficientMultiHeadAttention, TransformerBlock
+from transformer_from_scratch import TransformerBlock
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 CSV_DIR = (RESULTS_DIR / "data").resolve()
+RGB_PNG_DIR = (RESULTS_DIR / "rgb_png").resolve()
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
@@ -32,7 +32,7 @@ EPOCHS = 4000  # one freshly drawn batch per epoch
 LR = 1e-3
 BATCH_SIZE = 64
 VAL_SAMPLES = 1000
-EVAL_EVERY = 50
+VAL_BATCH = 100  # validation in chunks to bound memory at long sequences
 
 # define loss
 cost_fun = nn.CrossEntropyLoss()
@@ -40,7 +40,8 @@ cost_fun = nn.CrossEntropyLoss()
 # task settings
 CLASSES = 8  # data tokens 1..CLASSES, 0 is noise, CLASSES + 1 is marker
 TOKENS = 8  # data tokens to copy
-LENGTH = 128  # data region; markers follow
+LENGTHS = [16, 32, 64, 128, 256, 512]  # data region; markers follow
+ATTENTION_LENGTH = 128  # sequence length of attention plot
 MARKER = CLASSES + 1
 
 # model settings
@@ -51,16 +52,16 @@ MAMBA_STATES = 16
 
 
 # --------------------------------------- helper --------------------------------------
-def create_batch(samples, selective, generator):
-    x = torch.zeros(samples, LENGTH + TOKENS, dtype=torch.long)
+def create_batch(samples, length, selective, generator):
+    x = torch.zeros(samples, length + TOKENS, dtype=torch.long)
     data = torch.randint(1, CLASSES + 1, (samples, TOKENS), generator=generator)
     if selective:
-        ids = torch.rand(samples, LENGTH, generator=generator).argsort(-1)[:, :TOKENS]
+        ids = torch.rand(samples, length, generator=generator).argsort(-1)[:, :TOKENS]
         ids = ids.sort(-1).values
     else:
         ids = torch.arange(TOKENS).expand(samples, TOKENS)
     x.scatter_(1, ids, data)
-    x[:, LENGTH:] = MARKER
+    x[:, length:] = MARKER
     return x, data, ids
 
 
@@ -144,13 +145,9 @@ class SequenceModel(nn.Module):
         if kind == "lstm":
             self.body = DRNN([D, D, D, MARKER + 1], cell=nn.LSTM)
             return
-        mixers = {
-            "transformer": lambda: EfficientMultiHeadAttention(D, D, D // HEADS, HEADS),
-            "s4d": lambda: S4D(D, STATES),
-            "mamba": lambda: Mamba(D, MAMBA_STATES),
-        }
+        mixer = {"s4d": lambda: S4D(D, STATES), "mamba": lambda: Mamba(D, MAMBA_STATES)}
         self.blocks = nn.Sequential(
-            *[TransformerBlock(D, mixers[kind]()) for _ in range(2)]
+            *[TransformerBlock(D, mixer[kind]()) for _ in range(2)]
         )
         self.projection = nn.Linear(D, MARKER + 1)
 
@@ -158,109 +155,114 @@ class SequenceModel(nn.Module):
         x = self.embedding(tokens)
         if self.kind == "lstm":
             return self.body(x)
-        if self.kind == "transformer":
-            positions = torch.arange(tokens.shape[1], device=tokens.device)
-            x = x + sinusoidal_embedding(positions, D)
         return self.projection(self.blocks(x))
 
 
+def create_model(kind):
+    if kind == "transformer":
+        return TransformerDecoder(MARKER + 1, D, HEADS, blocks=2)
+    return SequenceModel(kind)
+
+
 def attention_weights(model, tokens):
-    x = model.embedding(tokens)
-    x = x + sinusoidal_embedding(torch.arange(tokens.shape[1], device=tokens.device), D)
-    x = model.blocks[0](x)
-    attention = model.blocks[1].attention
-    shape = (*x.shape[:-1], HEADS, D // HEADS)
-    queries = attention.W_query(x).view(shape).transpose(-3, -2)
-    keys = attention.W_key(x).view(shape).transpose(-3, -2)
-    scores = queries @ keys.transpose(-2, -1) / (D // HEADS) ** 0.5
-    return torch.softmax(scores, dim=-1).mean(-3)
+    """attention of the second block, averaged over the heads."""
+    mask = nn.Transformer.generate_square_subsequent_mask(
+        tokens.shape[1], device=tokens.device
+    )
+    first, second = model.blocks.layers
+    x = first(model.embed(tokens), src_mask=mask, is_causal=True)
+    return second.self_attn(x, x, x, attn_mask=mask, need_weights=True)[1]
 
-
-# ------------------------------------ create data ------------------------------------
-KINDS = ["lstm", "s4d", "mamba", "transformer"]
-LEVELS = {"copying": False, "selective": True}
-val_data = {
-    level: [
-        t.to(device)
-        for t in create_batch(VAL_SAMPLES, s, torch.Generator().manual_seed(1))
-    ]
-    for level, s in LEVELS.items()
-}
 
 # -------------------------------------- training -------------------------------------
-history = {}
-models = {}
-for level, selective in LEVELS.items():
-    for kind in KINDS:
-        torch.manual_seed(0)
-        model = SequenceModel(kind).to(device)
-        optimizer = torch.optim.AdamW(model.parameters(), LR)
-        generator = torch.Generator().manual_seed(0)
-        parameters = sum(p.numel() for p in model.parameters())
-        X_val, Y_val, _ = val_data[level]
+KINDS = ["lstm", "s4d", "mamba", "transformer"]
+LEVELS = {"copying": False, "selective": True}
+accuracy = {}
+attention_models = {}
+attention_inputs = {}
+for length in LENGTHS:
+    for level, selective in LEVELS.items():
+        X_val, Y_val, _ = create_batch(
+            VAL_SAMPLES, length, selective, torch.Generator().manual_seed(1)
+        )
+        for kind in KINDS:
+            torch.manual_seed(0)
+            model = create_model(kind).to(device)
+            optimizer = torch.optim.AdamW(model.parameters(), LR)
+            generator = torch.Generator().manual_seed(0)
 
-        val_accuracy = []
-        tic = time.time()
-        pbar = tqdm(range(EPOCHS), desc=f"{level} {kind} ({parameters} parameters)")
-        for epoch in pbar:
-            model.train()
-            x, y, _ = create_batch(BATCH_SIZE, selective, generator)
-            x, y = x.to(device), y.to(device)
-            optimizer.zero_grad()
-            y_pred = model(x)[:, LENGTH:]
-            cost = cost_fun(y_pred.reshape(-1, MARKER + 1), y.reshape(-1))
-            cost.backward()
-            optimizer.step()
+            tic = time.time()
+            pbar = tqdm(range(EPOCHS), desc=f"{length} {level} {kind}")
+            for epoch in pbar:
+                model.train()
+                x, y, _ = create_batch(BATCH_SIZE, length, selective, generator)
+                x, y = x.to(device), y.to(device)
+                optimizer.zero_grad()
+                y_pred = model(x)[:, length:]
+                cost = cost_fun(y_pred.reshape(-1, MARKER + 1), y.reshape(-1))
+                cost.backward()
+                optimizer.step()
+                pbar.set_postfix({"cost": f"{cost.item():.2e}"})
 
-            if epoch % EVAL_EVERY == 0 or epoch == EPOCHS - 1:
-                model.eval()
-                with torch.no_grad():
-                    y_pred = model(X_val)[:, LENGTH:].argmax(-1)
-                val_accuracy.append((y_pred == Y_val).float().mean().item())
-                pbar.set_postfix(
-                    {"cost": f"{cost.item():.2e}", "acc": f"{val_accuracy[-1]:.3f}"}
-                )
-        toc = time.time()
-        print(f"elapsed time {toc - tic:.2f} s")
-        history[level, kind] = val_accuracy
-        models[level, kind] = model
+            model.eval()
+            correct = 0
+            with torch.no_grad():
+                for x, y in zip(X_val.split(VAL_BATCH), Y_val.split(VAL_BATCH)):
+                    y_pred = model(x.to(device))[:, length:].argmax(-1).cpu()
+                    correct += (y_pred == y).sum().item()
+            accuracy[length, level, kind] = correct / Y_val.numel()
+            toc = time.time()
+            print(f"elapsed time {toc - tic:.2f} s")
+            if (length, kind) == (ATTENTION_LENGTH, "transformer"):
+                attention_models[level] = model
+                attention_inputs[level] = X_val[:1].to(device)
 
 # ----------------------------------- postprocessing ----------------------------------
-epochs = [e for e in range(EPOCHS) if e % EVAL_EVERY == 0] + [EPOCHS - 1]
-for (level, kind), accuracy in history.items():
-    print(f"{level} {kind}: final accuracy {accuracy[-1]:.3f}")
+for (length, level, kind), value in accuracy.items():
+    print(f"{length} {level} {kind}: accuracy {value:.3f}")
 
-x = val_data["selective"][0][:1]
+attention = {}
 with torch.no_grad():
-    attention = attention_weights(models["selective", "transformer"], x)[0, LENGTH:]
-attention = attention.cpu().numpy()
+    for level in LEVELS:
+        weights = attention_weights(attention_models[level], attention_inputs[level])
+        attention[level] = weights[0, ATTENTION_LENGTH:].cpu().numpy()
 
 if not args.book:
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-    for (level, kind), accuracy in history.items():
-        axes[list(LEVELS).index(level)].plot(epochs, accuracy)
+    for ax, level in zip(axes, LEVELS):
+        for kind in KINDS:
+            values = [accuracy[length, level, kind] for length in LENGTHS]
+            ax.semilogx(LENGTHS, values, "o-", base=2)
     plt.show()
 
-    fig, ax = plt.subplots(figsize=(10, 2))
-    ax.imshow(attention, cmap="cividis", aspect="auto", interpolation="none")
+    fig, axes = plt.subplots(2, 1, figsize=(10, 4))
+    for ax, level in zip(axes, LEVELS):
+        ax.imshow(attention[level], cmap="cividis", aspect="auto", interpolation="none")
     plt.show()
 # -------------------------------- book postprocessing --------------------------------
 else:
     for level in LEVELS:
         save_csv(
             CSV_DIR / f"selective_copying_{level}.csv",
-            epoch=epochs,
-            **{kind: history[level, kind] for kind in KINDS},
+            length=LENGTHS,
+            **{k: [accuracy[n, level, k] for n in LENGTHS] for k in KINDS},
         )
-    i, j = np.meshgrid(np.arange(TOKENS), np.arange(LENGTH + TOKENS), indexing="ij")
-    save_csv(
-        CSV_DIR / "selective_copying_attention.csv",
-        marker=i.flatten() + 1,
-        position=j.flatten() + 1,
-        weight=attention.flatten(),
-    )
-    save_csv(
-        CSV_DIR / "selective_copying_tokens.csv",
-        position=np.arange(LENGTH + TOKENS) + 1,
-        token=x[0].cpu().numpy(),
-    )
+    for level in LEVELS:
+        fig, ax = plt.subplots(figsize=(13.6, 1.6))
+        ax.imshow(
+            attention[level],
+            cmap="cividis",
+            vmin=0,
+            vmax=1,
+            aspect="auto",
+            interpolation="none",
+        )
+        ax.axis("off")
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        fig.savefig(RGB_PNG_DIR / f"selective_copying_attention_{level}.png", dpi=200)
+        plt.close(fig)
+        save_csv(
+            CSV_DIR / f"selective_copying_tokens_{level}.csv",
+            position=np.arange(ATTENTION_LENGTH + TOKENS) + 1,
+            token=attention_inputs[level][0].cpu().numpy(),
+        )

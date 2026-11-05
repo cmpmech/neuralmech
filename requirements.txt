@@ -49,6 +49,7 @@ google-crc32c==1.8.0
 google-pasta==0.2.0
 greenlet==3.3.0
 grpcio==1.76.0
+gymnasium[classic-control,box2d,mujoco]==1.4.0
 h5netcdf==1.8.1
 h5py==3.15.1
 hamiltorch @ git+https://github.com/AdamCobb/hamiltorch@19b627b2aabc77c1b4b78db0f860372eb1bf9778

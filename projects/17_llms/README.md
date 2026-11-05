@@ -22,9 +22,37 @@ pretrained transformer (T5) loaded through Hugging Face.
 - `attention_maps.py`
   cross-attention and encoder self-attention weights of T5 translating "In winter, it
   snows.", merged from subword tokens to words
+- `ai_scaling_trends.py`
+  downloads compute, data, and parameter counts of notable AI systems (Our World in Data)
+  and training costs of frontier models (Epoch AI), and fits exponential trends
+- `reasoning_model.py`
+  a small reasoning model (Qwen3-1.7B) counts the letter e in the book title; its reasoning
+  above a dashed line and its answer below, as chat bubbles for the book
 - `selective_copying.py`
   copying and selective copying from the Mamba paper, learned from scratch by an LSTM,
-  S4D, Mamba, and a transformer; accuracy histories and the transformer's attention map
+  S4D, Mamba, and a transformer; final accuracy against sequence length (16 to 512) and
+  the transformer's attention maps of both tasks at length 128
+- `vit_inference.py`
+  a pretrained vision transformer (ViT-B/16) classifies a photo; attention rollout of the
+  class token over the 16 x 16 patches
+- `clip_zero_shot.py`
+  zero-shot classification of three photos and three images from computational mechanics
+  (finite element field, CT slice, fiber microstructure) by CLIP against six text prompts
+- `whisper_transcription.py`
+  log-mel spectrogram and transcription of a LibriSpeech recording by Whisper large-v3 turbo
+- `time_series_forecasting.py`
+  zero-shot forecasts of a quasi-periodically forced Duffing oscillator and the Lorenz system
+  by Timestral, Chronos-2, and TimesFM 2.5
+- `rag_t5.py`
+  retrieval-augmented generation over the driver descriptions of all project READMEs:
+  Sentence-T5 embeddings for retrieval, Flan-T5 for the answer, with and without retrieval
+- `vlm_description.py`
+  a small vision-language model (Qwen3-VL-2B) describes a finite element displacement field
+- `agents/engineering_agent.py`
+  _needs the packages in `agents/requirements.txt`, cuvox, and a GPU_ language model agents
+  (smolagents, open models served by vLLM) design a powder bed fusion bracket through the tools
+  of `agents/helper.py`: specification check, topology optimization (cuvox), STL extraction,
+  CAD interfaces (build123d), re-analysis, and manufacturing checks; success rate per model
 
 ## Non-obvious technicalities (authored by Claude)
 
@@ -48,15 +76,16 @@ rows of a word's query tokens and summing the columns of its key tokens, which k
 every row a probability distribution. The models are read from the Hugging Face cache;
 set `HF_HUB_OFFLINE=1` when the machine has no network access.
 
-**Sequence models in `selective_copying.py`.** S4D and Mamba replace the attention
-module inside the transformer block of
-`transformer_from_scratch.py`, so the four models differ only in the
-sequence-mixing layer. S4D uses a diagonal complex $\mathbf{A}$ with S4D-Lin
+**Sequence models in `selective_copying.py`.** The transformer is the 
+`TransformerDecoder` of `NN.py` (PyTorch's `TransformerEncoderLayer` with a causal mask). S4D and
+Mamba replace the attention module inside the equivalent post-norm block of
+`transformer_from_scratch.py`, so all models except the LSTM differ only in the
+sequence-mixing layer, and all four are causal. S4D uses a diagonal complex $\mathbf{A}$ with S4D-Lin
 initialization ($a_n=-\tfrac12+i\pi n$), zero-order-hold discretization, and evaluates
 its kernel as a convolution via FFT. Mamba computes $\Delta t$, $\mathbf{B}$, and
 $\mathbf{C}$ from the input, preceded by a short causal depthwise convolution and
 followed by a SiLU gate, and runs its recurrence as a plain loop over the sequence
-(fine for 136 tokens). The bias of $\Delta t$ is initialized as the inverse softplus of
+(fine for up to 520 tokens, the slowest part of the sweep). The bias of $\Delta t$ is initialized as the inverse softplus of
 a log-uniform sample in $[10^{-3},10^{-1}]$; with the default initialization
 $\Delta t\approx0.7$, the state forgets within a few steps and neither task is learned.
 The recurrence loops over `unbind(1)` slices rather than indexing `[:, tau]`: the

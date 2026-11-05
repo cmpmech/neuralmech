@@ -398,6 +398,82 @@ class DRNN(nn.Module):
         return x
 
 
+class TransformerBase(nn.Module):
+    """shared parts of TransformerEncoder and TransformerDecoder: token embedding,
+    sinusoidal positional encoding, post-norm blocks, and a linear head on every token.
+    Subclasses define forward, i.e., which tokens the blocks attend to.
+
+    Reference: https://arxiv.org/abs/1706.03762
+
+    Args:
+        vocabulary: number of tokens, also the number of output logits.
+        D: embedding dimension.
+        heads: attention heads per block.
+        blocks: number of transformer blocks.
+    """
+
+    def __init__(self, vocabulary: int, D: int, heads: int, blocks: int) -> None:
+        super().__init__()
+        self.embedding = nn.Embedding(vocabulary, D)
+        block = nn.TransformerEncoderLayer(
+            D, heads, 4 * D, dropout=0, activation="gelu", batch_first=True
+        )
+        self.blocks = nn.TransformerEncoder(block, blocks, enable_nested_tensor=False)
+        self.head = nn.Linear(D, vocabulary)
+
+    def embed(self, tokens: torch.Tensor) -> torch.Tensor:
+        N, D = tokens.shape[1], self.embedding.embedding_dim
+        n = torch.arange(N, device=tokens.device)[:, None]
+        i = torch.arange(D, device=tokens.device)
+        angles = n / 10000 ** (i / D)
+        E = torch.where(i % 2 == 0, angles.sin(), angles.cos())  # sine at even i
+        return self.embedding(tokens) + E
+
+
+class TransformerEncoder(TransformerBase):
+    """encoder: every token attends to all tokens (bidirectional attention)."""
+
+    def forward(self, tokens: torch.Tensor) -> torch.Tensor:
+        return self.head(self.blocks(self.embed(tokens)))
+
+
+class TransformerDecoder(TransformerBase):
+    """decoder-only transformer: every token attends to itself and earlier tokens.
+
+    PyTorch's TransformerDecoderLayer adds cross-attention to an encoder output, so a
+    decoder-only model stacks TransformerEncoderLayer blocks with a causal mask.
+    """
+
+    def forward(self, tokens: torch.Tensor) -> torch.Tensor:
+        mask = nn.Transformer.generate_square_subsequent_mask(
+            tokens.shape[1], device=tokens.device
+        )
+        return self.head(self.blocks(self.embed(tokens), mask=mask, is_causal=True))
+
+
+class TransformerEncoderDecoder(TransformerBase):
+    """encoder-decoder: the inherited blocks encode the source, and a stack of decoder
+    blocks with causal self-attention and cross-attention to the encoded source
+    processes the target. Embedding and head are shared by source and target.
+    """
+
+    def __init__(self, vocabulary: int, D: int, heads: int, blocks: int) -> None:
+        super().__init__(vocabulary, D, heads, blocks)
+        block = nn.TransformerDecoderLayer(
+            D, heads, 4 * D, dropout=0, activation="gelu", batch_first=True
+        )
+        self.decoder_blocks = nn.TransformerDecoder(block, blocks)
+
+    def forward(self, source: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        memory = self.blocks(self.embed(source))
+        mask = nn.Transformer.generate_square_subsequent_mask(
+            target.shape[1], device=target.device
+        )
+        x = self.embed(target)
+        x = self.decoder_blocks(x, memory, tgt_mask=mask, tgt_is_causal=True)
+        return self.head(x)
+
+
 class NODE(nn.Module):
     """neural ordinary differential equation: dh/dt is a network integrated by odeint.
 
