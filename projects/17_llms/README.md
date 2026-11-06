@@ -39,7 +39,9 @@ pretrained transformer (T5) loaded through Hugging Face.
   zero-shot classification of three photos and three images from computational mechanics
   (finite element field, CT slice, fiber microstructure) by CLIP against six text prompts
 - `whisper_transcription.py`
-  log-mel spectrogram and transcription of a LibriSpeech recording by Whisper large-v3 turbo
+  _needs external_data/isengard/isengard.wav_ log-mel spectrogram and transcription of the
+  line "They're taking the hobbits to Isengard" (The Lord of the Rings: The Two Towers, 2002)
+  by Whisper large-v3 turbo
 - `time_series_forecasting.py`
   zero-shot forecasts of a quasi-periodically forced Duffing oscillator and the Lorenz system
   by Timestral, Chronos-2, and TimesFM 2.5

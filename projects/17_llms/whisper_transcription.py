@@ -1,17 +1,16 @@
 import argparse
-import io
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import soundfile
 import torch
-from datasets import Audio, load_dataset
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
 BASE_DIR = Path(__file__).parent
 RESULTS_DIR = (BASE_DIR / "../../results").resolve()
 RGB_PNG_DIR = (RESULTS_DIR / "rgb_png").resolve()
+DATA_DIR = (BASE_DIR / "../../external_data/isengard").resolve()
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
@@ -23,13 +22,10 @@ args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
 MODEL = "openai/whisper-large-v3-turbo"
-SAMPLE = 0  # utterance of the LibriSpeech excerpt
+REFERENCE = "They're taking the hobbits to Isengard."
 
 # -------------------------------------- load data ------------------------------------
-dataset = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
-dataset = dataset.cast_column("audio", Audio(decode=False))  # raw flac bytes, already 16 kHz
-audio, _ = soundfile.read(io.BytesIO(dataset[SAMPLE]["audio"]["bytes"]))
-reference = dataset[SAMPLE]["text"]
+audio, _ = soundfile.read(DATA_DIR / "isengard.wav")  # 16 kHz mono, only the spoken line
 
 # ------------------------------------- load model ------------------------------------
 processor = WhisperProcessor.from_pretrained(MODEL)
@@ -43,7 +39,7 @@ with torch.no_grad():
 transcription = processor.batch_decode(ids, skip_special_tokens=True)[0].strip()
 
 # ----------------------------------- postprocessing ----------------------------------
-print(f"reference:     {reference}")
+print(f"reference:     {REFERENCE}")
 print(f"transcription: {transcription}")
 
 frames = int(len(audio) / 16_000 * 100)  # 10 ms per frame, rest of the 30 s window is padding
@@ -61,4 +57,4 @@ else:
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.savefig(RGB_PNG_DIR / "whisper_spectrogram.png", dpi=200)
     (RESULTS_DIR / "data" / "whisper_transcription.txt").write_text(
-        f"duration {len(audio) / 16_000:.2f} s\nreference: {reference}\ntranscription: {transcription}\n")
+        f"duration {len(audio) / 16_000:.2f} s\nreference: {REFERENCE}\ntranscription: {transcription}\n")

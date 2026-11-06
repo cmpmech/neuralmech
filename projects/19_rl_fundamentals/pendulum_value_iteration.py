@@ -115,4 +115,14 @@ else:
         theta=theta_deg,
         omega=trajectory[:, 1],
     )
+    omega_traj = trajectory[:, 1]
+    swing = np.concatenate([[0], np.cumsum(omega_traj[1:] * omega_traj[:-1] < 0)])
+    upright = np.argmax(np.cos(trajectory[:, 0]) > np.cos(np.radians(1))) + 1
+    save_csv(
+        CSV_DIR / "pendulum_value_iteration_snapshots.csv",
+        t=np.arange(upright) * DT,
+        x=LENGTH * np.sin(trajectory[:upright, 0]),
+        y=LENGTH * np.cos(trajectory[:upright, 0]),
+        swing=swing[:upright],
+    )
     print(f"value range {V.min():.2f} to {V.max():.2f}")

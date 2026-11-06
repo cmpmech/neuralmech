@@ -8,7 +8,8 @@ policy illustrate dynamic programming and the policy gradient.
 ## Drivers
 
 - `pendulum_value_iteration.py`
-  value iteration on the discretized phase plane of a torque-limited pendulum
+  value iteration on the discretized phase plane of a torque-limited pendulum; with `--book`
+  also the swing-up of the greedy policy as rod snapshots, split into swings
 - `policy_gradient_toy.py`
   score-function gradient of a gaussian policy on a step reward, with and without baseline
 - `cartpole_dqn.py`
