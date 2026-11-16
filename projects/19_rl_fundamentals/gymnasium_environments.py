@@ -23,21 +23,21 @@ args = parser.parse_args()
 SEED = 0
 RESOLUTION = (480, 360)  # width and height of every frame in pixels
 
-# environment, steps before the snapshot, crop box (left, top, right, bottom) in pixels
+# environment, steps of the frames, crop box (left, top, right, bottom) in pixels
 ENVIRONMENTS = [
-    ("CartPole-v1", 15, (162, 140, 442, 350)),
-    ("Acrobot-v1", 136, (0, 110, 400, 410)),
-    ("LunarLander-v3", 45, (140, 100, 460, 340)),
-    ("BipedalWalker-v3", 240, (0, 130, 280, 340)),
-    ("Ant-v5", 10, None),
-    ("Humanoid-v5", 10, None),
+    ("CartPole-v1", [3, 6, 9, 12, 15, 18], (162, 140, 442, 350)),
+    ("Acrobot-v1", [206, 210, 214, 218, 222, 226], (17, 120, 483, 470)),
+    ("LunarLander-v3", [20, 44, 68, 92, 116, 140], (140, 60, 460, 300)),
+    ("BipedalWalker-v3", [0, 60, 120, 180, 240, 300], (0, 130, 280, 340)),
+    ("Ant-v5", [0, 4, 8, 12, 16, 20], None),
+    ("Humanoid-v5", [0, 5, 10, 15, 20, 25], None),
 ]
 
 # mujoco cameras closer than the gymnasium default
 CAMERAS = {
     "Ant-v5": dict(trackbodyid=1, distance=3.0, elevation=-30.0, azimuth=90.0),
     "Humanoid-v5": dict(
-        trackbodyid=1, distance=2.5, elevation=-15.0, azimuth=160.0,
+        trackbodyid=1, distance=2.0, elevation=-15.0, azimuth=160.0,
         lookat=np.array([0.0, 0.0, 1.0]),
     ),
 }
@@ -52,7 +52,7 @@ POLICIES = {
 random_policy = lambda env, s: env.action_space.sample()
 
 # -------------------------------------- rollout --------------------------------------
-frames = {}
+filmstrips = {}
 for name, steps, box in ENVIRONMENTS:
     if name in CAMERAS:
         env = gym.make(
@@ -64,23 +64,29 @@ for name, steps, box in ENVIRONMENTS:
     policy = POLICIES.get(name, random_policy)
     s, _ = env.reset(seed=SEED)
     env.action_space.seed(SEED)
-    for tau in range(steps):
+    frames = [env.render()]
+    for tau in range(steps[-1]):
         s, *_ = env.step(policy(env, s))
-    frame = Image.fromarray(env.render())
-    if box is not None:
-        frame = frame.crop(box).resize(RESOLUTION, Image.LANCZOS)
-    frames[name] = frame
+        frames.append(env.render())
+    filmstrips[name] = []
+    for tau in steps:
+        frame = Image.fromarray(frames[tau])
+        if box is not None:
+            frame = frame.crop(box).resize(RESOLUTION, Image.LANCZOS)
+        filmstrips[name].append(frame)
     env.close()
 
 # ----------------------------------- postprocessing ----------------------------------
 if not args.book:
-    fig, axes = plt.subplots(2, 3, figsize=(9, 5))
-    for ax, (name, frame) in zip(axes.flat, frames.items()):
-        ax.imshow(frame)
-        ax.set_title(name)
-        ax.axis("off")
+    fig, axes = plt.subplots(len(ENVIRONMENTS), 6, figsize=(12, 9))
+    for row, (name, filmstrip) in zip(axes, filmstrips.items()):
+        for ax, frame in zip(row, filmstrip):
+            ax.imshow(frame)
+            ax.axis("off")
+        row[0].set_title(name, loc="left")
     plt.show()
 # -------------------------------- book postprocessing --------------------------------
 else:
-    for name, frame in frames.items():
-        frame.save(RGB_PNG_DIR / f"gymnasium_{name.split('-')[0].lower()}.png")
+    for name, filmstrip in filmstrips.items():
+        for i, frame in enumerate(filmstrip):
+            frame.save(RGB_PNG_DIR / f"gymnasium_{name.split('-')[0].lower()}_{i}.png")

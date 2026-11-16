@@ -73,6 +73,6 @@ for s in SPARSITIES:
     plt.loglog(sizes, gpu_times, label=f"GPU s={s}")
     plt.loglog(sizes, cpu_times, "--", label=f"CPU s={s}")
 plt.xlabel("N")
-plt.ylabel("wall-clock time in s")
+plt.ylabel("wall-clock time [s]")
 plt.legend()
 plt.show()

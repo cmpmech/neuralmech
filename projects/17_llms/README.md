@@ -50,11 +50,34 @@ pretrained transformer (T5) loaded through Hugging Face.
   Sentence-T5 embeddings for retrieval, Flan-T5 for the answer, with and without retrieval
 - `vlm_description.py`
   a small vision-language model (Qwen3-VL-2B) describes a finite element displacement field
+- `jepa_maze.py`
+  an action-conditioned joint embedding predictive architecture learns the 12 x 12 maze of the
+  chapter 1 probes from random moves; breadth-first search over its predicted moves finds the
+  route
+- `distillation/teacher.py`
+  _needs vLLM, external_data/distillation/cuwave and langtangen.txt_ a teacher (gpt-oss-20b)
+  writes question-answer pairs on the cuwave codebase and on finite differences
+  -> external_data/distillation/qa_raw.json
+- `distillation/check.py`
+  _needs cuwave's dependencies (cupy) and a GPU_ runs every code snippet of the pairs against
+  cuwave and keeps the pairs whose code runs -> external_data/distillation/qa.json
+- `distillation/distillation.py`
+  _needs qa.json_ sequence-level distillation: LoRA fine-tuning of Qwen3-1.7B on the pairs
+  (`--small`: Qwen3-0.6B, trained more aggressively); answers before and after training to
+  cuwave, finite-difference, and Lord of the Rings questions
 - `agents/engineering_agent.py`
   _needs the packages in `agents/requirements.txt`, cuvox, and a GPU_ language model agents
   (smolagents, open models served by vLLM) design a powder bed fusion bracket through the tools
   of `agents/helper.py`: specification check, topology optimization (cuvox), STL extraction,
   CAD interfaces (build123d), re-analysis, and manufacturing checks; success rate per model
+- `task_horizon.py`
+  downloads METR's time-horizon results (length of the software tasks that agents complete in
+  half of the attempts) and fits the doubling trends since 2019 and since 2023
+- `steering.py`
+  interpretability of Qwen3-1.7B with the methods of neuroscience: a difference-of-means probe
+  per layer separates Tolkien-style from mechanics-textbook sentences (recording), adding that
+  direction to one layer pulls answers on mechanics toward Middle-earth (stimulation), and
+  projecting it out of the weights removes the Tolkien style (lesion)
 
 ## Non-obvious technicalities (authored by Claude)
 
@@ -93,3 +116,28 @@ $\Delta t\approx0.7$, the state forgets within a few steps and neither task is l
 The recurrence loops over `unbind(1)` slices rather than indexing `[:, tau]`: the
 backward pass of an index fills a full-size zero tensor per step, which made training
 five times slower.
+
+**Distillation data.** `teacher.py` cuts cuwave into topic slices of at most about 40k tokens:
+each documentation page together with its module (or CUDA kernel file) and the two shortest
+example drivers that use it, plus three chunks of chapter 2 (wave equations) of Langtangen &
+Linge, *Finite Difference Computing with PDEs* (open access; `langtangen.txt` is
+`pdftotext -layout` of the book PDF, and the chapter is cut by line numbers of that file). The
+whole repository would not fit the teacher's context window. Each request asks for ten pairs
+of one question type (concepts, how-to code, arguments, pitfalls, internals, worked numbers,
+simulation setup in physical words, ...), and every request gets its own sampling seed, so
+repeated requests give different pairs. `check.py` executes every Python block of an answer
+after a preamble that defines a small 2D `ScalarWave` and the usual constants; a pair survives
+only if all its blocks run, where an undefined lowercase or upper-case placeholder variable
+counts as running, an undefined CamelCase name (an invented class) does not, and every
+simulation's boundary entries must be real `BoundaryCondition` objects. The check verifies the
+API, not the meaning: code that runs but sets the wrong condition passes. It also strips the
+chapter's equation numbers, which the teacher cites and the student would otherwise copy.
+
+**LoRA by hand.** `helper.LoRA` wraps every attention and feedforward projection as
+$\mathbf{W}\mathbf{x}+\tfrac{\alpha}{r}\mathbf{B}\mathbf{A}\mathbf{x}$ with $\mathbf{B}=0$ at
+the start, so the answers "before" are taken from the wrapped model. The low-rank path runs in
+float32 on top of the bfloat16 base model. The cost is the cross-entropy on the answer tokens
+only: the prompt positions carry the label -100, which PyTorch's cross-entropy ignores.
+`distillation.py` trains on the workstation (gradient checkpointing keeps a batch of eight
+long answers within 32 GB) and saves only the LoRA weights; when they exist, it loads them and
+only answers, which runs on a 6 GB laptop GPU.

@@ -223,7 +223,7 @@ if not args.book:
         mask = reference["dim"] == D
         axs[0].loglog(reference["time"][mask], reference["error"][mask], "b.-")
         axs[0].loglog(histories[D]["time"][1:], histories[D]["error"][1:], "r")
-    axs[0].set_xlabel("time in s")
+    axs[0].set_xlabel("time [s]")
     axs[0].set_ylabel("relative energy error")
     axs[1].semilogy(scores["dim"], scores["ratio"], "k.-")
     axs[1].set_xlabel("dimension")

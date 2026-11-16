@@ -199,7 +199,7 @@ if not args.book:
             axs[0].loglog(reference["nonlinearity"], reference[f"p{degree}_error"], style)
             axs[1].loglog(reference["nonlinearity"], reference[f"p{degree}_time"], style)
     axs[0].set_ylabel("relative displacement error")
-    axs[1].set_ylabel("time in s")
+    axs[1].set_ylabel("time [s]")
     for ax in axs:
         ax.set_xlabel("nonlinearity")
     plt.show()

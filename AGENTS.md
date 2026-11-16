@@ -64,3 +64,7 @@ For the full ruleset, driver style, and scaffolding, invoke `neuralmech-style`.
 - Graph networks: input is a PyG `Data` object (`graph.x`, `graph.edge_index`).
 - `Standardizer` (`DL.py`): call `.inverse()` to undo normalization.
 - `ELM` (`NN.py`): use `.fit(x, y, regularization)` before forward pass.
+
+## Axis labels
+
+The book avoids units; give one only for a measured physical quantity (wall-clock time, recorded audio). Then it goes in square brackets after the quantity, as in the book: `ax.set_ylabel("time [s]")`; never `"time in s"` or `"time (s)"`. Model-problem state variables get the bare symbol.

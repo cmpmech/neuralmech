@@ -18,12 +18,8 @@ args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
 IMAGES = ["duckling.jpg", "abiskojaure.jpg"]
-CASE = 1
-KEEP_RATIO = 0.05
+KEEP_RATIOS = [0.05, 0.2]
 
-# ------------------------------------- load image ------------------------------------
-img = Image.open(DATA_DIR / "images" / IMAGES[CASE]).convert("L")
-img_arr = np.array(img, dtype=float)
 
 # --------------------------------------- helper --------------------------------------
 def plot_spectrum(field):
@@ -39,45 +35,50 @@ def plot_spectrum(field):
     return fig
 
 
+def compress(F_shifted, keep_ratio):
+    abs_F = np.abs(F_shifted)
+    threshold = np.percentile(abs_F, (1 - keep_ratio) * 100)
+    F_trunc = F_shifted * (abs_F >= threshold)
+    img_reconstructed = np.fft.ifft2(np.fft.ifftshift(F_trunc)).real
+    return np.clip(img_reconstructed, 0, 255)
+
+
+for case, image in enumerate(IMAGES):
+# ------------------------------------- load image ------------------------------------
+    img = Image.open(DATA_DIR / "images" / image).convert("L")
+    img_arr = np.array(img, dtype=float)
+
 # --------------------------------------- 2D FFT --------------------------------------
-F = np.fft.fft2(img_arr)
-F_shifted = np.fft.fftshift(F)
+    F = np.fft.fft2(img_arr)
+    F_shifted = np.fft.fftshift(F)
 
-magnitude = np.log1p(np.abs(F_shifted))
-phase = np.angle(F_shifted)
-
-# ------------------------------------- truncation ------------------------------------
-abs_F = np.abs(F_shifted)
-threshold = np.percentile(abs_F, (1 - KEEP_RATIO) * 100)
-mask = abs_F >= threshold
-
-F_trunc = F_shifted * mask
-
-img_reconstructed = np.fft.ifft2(np.fft.ifftshift(F_trunc)).real
-img_reconstructed = np.clip(img_reconstructed, 0, 255)
+    magnitude = np.log1p(np.abs(F_shifted))
+    phase = np.angle(F_shifted)
 
 # ----------------------------------- postprocessing ----------------------------------
-fig_freq = plot_spectrum(magnitude)
-fig_phase = plot_spectrum(phase)
+    fig_freq = plot_spectrum(magnitude)
+    fig_phase = plot_spectrum(phase)
 
-if not args.book:
-    plt.show()
-    show_image(img_arr.astype(np.uint8), grayscale=True)
-    show_image(img_reconstructed.astype(np.uint8), grayscale=True)
+    if not args.book:
+        plt.show()
+        show_image(img_arr.astype(np.uint8), grayscale=True)
+        for keep_ratio in KEEP_RATIOS:
+            show_image(compress(F_shifted, keep_ratio).astype(np.uint8), grayscale=True)
 # -------------------------------- book postprocessing --------------------------------
-else:
-    fig_freq.savefig(RGB_PDF_DIR / f"fft2_freq_{CASE}.pdf")
-    fig_phase.savefig(RGB_PDF_DIR / f"fft2_phase_{CASE}.pdf")
-    plt.close("all")
-    show_image(
-        img_arr.astype(np.uint8),
-        grayscale=True,
-        path=RGB_PDF_DIR / f"fft_og_{CASE}.pdf",
-        close=True,
-    )
-    show_image(
-        img_reconstructed.astype(np.uint8),
-        grayscale=True,
-        path=RGB_PDF_DIR / f"fft_compressed_{CASE}_{KEEP_RATIO}.pdf",
-        close=True,
-    )
+    else:
+        fig_freq.savefig(RGB_PDF_DIR / f"fft2_freq_{case}.pdf")
+        fig_phase.savefig(RGB_PDF_DIR / f"fft2_phase_{case}.pdf")
+        plt.close("all")
+        show_image(
+            img_arr.astype(np.uint8),
+            grayscale=True,
+            path=RGB_PDF_DIR / f"fft_og_{case}.pdf",
+            close=True,
+        )
+        for keep_ratio in KEEP_RATIOS:
+            show_image(
+                compress(F_shifted, keep_ratio).astype(np.uint8),
+                grayscale=True,
+                path=RGB_PDF_DIR / f"fft_compressed_{case}_{keep_ratio}.pdf",
+                close=True,
+            )

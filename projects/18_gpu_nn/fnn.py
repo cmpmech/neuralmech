@@ -67,6 +67,6 @@ for ax, grad in zip(axes, [False, True]):
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("batch size")
-axes[0].set_ylabel("wall-clock time in s")
+axes[0].set_ylabel("wall-clock time [s]")
 axes[0].legend(fontsize=6)
 plt.show()

@@ -43,9 +43,15 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 - **Governing Equations** (chapter 8)
 - **Numerical Methods** (chapter 9)
 - **Physics-Informed Neural Networks** (chapter 13)
+- **Large Language Models** (chapter 17)
 - **Simulation Acceleration via GPUs** (chapter 18)
 
 <img src=".assets/images/strains.png" alt="matrix-free finite element method on GPU" width="500">
+
+- **Deep Reinforcement Learning** (chapter 19)
+- **PyTorch Primer** (appendix A)
+- **Deep Learning Beyond PyTorch** (appendix B)
+- **Practical Automatic Differentiation** (appendix C)
 
 </details>
 
@@ -63,8 +69,6 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 
 <img src=".assets/images/fwi.png" alt="full waveform inversion" width="300">
 
-- **Large Language Models** (chapter 17)
-- **Deep Reinforcement Learning** (chapter 19)
 - **Computational Mechanics After Artificial Intelligence** (chapter 20)
 
 </details>
