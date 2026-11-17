@@ -31,10 +31,10 @@ args = parser.parse_args()
 
 # -------------------------------------- settings -------------------------------------
 RESOLUTION = 256
-CLUSTERS = [4, 8, 16, 32]
-CLUSTERS_2D = [4, 16]  # shown in the principal component plane
-SAMPLES_2D = 3000  # pixels drawn in the principal component plane
-COMPONENTS = 3  # of the gaussian mixture
+CLUSTERS = [2, 4, 8, 16, 32, 64]
+CLUSTERS_2D = 8  # clusters shown in principal component plane
+STRIDE_2D = 4  # every fourth pixel per direction in the principal component plane
+COMPONENTS = 8  # of the gaussian mixture
 
 # physics: stiff fibers in a matrix, plane stress
 E_FIBER, E_MATRIX, NU = 20.0, 1.0, 0.3
@@ -52,15 +52,15 @@ dofs = (2 * nodes[:, :, None] + np.arange(2)).reshape(-1, 8)
 Ke = element_stiffness(NU)
 rows = np.repeat(dofs, 8, axis=1).flatten()
 cols = np.tile(dofs, 8).flatten()
-K = sp.csc_matrix(((E[:, None, None] * Ke).flatten(), (rows, cols)))
+stiffness = sp.csc_matrix(((E[:, None, None] * Ke).flatten(), (rows, cols)))
 
 # unit average strains eps_11, eps_22, eps_12 as affine displacements of the element corners
 average = np.array([[[1, 0], [0, 0]], [[0, 0], [0, 1]], [[0, 1], [1, 0]]])
 u_average = (corners @ average).reshape(3, 8)  # corners in units of the pixel size
 f = -(E[:, None, None] * (u_average @ Ke)[None]).transpose(1, 0, 2)
-f = np.stack([np.bincount(dofs.flatten(), load.flatten(), minlength=K.shape[0]) for load in f])
+f = np.stack([np.bincount(dofs.flatten(), load.flatten(), minlength=stiffness.shape[0]) for load in f])
 
-lu = splu(K[2:, 2:])  # first node fixed against rigid translation
+lu = splu(stiffness[2:, 2:])  # first node fixed against rigid translation
 u = np.zeros_like(f)
 u[:, 2:] = lu.solve(f[:, 2:].T).T
 
@@ -90,9 +90,9 @@ print(f"K = {CLUSTERS[-1]}: relative error of cluster-averaged strain {error:.3f
 
 pca = PCA(n_components=2).fit(X)
 print(f"two principal components keep {pca.explained_variance_ratio_.sum():.3f} of variance")
-rng = np.random.default_rng(0)
-samples = rng.choice(len(X), SAMPLES_2D, replace=False)
+samples = np.arange(len(X)).reshape(RESOLUTION, RESOLUTION)[::STRIDE_2D, ::STRIDE_2D].flatten()
 Z = pca.transform(X[samples])
+Z_centers = pca.transform(centers[CLUSTERS_2D])
 
 gmm = GaussianMixture(n_components=COMPONENTS, random_state=0).fit(strain[:, None])
 x_test = np.linspace(strain.min(), strain.max(), 400)
@@ -113,10 +113,9 @@ if not args.book:
     for ax in axes:
         ax.axis("off")
 
-    fig, axes = plt.subplots(1, len(CLUSTERS_2D), figsize=(10, 4))
-    for ax, clusters in zip(axes, CLUSTERS_2D):
-        ax.scatter(*Z.T, c=labels[clusters][samples], s=2, cmap="cividis")
-        ax.scatter(*pca.transform(centers[clusters]).T, c="k", marker="x")
+    fig, ax = plt.subplots()
+    ax.scatter(*Z.T, c=labels[CLUSTERS_2D][samples], s=2, cmap="cividis")
+    ax.scatter(*Z_centers.T, c="k", marker="x")
 
     fig, ax = plt.subplots()
     ax.hist(strain, bins=100, density=True, color="r")
@@ -138,10 +137,8 @@ else:
         fig.savefig(RGB_PDF_DIR / f"kmeans_microstructure_{name}.pdf")
         plt.close(fig)
 
-    for clusters in CLUSTERS_2D:
-        save_csv(CSV_DIR / f"kmeans_pca_{clusters}.csv", z1=Z[:, 0], z2=Z[:, 1], c=labels[clusters][samples])
-        z_centers = pca.transform(centers[clusters])
-        save_csv(CSV_DIR / f"kmeans_pca_{clusters}_centers.csv", z1=z_centers[:, 0], z2=z_centers[:, 1])
+    save_csv(CSV_DIR / "kmeans_pca.csv", z1=Z[:, 0], z2=Z[:, 1], c=labels[CLUSTERS_2D][samples])
+    save_csv(CSV_DIR / "kmeans_pca_centers.csv", z1=Z_centers[:, 0], z2=Z_centers[:, 1])
 
     counts, edges = np.histogram(strain, bins=np.linspace(0, 3, 121), density=True)
     counts = np.append(counts, counts[-1])  # pgfplots ybar interval reads left edges

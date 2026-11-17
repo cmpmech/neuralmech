@@ -9,6 +9,9 @@ $L^1$-regularized one, both in the discrete cosine basis.
 - `compressed_sensing.py`
   a two-tone signal recovered from `SAMPLES` random time samples, the error over the
   number of samples, and a photograph recovered from `KEPT` of its pixels
+- `sensor_placement.py`
+  vorticity behind a cylinder reconstructed from point sensors with a POD basis (gappy POD),
+  sensors placed by a pivoted QR decomposition or at random; _needs cylinder_snapshots.npz_
 
 ## Non-obvious technicalities (authored by Claude)
 

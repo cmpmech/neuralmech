@@ -15,6 +15,17 @@ called from scikit-learn and umap-learn.
   unit load cases (periodic finite elements, element matrix of `18_simple_elastic_fem`),
   the clusters in the plane of the first two principal components, and a Gaussian mixture
   fitted to the strain distribution
+- `knn_damage.py`
+  damage location in a cantilever from the shifts of its first three eigenfrequencies
+  (beam elements of `10_rom`), by k-nearest neighbors regression
+- `svm_kernel.py`
+  support vector machines on samples of one class inside a circle, linear on the lifted
+  features $(x_1, x_2, x_1^2 + x_2^2)$ and with a radial basis function kernel
+- `concrete_data.py` -> `data/concrete.npz`
+  compressive strength of 1030 concrete mixtures from the UCI repository (Yeh 1998)
+- `concrete_strength.py`
+  linear regression, a neural network, a random forest and gradient boosting on the
+  concrete data, with the permutation importance of the features; _needs concrete.npz_
 - `decision_tree_regression.py`
   decision trees of increasing depth on a two-dimensional sine function
 - `gradient_boosting.py`
@@ -44,3 +55,12 @@ periodic stiffness matrix is singular for rigid translations; fixing the first n
 removes them, and one LU factorization serves all three load cases. The mean of the
 fluctuation strain vanishes on a periodic mesh, so every load case averages exactly to its
 unit strain.
+
+In `knn_damage.py` the frequency shifts $\delta_i = 1 - \omega_i/\omega_{0,i}$ are divided by
+their norm. To first order, a stiffness loss in one element shifts mode $i$ in proportion
+to the severity times the strain energy of the mode in that element (Cawley and Adams
+1979), so the normalized vector depends on the location only. Near the free end, the
+curvature of all modes vanishes, the shifts fall below the measurement noise, and the
+normalized vector is noise; the test error there is large for any model. The damaged
+element is drawn from 50 discrete positions, so all samples of one element collapse onto
+one point of the curve up to noise, and the nearest neighbors usually share the element.

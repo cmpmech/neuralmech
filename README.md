@@ -36,17 +36,19 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 - **Fundamental Machine Learning** (chapter 2)
 - **Artificial Neural Networks** (chapter 3)
 
-<img src=".assets/images/expressivity.jpg" alt="neural network expressivity" width="300">
+<!-- <img src=".assets/images/expressivity.jpg" alt="neural network expressivity" width="300"> -->
 
 - **Neural Network Architectures** (chapter 4)
 - **Probabilistic Machine Learning** (chapter 5)
+- **Machine Learning Algorithms** (chapter 6)
 - **Governing Equations** (chapter 8)
 - **Numerical Methods** (chapter 9)
+- **Machine Learning in Computational Mechanics** (chapter 10)
 - **Physics-Informed Neural Networks** (chapter 13)
 - **Large Language Models** (chapter 17)
 - **Simulation Acceleration via GPUs** (chapter 18)
 
-<img src=".assets/images/strains.png" alt="matrix-free finite element method on GPU" width="500">
+<!-- <img src=".assets/images/strains.png" alt="matrix-free finite element method on GPU" width="500"> -->
 
 - **Deep Reinforcement Learning** (chapter 19)
 - **PyTorch Primer** (appendix A)
@@ -58,16 +60,14 @@ As this project is ongoing, feedback is highly welcome. Finished chapters are av
 <details>
 <summary><b>Chapters in progress</b></summary>
 
-- **Machine Learning Algorithms** (chapter 6)
 - **Practical Machine Learning** (chapter 7)
-- **Machine Learning in Computational Mechanics** (chapter 10)
 - **Neural Surrogates** (chapter 11)
 - **Neural Solvers** (chapter 12)
 - **Constitutive Modeling with Neural Networks** (chapter 14)
 - **Generative Artificial Intelligence** (chapter 15)
 - **Neural Optimization** (chapter 16)
 
-<img src=".assets/images/fwi.png" alt="full waveform inversion" width="300">
+<!-- <img src=".assets/images/fwi.png" alt="full waveform inversion" width="300"> -->
 
 - **Computational Mechanics After Artificial Intelligence** (chapter 20)
 

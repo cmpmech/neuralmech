@@ -19,6 +19,9 @@ Mechanics)**: a 1D series, and 2D transforms of the grayscale photographs in
   relative error over storage for the truncated SVD (a basis computed from the image),
   the largest 2D FFT coefficients, and the largest coefficients of an 8x8 block DCT
   (JPEG-like)
+- `stft_damage.py`
+  spectrogram of the top-floor acceleration of a three-story frame under random excitation
+  whose first story softens during the record, next to the spectrum of the whole record
 
 ## Non-obvious technicalities (authored by Claude)
 

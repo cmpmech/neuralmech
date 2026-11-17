@@ -94,6 +94,5 @@ else:
     sets = [("elastic", y == 1), ("plastic", y == -1), ("support", support)]
     for name, ids in sets:
         save_csv(CSV_DIR / f"svm_{name}.csv", s1=X[ids, 0], s2=X[ids, 1], z=z[ids])
-    save_csv(CSV_DIR / "svm_linear.csv", s1=line[:, 0], s2=line[:, 1])
     save_csv(CSV_DIR / "svm_quadratic.csv", s1=ellipse_svm[:, 0], s2=ellipse_svm[:, 1])
     save_csv(CSV_DIR / "svm_vonmises.csv", s1=ellipse_true[:, 0], s2=ellipse_true[:, 1])

@@ -14,8 +14,10 @@ written out directly instead of called from a library.
   the same truncation with the row mean removed first, so the retained directions are
   the principal components, with the decay of the explained variance
 - `pca_eigenfaces.py`
-  eigenfaces of the Olivetti faces (scikit-learn, cached in `data/olivetti`), with one
-  person held out and reconstructed from an increasing number of components
+  eigenfaces of the cropped Extended Yale Face Database B, with a clean-shaven neutral
+  and a smiling unseen face reconstructed from an increasing number of components;
+  _needs `external_data/yale_faces/` with `allFaces.mat` (from DATA.zip of
+  databookuw.com) and `leon_shaved.png`, `leon_smiling.png`_
 - `svm_yield_surface.py`
   linear support vector machine trained by subgradient descent on the hinge loss, once on
   plane stress states and once on their quadratic features, learning the von Mises yield
