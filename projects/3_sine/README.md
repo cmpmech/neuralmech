@@ -26,3 +26,5 @@ regularization, ensembling, Sobolev training, and the loss landscape visualizati
   Sobolev training: fit value and gradient jointly
 - `mlp_sine_opt_landscape.py` _needs `sine.npz`_
   visualizes the (projected) loss landscape around the minimum
+- `mlp_sine_muon.py` _needs `sine.npz`_
+  Adam versus Muon (hidden layers) on the sine regression, training and validation cost

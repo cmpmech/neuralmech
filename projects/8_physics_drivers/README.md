@@ -85,7 +85,7 @@ topology-optimization drivers built on top of them.
     Laser beam shape optimization for powder bed fusion (Holla et al. 2023): the top-edge
     intensity of a moving laser is shaped by L-BFGS-B with adjoint gradients so that the
     steady advection-diffusion temperature matches a target (a known Gaussian beam or a
-    uniform melt pool).
+    melt pool) outside the melt pool.
 
 `beam_shape2D_nonlinear.py`
     The same beam shaping with the paper's nonlinear material: temperature-dependent
@@ -137,11 +137,15 @@ With $u = \sum_i N_i(x) \beta_i$ on hat functions, the discrete forward problem 
 $K T = f_0 + B \beta$. For $J = \tfrac{1}{2} (T - T_d)^\top M (T - T_d)$ the adjoint is
 $K^\top \lambda = M (T - T_d)$ and $\partial J / \partial \beta = B^\top \lambda$, the
 linear limit of the paper's adjoint equations. $K$ is factorized once, so each L-BFGS-B
-iteration costs two back-substitutions. The melt pool target $T_d$ follows the paper's
-Case 2: a forward solve without laser in which the temperature inside the box is pinned to
-$T_{pool}$ by an $L^2$ penalty. Because this target is not reachable, the loss settles at a
-nonzero floor, and the unregularized profile is spiky (the upstream end of the control
-window and the melt pool front); the paper smooths the gradient for this reason.
+iteration costs two back-substitutions. The melt pool target $T_d$ follows Holla et al.
+(2026): a forward solve without laser in which only a small half ellipse inside the pool is
+pinned to $T_{pool} = 1700$ C by an $L^2$ penalty (ramped at its edge), so the PDE shapes the
+rest of the pool and the target stays nearly reachable. The target is floored at $T_0$, and
+the misfit is masked to the region outside the target melt pool ($T_d < T_m$), leaving the
+temperature inside the pool free. A penalty $\tfrac{1}{2} w \int (T - T_{cap})_+^2$ with
+$T_{cap} = 2500$ C keeps the pool below boiling. With the mask $D$ and the lumped mass
+$\mathbf{m}$, the adjoint right-hand side becomes $D M D (T - T_d) + w\,\mathbf{m} \odot
+(T - T_{cap})_+$. The optimized profile peaks at the melt pool front and decays behind it.
 
 **Nonlinear variant.** `beam_shape2D_nonlinear.py` uses the paper's material law,
 $c(T) = \rho c_s(T) + \rho L f_{pc}'(T)$ with $f_{pc} = \tfrac{1}{2}(\tanh((T - T_m)/T_\sigma)

@@ -15,6 +15,7 @@ bottle==0.13.4
 cachetools==6.2.5
 certifi==2025.10.5
 charset-normalizer==3.4.4
+chess==1.11.2
 chex==0.1.91
 click==8.3.1
 click-plugins==1.1.1.2
@@ -95,6 +96,8 @@ namex==0.1.0
 narwhals==2.15.0
 nest-asyncio==1.6.0
 networkx==3.5
+nibabel==5.5.0
+nilearn==0.14.1
 nlopt==2.10.0
 numba==0.62.1
 numcodecs==0.16.5

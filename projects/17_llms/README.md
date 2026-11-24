@@ -25,9 +25,18 @@ pretrained transformer (T5) loaded through Hugging Face.
 - `ai_scaling_trends.py`
   downloads compute, data, and parameter counts of notable AI systems (Our World in Data)
   and training costs of frontier models (Epoch AI), and fits exponential trends
+- `open_weight_models.py`
+  Epoch Capabilities Index of open-weight model families against the memory of their
+  weights at 16 bits, with release dates; parameter counts from the model cards
 - `reasoning_model.py`
   a small reasoning model (Qwen3-1.7B) counts the letter e in the book title; its reasoning
   above a dashed line and its answer below, as chat bubbles for the book
+- `post_training.py`
+  OLMo 2 (7B) after each training stage (base model at several temperatures, SFT, DPO,
+  instruct) asked why the eagles don't fly the Ring to Mordor, and 16 samples per stage of
+  three mathematics problems (integral of x exp(x) from 0 to 1, a train trip in minutes, the
+  divisors of 360); Qwen3-8B before and after distillation on the same integral; answers with
+  token counts, the correct samples in the book are counted by hand
 - `selective_copying.py`
   copying and selective copying from the Mamba paper, learned from scratch by an LSTM,
   S4D, Mamba, and a transformer; final accuracy against sequence length (16 to 512) and
@@ -78,6 +87,20 @@ pretrained transformer (T5) loaded through Hugging Face.
   per layer separates Tolkien-style from mechanics-textbook sentences (recording), adding that
   direction to one layer pulls answers on mechanics toward Middle-earth (stimulation), and
   projecting it out of the weights removes the Tolkien style (lesion)
+- `censorship.py`
+  a direction for topics censored in China (Qwen3-8B): probe, steering of neutral questions
+  into refusals, and its ablation from the weights, cross-validated over 44 question pairs
+- `world_map.py`
+  _needs external_data/world_places, natural_earth_ ridge probe per layer from the hidden
+  states of 10 000 place names of Qwen3-1.7B to latitude and longitude; held-out places on a
+  world map, colored by their distance to the true position
+- `chess_probe.py`
+  _needs external_data/chess/lichess_8layers_ckpt_no_optimizer.pt and lichess_100mb.csv_ linear
+  probes per square on Karvonen's chess GPT read the board layer by layer; erasing the moving
+  piece (its probe direction ablated toward the mean of empty squares) changes the model's moves
+- `emotion_space.py`
+  44 emotion directions of Qwen3-8B from stories that it writes; principal components against
+  valence and arousal, and a math question steered toward "enthusiastic", "ashamed" and "bored"
 
 ## Non-obvious technicalities (authored by Claude)
 

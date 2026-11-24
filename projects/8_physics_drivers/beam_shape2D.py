@@ -26,7 +26,8 @@ TARGET = "meltpool"
 # geometry (micrometers, scan along x, depth along y)
 LENGTHS = [1400.0, 300.0]
 CENTER = 450.0  # laser position on the top edge
-MELTPOOL = [300.0, 600.0, 60.0]  # x from, x to, depth of the target melt pool
+MELTPOOL = [330.0, 570.0, 30.0]  # x from, x to, depth of the pinned half ellipse inside the pool
+VIEW = [200.0, 800.0, 100.0, 300.0]  # x and y range of the book images
 
 # physics (micrometers, microseconds, degrees celsius, stainless steel 316L)
 VELOCITY = 0.8  # 800 mm/s scan speed, material moves in +x relative to the laser
@@ -36,7 +37,9 @@ HEAT_CAPACITY = 550.0  # J/(kg C)
 ABSORPTIVITY = 0.3
 T0 = 20.0
 T_MELT = 1390.0  # liquidus
-T_POOL = 1400.0  # target inside the melt pool, just above the liquidus
+T_POOL = 1700.0  # pinned core temperature, the melt pool forms around the core
+T_CAP = 2500.0  # penalized above, keeps the pool below boiling
+CAP_WEIGHT = 10.0
 
 # gaussian beam of the verification target
 PEAK = 1.0  # MW/cm^2
@@ -50,7 +53,7 @@ PENALTY = 1e3  # weight pinning the melt pool temperature when building the targ
 # optimization
 CONTROLS = 51  # hat functions on the top edge, kinks on element edges
 WINDOW = 250.0  # half width of the controlled part of the top edge
-ITERS = 200
+ITERS = 500
 
 kappa = CONDUCTIVITY / (DENSITY * HEAT_CAPACITY) * 1e6  # um^2/us
 flux_scale = ABSORPTIVITY * 1e10 / (DENSITY * HEAT_CAPACITY)  # MW/cm^2 -> C um/us
@@ -85,8 +88,10 @@ def assemble_flux(expression):
 def loss_and_gradient(beta):
     T = lu.solve(f0 + B @ beta)
     residual = T - T_target
-    lam = lu.solve(M @ residual, trans="T")
-    return 0.5 * residual @ M @ residual / J0, B.T @ lam / J0
+    excess = np.maximum(T - T_CAP, 0.0)
+    lam = lu.solve(M_masked @ residual + CAP_WEIGHT * lumped * excess, trans="T")
+    J = 0.5 * residual @ M_masked @ residual + 0.5 * CAP_WEIGHT * lumped @ excess**2
+    return J / J0, B.T @ lam / J0
 
 
 def temperature_field(T):
@@ -125,7 +130,9 @@ if TARGET == "gaussian":
     T_target = splu(K.tocsc()).solve(f0 + assemble_flux(gaussian))
 else:
     x1, x2, depth = MELTPOOL
-    inside = f"(x > {x1}) * (x < {x2}) * (y > {LENGTHS[1] - depth})"
+    ex = f"(2 * x - {x1} - {x2}) / ({x2} - {x1})"
+    ey = f"(y - {LENGTHS[1]}) / {depth}"
+    inside = f"min(1, max(0, 2 * (1 - ({ex}) * ({ex}) - ({ey}) * ({ey}))))"
     pin = mlhp.l2DomainIntegrand(
         rhs=mlhp.scalarField(2, f"{PENALTY * T_POOL} * {inside}"),
         mass=mlhp.scalarField(2, f"{PENALTY} * {inside}"),
@@ -133,9 +140,15 @@ else:
     K_pin, f_pin = assemble(pin)
     T_target = splu((K + K_pin).tocsc()).solve(f0 + f_pin)
 
+# misfit only outside the target melt pool, the temperature inside is left free
+T_target = np.maximum(T_target, T0)
+outside = sp.diags((T_target < T_MELT) * 1.0)
+M_masked = outside @ M @ outside
+lumped = np.asarray(M.sum(axis=1)).ravel()
+
 lu = splu(K.tocsc())
 residual0 = lu.solve(f0) - T_target
-J0 = 0.5 * residual0 @ M @ residual0  # unheated plate, reported losses are relative
+J0 = 0.5 * residual0 @ M_masked @ residual0  # unheated plate, reported losses are relative
 
 # ------------------------------------ optimization -----------------------------------
 history = []
@@ -160,14 +173,17 @@ fields = [temperature_field(T_target), temperature_field(T_opt)]
 temperatures = np.concatenate([temperature for _, temperature in fields])
 levels = np.linspace(temperatures.min(), temperatures.max(), 64)
 
-fig, axes = plt.subplots(2, 1, figsize=(7, 3.2), dpi=200)
-for ax, (tri, temperature) in zip(axes, fields):
+figs = []
+for tri, temperature in fields:
+    fig = plt.figure(figsize=(3.5, 3.5 * (VIEW[3] - VIEW[2]) / (VIEW[1] - VIEW[0])), dpi=300)
+    ax = fig.add_axes([0, 0, 1, 1])
     ax.tricontourf(tri, temperature, levels=levels, cmap="inferno")
     ax.tricontour(tri, temperature, levels=[T_MELT], colors="w", linewidths=0.8)
-    ax.set_aspect("equal")
+    ax.set_xlim(VIEW[0], VIEW[1])
+    ax.set_ylim(VIEW[2], VIEW[3])
     ax.axis("off")
     ax.set_rasterized(True)
-fig.subplots_adjust(left=0, right=1, top=1, bottom=0, hspace=0.05)
+    figs.append(fig)
 
 if not args.book:
     fig, axes = plt.subplots(1, 2, figsize=(9, 3))
@@ -182,8 +198,9 @@ if not args.book:
     plt.show()
 # -------------------------------- book postprocessing --------------------------------
 else:
-    plt.savefig(RGB_PDF_DIR / f"beam_shape_{TARGET}.pdf")
-    plt.close()
+    for fig, name in zip(figs, ["target", "optimized"]):
+        fig.savefig(RGB_PDF_DIR / f"beam_shape_{TARGET}_{name}.pdf")
+    plt.close("all")
     beam_csv = CSV_DIR / f"beam_shape_{TARGET}_beam.csv"
     save_csv(beam_csv, x=x_controls, beta=beta, true=beam_true)
     save_csv(CSV_DIR / f"beam_shape_{TARGET}_loss.csv", loss=history)

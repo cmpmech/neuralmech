@@ -72,7 +72,23 @@ ellipse_true = direction / np.sqrt(von_mises(direction))[:, None]
 
 s1 = np.array([-LIMIT, LIMIT])
 line = np.stack([s1, -(w_linear[0] * s1 + b_linear) / w_linear[1]], axis=1)
-z = -(lift(X) @ w) / b  # lifted third coordinate, the plane z = 1 separates
+# separating plane a^T phi = 1 clipped to box of lifted features, ordered around its center
+box = np.array([[0, LIMIT**2], [0, LIMIT**2], [-LIMIT**2, LIMIT**2]])
+plane = []
+for i in range(3):
+    j, k = [m for m in range(3) if m != i]
+    for p in box[j]:
+        for q in box[k]:
+            point = np.zeros(3)
+            point[j], point[k] = p, q
+            point[i] = (1 - a[j] * p - a[k] * q) / a[i]
+            if box[i, 0] <= point[i] <= box[i, 1]:
+                plane.append(point)
+plane = np.array(plane)
+center = plane.mean(0)
+u = np.cross(a, [1, 0, 0])
+v = np.cross(a, u)
+plane = plane[np.argsort(np.arctan2((plane - center) @ v, (plane - center) @ u))]
 
 if not args.book:
     fig = plt.figure(figsize=(14, 5))
@@ -82,7 +98,8 @@ if not args.book:
     ax.set_xlim(-LIMIT, LIMIT)
     ax.set_ylim(-LIMIT, LIMIT)
     ax = fig.add_subplot(132, projection="3d")
-    ax.scatter(*X.T, z, c=y, cmap="coolwarm")
+    ax.scatter(*lift(X).T, c=y, cmap="coolwarm")
+    ax.plot(*np.vstack([plane, plane[:1]]).T, "k")
     ax = fig.add_subplot(133)
     ax.scatter(*X.T, c=y, cmap="coolwarm")
     ax.scatter(*X[support].T, facecolors="none", edgecolors="k", s=80)
@@ -93,6 +110,8 @@ if not args.book:
 else:
     sets = [("elastic", y == 1), ("plastic", y == -1), ("support", support)]
     for name, ids in sets:
-        save_csv(CSV_DIR / f"svm_{name}.csv", s1=X[ids, 0], s2=X[ids, 1], z=z[ids])
+        f1, f2, f3 = lift(X[ids]).T
+        save_csv(CSV_DIR / f"svm_{name}.csv", s1=X[ids, 0], s2=X[ids, 1], f1=f1, f2=f2, f3=f3)
+    save_csv(CSV_DIR / "svm_plane.csv", f1=plane[:, 0], f2=plane[:, 1], f3=plane[:, 2])
     save_csv(CSV_DIR / "svm_quadratic.csv", s1=ellipse_svm[:, 0], s2=ellipse_svm[:, 1])
     save_csv(CSV_DIR / "svm_vonmises.csv", s1=ellipse_true[:, 0], s2=ellipse_true[:, 1])

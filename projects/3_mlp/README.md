@@ -24,3 +24,6 @@ Toy problems for **Chapter 3 (Artificial Neural Networks)** covering multilayer 
 - `gabor_sgd.py`
   stochastic gradient descent fitting a Gabor function; visualizes the loss
   landscape and optimizer trajectories for different batch sizes
+- `muon_from_scratch.py`
+  Muon optimizer (Newton-Schulz orthogonalized momentum) from scratch, checked against
+  `torch.optim.Muon`

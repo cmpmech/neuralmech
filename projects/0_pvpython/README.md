@@ -19,6 +19,9 @@ matching CMYK print pdfs in `results/cmyk_pdf/`.
   (coordinates, ground truth, prediction)
 - `render_rocks.py` -> `rgb_png/rocks_<NAME>.png`
   a rock volume rendered with the X-ray transfer function
+- `render_lbm_cube.py` -> `rgb_png/lbm_cube.png`
+  Q-criterion isosurfaces of the flow past a cube, coloured by the streamwise vorticity
+  (guppy), with the cube in ivory; _needs data/lbm_cube.npz of 9_lbm_collisions/cube3D.py_
 - `pvpython_helper.py`
   shared helpers: view cleanup, camera framing/orbit, `.cmap` preset registration,
   and supersampled transparent-PNG saving

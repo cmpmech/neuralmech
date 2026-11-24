@@ -18,3 +18,5 @@ through scikit-learn pipelines.
   steepest-descent binary classifier with a linear decision boundary
 - `logistic_regres_sklearn.py`
   polynomial logistic regression; contour of the learned decision region (degree `P`)
+- `regression_parity.py`
+  parity plot and residual histogram of a linear and a quadratic model for a 2D quadratic target

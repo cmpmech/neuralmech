@@ -6,8 +6,8 @@ figure appears in.
 
 ## Chapter 1 (Computational Mechanics Meets Artificial Intelligence)
 
-- `1_imagenet.py`
-  a grid of sample ImageNet photographs
+- `1_caltech101.py`
+  a grid of sample Caltech-101 photographs (CC BY 4.0, the precursor of ImageNet)
 - `1_mnist.py`
   a grid of sample MNIST digits
 - `1_weather_pressure.py`

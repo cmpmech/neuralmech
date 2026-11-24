@@ -34,7 +34,7 @@ INTENSITY = 80.0  # source peak, reached at T / 2
 # reduced models
 RANKS = np.arange(1, 31)
 R = 8  # rank of the reduced fields shown
-TIMES = [0.1, 0.25, 0.4]  # shown snapshots, reduced fields at the second
+TIMES = [0.1, 0.175, 0.25, 0.325, 0.4]  # shown snapshots
 
 # --------------------------------------- setup ---------------------------------------
 n = RESOLUTION
@@ -113,20 +113,21 @@ for rank in RANKS:
 
 # ----------------------------------- postprocessing ----------------------------------
 idx = [round(s / DT) for s in TIMES]
-fields = {f"heat_full_{i}": U[tau] for i, tau in enumerate(idx)}
-fields["heat_pod"] = U_pod[idx[1]]
-fields["heat_modal"] = U_modal[idx[1]]
-errors_field = {
-    "heat_error_pod": np.abs(U_pod[idx[1]] - U[idx[1]]),
-    "heat_error_modal": np.abs(U_modal[idx[1]] - U[idx[1]]),
-}
-vmax = errors_field["heat_error_modal"].max()
+fields = {}
+errors_field = {}
+for i, tau in enumerate(idx):
+    fields[f"heat_full_{i}"] = U[tau]
+    fields[f"heat_pod_{i}"] = U_pod[tau]
+    fields[f"heat_modal_{i}"] = U_modal[tau]
+    errors_field[f"heat_error_pod_{i}"] = np.abs(U_pod[tau] - U[tau])
+    errors_field[f"heat_error_modal_{i}"] = np.abs(U_modal[tau] - U[tau])
+vmax = max(e.max() for e in errors_field.values())
 norm = LogNorm(vmin=vmax * 1e-5, vmax=vmax)
 print(f"temperature 0 to {U.max():.3f}, error range {norm.vmin:.1e} to {vmax:.1e}")
 
 
-def show_field(field, **kwargs):
-    image = np.pad(field.reshape(n, n), 1).T
+def show_field(field, pad_mode, **kwargs):
+    image = np.pad(field.reshape(n, n), 1, mode=pad_mode).T
     fig, ax = plt.subplots(figsize=(2, 2))
     ax.imshow(image, origin="lower", interpolation="bilinear", **kwargs)
     ax.axis("off")
@@ -135,13 +136,15 @@ def show_field(field, **kwargs):
 
 
 for name, field in fields.items():
-    fig = show_field(field, cmap="inferno", vmin=0, vmax=U.max())
+    fig = show_field(field, "constant", cmap="inferno", vmin=0, vmax=U.max())
     if args.book:
         fig.savefig(RGB_PDF_DIR / f"{name}.pdf", dpi=300)
+    plt.close(fig)
 for name, field in errors_field.items():
-    fig = show_field(field + 1e-30, cmap="hot_r", norm=norm)
+    fig = show_field(field + 1e-30, "edge", cmap="hot_r", norm=norm)  # boundary error is zero
     if args.book:
         fig.savefig(RGB_PDF_DIR / f"{name}.pdf", dpi=300)
+    plt.close(fig)
 
 if not args.book:
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
@@ -151,5 +154,4 @@ if not args.book:
     plt.show()
 # -------------------------------- book postprocessing --------------------------------
 else:
-    save_csv(CSV_DIR / "rom_heat_singular_values.csv", idx=RANKS, value=S[:30] / S[0])
     save_csv(CSV_DIR / "rom_heat_error.csv", R=RANKS, **errors)
